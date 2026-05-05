@@ -848,7 +848,11 @@ def register_routes(app):
                         logger.warning(f"Update allowPort exception for {alias}: {e}")
 
                 # Step 4: Create deployment website in 1Panel (一键部署)
-                # This links the installed WordPress app to the domain with nginx reverse proxy
+                # 1Panel uses OpenResty to auto-configure reverse proxy for the installed WP app
+                # - alias = domain-derived (matches installed app name)
+                # - appType = "installed" links to the installed WP app
+                # - webSiteGroupID = default group (ID=1)
+                # - IPV6 = True
                 website_result = None
                 panel_website_id = None
                 try:

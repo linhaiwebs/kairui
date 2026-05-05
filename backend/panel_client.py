@@ -229,16 +229,16 @@ class OnePanelClient:
         """Create a deployment website in 1Panel (一键部署).
         
         For app_type="installed", links an existing installed app (e.g. WordPress) to a domain.
-        1Panel will auto-generate nginx reverse proxy config based on the app's port.
+        1Panel uses OpenResty to auto-generate reverse proxy config based on the app's port.
         
         Args:
             primary_domain: Main domain (e.g. "example.com")
-            alias: Site alias, must match installed app name (e.g. "wordpress1-lhwebs-com")
+            alias: Site alias, auto-filled from domain (e.g. "example-com"), must match installed app name
             app_type: "installed" (link existing app) or "new" (create new app)
             app_install_id: ID of the installed app (required for app_type="installed")
             app_detail_id: App detail ID (for app_type="new")
             app_id: App ID (for app_type="new")
-            website_group_id: Website group ID (default: 1)
+            website_group_id: Website group ID (default: 1 = Default group)
             remark: Site remark/description
             enable_ipv6: Enable IPv6 listening (default: True)
             proxy: Proxy URL (optional)
@@ -321,27 +321,29 @@ class OnePanelClient:
     def ensure_website_group(self, group_name="Default", group_type="website"):
         """Ensure a website group exists and return its ID.
         
-        Returns the ID of the first matching group, or creates one if none exist.
+        Returns the ID of the default group, or creates one if none exist.
+        Prefers groups with isDefault=True.
         """
         resp = self.search_groups(group_type)
         if resp.get("code") == 200:
             groups = resp.get("data", [])
             if isinstance(groups, list) and groups:
+                # Prefer default group
+                for g in groups:
+                    if g.get("isDefault"):
+                        return g.get("id", 1)
+                # Fallback to first group
                 return groups[0].get("id", 1)
-            # Also try resp.data format
-            data = resp.get("data", {})
-            if isinstance(data, dict):
-                items = data.get("items", [])
-                if items:
-                    return items[0].get("id", 1)
         # Create the group
         create_resp = self.create_group(group_name, group_type)
         if create_resp.get("code") == 200:
-            # Re-search to get the ID
             resp2 = self.search_groups(group_type)
             if resp2.get("code") == 200:
                 groups = resp2.get("data", [])
                 if isinstance(groups, list) and groups:
+                    for g in groups:
+                        if g.get("isDefault"):
+                            return g.get("id", 1)
                     return groups[0].get("id", 1)
         return 1  # Fallback
 
