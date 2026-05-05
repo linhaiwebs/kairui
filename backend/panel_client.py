@@ -223,6 +223,8 @@ class OnePanelClient:
         app_install_id=None,
         app_detail_id=None,
         app_id=None,
+        app_install_params=None,
+        services=None,
         website_group_id=1,
         remark="",
         enable_ipv6=True,
@@ -230,17 +232,21 @@ class OnePanelClient:
     ):
         """Create a deployment website in 1Panel (一键部署).
         
-        For app_type="installed", links an existing installed app (e.g. WordPress) to a domain.
-        1Panel uses OpenResty to auto-generate reverse proxy config based on the app's port.
+        For app_type="new": installs the app AND creates the website in ONE step.
+        This is the preferred approach — 1Panel handles OpenResty config automatically.
+        
+        For app_type="installed": links an existing installed app to a domain.
         
         Args:
             primary_domain: Main domain (e.g. "example.com")
-            alias: Site alias, auto-filled from domain (e.g. "example-com"), must match installed app name
-            app_type: "installed" (link existing app) or "new" (create new app)
+            alias: Site alias (e.g. "example-com"), must be unique across 1Panel
+            app_type: "new" (install app + create website) or "installed" (link existing app)
             app_install_id: ID of the installed app (required for app_type="installed")
-            app_detail_id: App detail ID (for app_type="new")
+            app_detail_id: App detail ID (required for app_type="new")
             app_id: App ID (for app_type="new")
-            website_group_id: Website group ID (default: 1 = Default group)
+            app_install_params: Dict of install params for app_type="new" (PANEL_DB_*, PANEL_APP_PORT_HTTP, etc.)
+            services: Dict of service dependencies for app_type="new" (e.g. {"mariadb": "mariadb"})
+            website_group_id: Website group ID (default: 1)
             remark: Site remark/description
             enable_ipv6: Enable IPv6 listening (default: True)
             proxy: Proxy URL (optional)
@@ -248,6 +254,7 @@ class OnePanelClient:
         domains = [{"domain": primary_domain, "port": 80}]
         body = {
             "type": "deployment",
+            "primaryDomain": primary_domain,
             "alias": alias,
             "WebsiteGroupID": website_group_id,
             "IPV6": enable_ipv6,
@@ -258,11 +265,16 @@ class OnePanelClient:
         if app_type == "installed" and app_install_id:
             body["appInstallID"] = app_install_id
         elif app_type == "new":
-            body["appInstall"] = {
-                "name": alias.replace(".", "-"),
+            app_install_body = {
+                "name": alias,
                 "appDetailID": app_detail_id,
-                "params": {},
+                "params": app_install_params or {},
+                "advanced": True,
+                "allowPort": True,
             }
+            if services:
+                app_install_body["services"] = services
+            body["appInstall"] = app_install_body
             if app_id:
                 body["appID"] = app_id
         if proxy:

@@ -300,7 +300,8 @@ def register_routes(app):
             try:
                 panel_resp = panel_client.search_websites()
                 if panel_resp.get("code") == 200:
-                    panel_sites = {s["id"]: s for s in panel_resp["data"].get("items", [])}
+                    panel_items = (panel_resp.get("data") or {}).get("items") or []
+                    panel_sites = {s["id"]: s for s in panel_items}
                     for site in sites:
                         pwid = site.get("panel_website_id")
                         if pwid and pwid in panel_sites:
@@ -918,101 +919,67 @@ def register_routes(app):
                                            message=f"创建数据库 {s_db_name} 失败，请检查1Panel数据库服务")
                             return
 
-                        # === Step 2: Install WordPress app ===
+                        # === Step 2: Create website + install WordPress app (one-step via appType=new) ===
                         update_bg_task(sid, status="installing",
-                                       message="1Panel正在安装WordPress应用...")
+                                       message="1Panel正在安装WordPress并创建网站...")
                         install_params = {
                             "PANEL_DB_TYPE": s_db_service,
                             "PANEL_DB_HOST": s_db_service,
                             "PANEL_DB_NAME": s_db_name,
                             "PANEL_DB_USER": s_db_user,
                             "PANEL_DB_USER_PASSWORD": s_db_pass,
-                            "PANEL_APP_PORT_HTTP": s_port,
+                            "PANEL_APP_PORT_HTTP": str(s_port),
                         }
-                        try:
-                            install_resp = panel_client.install_app(
-                                app_detail_id=s_app_detail_id, name=s_alias,
-                                params=install_params, services={s_db_service: s_db_service},
-                                advanced=True, allow_port=True,
-                            )
-                        except Exception as e:
-                            update_bg_task(sid, status="failed", message=f"安装WordPress应用失败: {str(e)[:80]}")
-                            return
 
-                        if install_resp.get("code") != 200:
-                            update_bg_task(sid, status="failed",
-                                           message=f"安装WordPress应用失败: {install_resp.get('message', '未知错误')[:80]}")
-                            return
-
-                        # Wait for app to start
-                        time.sleep(5)
-
-                        # Get installed app ID
-                        try:
-                            new_installed = panel_client.search_installed_apps(name=s_alias)
-                            if new_installed.get("code") == 200:
-                                new_app = next(
-                                    (a for a in new_installed.get("data", {}).get("items", [])
-                                     if a.get("name") == s_alias), None,
-                                )
-                                if new_app:
-                                    app_install_id = new_app.get("id")
-                                    container_name = new_app.get("container", "")
-                        except Exception:
-                            pass
-
-                        # Fix allowPort if needed
-                        if app_install_id:
-                            try:
-                                panel_client.update_installed(
-                                    install_id=app_install_id,
-                                    params={"PANEL_APP_PORT_HTTP": s_port},
-                                    advanced=True, allow_port=True,
-                                )
-                            except Exception:
-                                pass
-
-                        # === Step 3: Create deployment website (OpenResty) ===
-                        update_bg_task(sid, status="deploying",
-                                       message="1Panel正在部署网站，使用OpenResty...")
+                        # Try one-step creation (appType=new) first
                         website_result = None
                         for _attempt in range(3):
                             try:
-                                logger.info(f"Step3: Creating deployment website for {s_domain} (attempt {_attempt+1}/3)")
+                                logger.info(f"Step2: One-step create website+app for {s_domain} (attempt {_attempt+1}/3)")
                                 website_result = panel_client.create_website(
                                     primary_domain=s_domain,
                                     alias=s_alias,
-                                    app_type="installed",
-                                    app_install_id=app_install_id,
+                                    app_type="new",
+                                    app_detail_id=s_app_detail_id,
+                                    app_id=2,  # WordPress app ID
+                                    app_install_params=install_params,
+                                    services={s_db_service: s_db_service},
                                     website_group_id=s_group_id,
                                     enable_ipv6=True,
                                 )
-                                logger.info(f"Step3: create_website response: code={website_result.get('code')}, message={website_result.get('message','')[:200]}")
+                                logger.info(f"Step2: create_website response: code={website_result.get('code')}, message={website_result.get('message','')[:200]}")
                                 if website_result.get("code") == 200:
                                     break
                                 # If alias conflict, try with unique suffix
                                 if "标识已存在" in str(website_result.get("message", "")):
-                                    logger.warning(f"Step3: Alias conflict, trying unique alias for {s_alias}")
                                     unique_alias = f"{s_alias}-{_attempt+1}"
+                                    logger.warning(f"Step2: Alias conflict, trying {unique_alias}")
                                     website_result = panel_client.create_website(
                                         primary_domain=s_domain,
                                         alias=unique_alias,
-                                        app_type="installed",
-                                        app_install_id=app_install_id,
+                                        app_type="new",
+                                        app_detail_id=s_app_detail_id,
+                                        app_id=2,
+                                        app_install_params=install_params,
+                                        services={s_db_service: s_db_service},
                                         website_group_id=s_group_id,
                                         enable_ipv6=True,
                                     )
-                                    logger.info(f"Step3: Retry with alias={unique_alias}: code={website_result.get('code')}, message={website_result.get('message','')[:200]}")
+                                    logger.info(f"Step2: Retry alias={unique_alias}: code={website_result.get('code')}")
                                     if website_result.get("code") == 200:
+                                        s_alias = unique_alias
                                         break
                             except Exception as e:
-                                logger.error(f"Step3: Create deployment website exception (attempt {_attempt+1}): {e}")
+                                logger.error(f"Step2: One-step create exception (attempt {_attempt+1}): {e}")
                                 website_result = {"code": 500, "message": str(e)[:200]}
                             if _attempt < 2:
                                 time.sleep(5)
 
                         if website_result and website_result.get("code") == 200:
-                            # Find the website ID
+                            # Wait for app to start
+                            time.sleep(8)
+
+                            # Find the website and app IDs
                             try:
                                 ws = panel_client.search_websites(name=s_domain)
                                 if ws.get("code") == 200:
@@ -1020,17 +987,98 @@ def register_routes(app):
                                     for w in items:
                                         if w.get("alias") == s_alias or w.get("primaryDomain") == s_domain:
                                             panel_website_id = w.get("id")
-                                            logger.info(f"Step3: Found website id={panel_website_id} for {s_domain}")
+                                            app_install_id = w.get("appInstallId")
+                                            logger.info(f"Step2: Found website id={panel_website_id}, appInstallId={app_install_id} for {s_domain}")
                                             break
                             except Exception as e:
-                                logger.warning(f"Step3: search_websites failed: {e}")
+                                logger.warning(f"Step2: search_websites failed: {e}")
+
+                            # If we didn't get appInstallId from website, search apps
+                            if not app_install_id:
+                                try:
+                                    new_installed = panel_client.search_installed_apps(name=s_alias)
+                                    if new_installed.get("code") == 200:
+                                        new_app = next(
+                                            (a for a in new_installed.get("data", {}).get("items", [])
+                                             if a.get("name") == s_alias), None,
+                                        )
+                                        if new_app:
+                                            app_install_id = new_app.get("id")
+                                            container_name = new_app.get("container", "")
+                                except Exception:
+                                    pass
+
                             update_bg_task(sid, status="deploying",
-                                           message="1Panel已部署网站(OpenResty)，正在等待WordPress就绪...")
+                                           message="1Panel已创建网站和WordPress应用，正在等待就绪...")
                         else:
+                            # One-step creation failed, fall back to two-step approach
                             error_msg = website_result.get('message', '未知错误') if website_result else '无响应'
-                            logger.error(f"Step3: Create deployment website FAILED after 3 attempts: {error_msg}")
+                            logger.warning(f"Step2: One-step creation failed ({error_msg}), falling back to two-step")
+
+                            # Fallback Step 2a: Install app first
                             update_bg_task(sid, status="installing",
-                                           message=f"网站部署未成功({error_msg[:50]})，正在尝试直接初始化WordPress...")
+                                           message="1Panel正在安装WordPress应用...")
+                            try:
+                                install_resp = panel_client.install_app(
+                                    app_detail_id=s_app_detail_id, name=s_alias,
+                                    params=install_params, services={s_db_service: s_db_service},
+                                    advanced=True, allow_port=True,
+                                )
+                            except Exception as e:
+                                update_bg_task(sid, status="failed", message=f"安装WordPress应用失败: {str(e)[:80]}")
+                                return
+
+                            if install_resp.get("code") != 200:
+                                update_bg_task(sid, status="failed",
+                                               message=f"安装WordPress应用失败: {install_resp.get('message', '未知错误')[:80]}")
+                                return
+
+                            time.sleep(5)
+
+                            # Get installed app ID
+                            try:
+                                new_installed = panel_client.search_installed_apps(name=s_alias)
+                                if new_installed.get("code") == 200:
+                                    new_app = next(
+                                        (a for a in new_installed.get("data", {}).get("items", [])
+                                         if a.get("name") == s_alias), None,
+                                    )
+                                    if new_app:
+                                        app_install_id = new_app.get("id")
+                                        container_name = new_app.get("container", "")
+                            except Exception:
+                                pass
+
+                            # Fallback Step 2b: Create deployment website
+                            update_bg_task(sid, status="deploying",
+                                           message="1Panel正在部署网站...")
+                            for _attempt2 in range(3):
+                                try:
+                                    website_result = panel_client.create_website(
+                                        primary_domain=s_domain,
+                                        alias=s_alias,
+                                        app_type="installed",
+                                        app_install_id=app_install_id,
+                                        website_group_id=s_group_id,
+                                        enable_ipv6=True,
+                                    )
+                                    if website_result.get("code") == 200:
+                                        break
+                                except Exception as e:
+                                    logger.error(f"Step2b: create_website exception: {e}")
+                                time.sleep(5)
+
+                            if website_result and website_result.get("code") == 200:
+                                try:
+                                    ws = panel_client.search_websites(name=s_domain)
+                                    if ws.get("code") == 200:
+                                        items = ws.get("data", {}).get("items") or []
+                                        for w in items:
+                                            if w.get("alias") == s_alias or w.get("primaryDomain") == s_domain:
+                                                panel_website_id = w.get("id")
+                                                break
+                                except Exception:
+                                    pass
 
                         # Update local DB with panel IDs
                         try:
