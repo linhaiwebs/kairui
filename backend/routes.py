@@ -20,6 +20,7 @@ from models import (
     delete_plugin,
     delete_site,
     get_bg_task,
+    get_bg_task_by_site,
     get_enabled_plugins,
     get_global_config,
     get_plugin,
@@ -326,7 +327,7 @@ def register_routes(app):
             logger.error(f"Failed to create site: {e}")
             return jsonify({"code": 500, "message": f"创建站点失败: {str(e)[:100]}"}), 500
 
-    @app.route("/api/sites/<site_id>", methods=["GET"])
+    @app.route("/api/sites/<int:site_id>", methods=["GET"])
     @jwt_required()
     def get_site_detail(site_id):
         try:
@@ -338,7 +339,7 @@ def register_routes(app):
             logger.error(f"Failed to get site {site_id}: {e}")
             return jsonify({"code": 500, "message": f"获取站点详情失败: {str(e)[:100]}"}), 500
 
-    @app.route("/api/sites/<site_id>", methods=["PUT"])
+    @app.route("/api/sites/<int:site_id>", methods=["PUT"])
     @jwt_required()
     def edit_site(site_id):
         try:
@@ -351,7 +352,7 @@ def register_routes(app):
             logger.error(f"Failed to update site {site_id}: {e}")
             return jsonify({"code": 500, "message": f"更新站点失败: {str(e)[:100]}"}), 500
 
-    @app.route("/api/sites/<site_id>", methods=["DELETE"])
+    @app.route("/api/sites/<int:site_id>", methods=["DELETE"])
     @jwt_required()
     def remove_site(site_id):
         try:
@@ -396,7 +397,7 @@ def register_routes(app):
             logger.error(f"Failed to delete site {site_id}: {e}")
             return jsonify({"code": 500, "message": f"删除站点失败: {str(e)[:100]}"}), 500
 
-    @app.route("/api/sites/<site_id>/fix-website", methods=["POST"])
+    @app.route("/api/sites/<int:site_id>/fix-website", methods=["POST"])
     @jwt_required()
     def fix_site_website(site_id):
         """Fix a site that has a WP app but no 1Panel website (OpenResty deployment).
@@ -876,24 +877,24 @@ def register_routes(app):
                     "ssl_version": ssl_version,
                     "port": port,
                 })
-                site_id_for_bg = site["id"] if site else str(uuid.uuid4())[:8]
+                site_id_for_bg = site["id"] if site else 0
 
                 # Initialize bg task — the full deployment runs in background
-                create_bg_task(site_id_for_bg, "wp_install", status="installing",
+                bg_task_id = create_bg_task(site_id_for_bg, "wp_install", status="installing",
                                message="1Panel正在创建数据库...")
 
                 # ---- Background thread: full deployment pipeline ----
-                def _bg_deploy(sid, s_alias, s_domain, s_port, s_db_name, s_db_user, s_db_pass,
+                def _bg_deploy(task_id, sid, s_alias, s_domain, s_port, s_db_name, s_db_user, s_db_pass,
                                 s_app_detail_id, s_db_service, s_admin, s_password, s_plugin_ids,
                                 s_group_id):
                     """Full deployment pipeline in background with real-time status updates."""
                     # Push Flask application context for this thread
                     with app.app_context():
-                        _bg_deploy_inner(sid, s_alias, s_domain, s_port, s_db_name, s_db_user, s_db_pass,
+                        _bg_deploy_inner(task_id, sid, s_alias, s_domain, s_port, s_db_name, s_db_user, s_db_pass,
                                          s_app_detail_id, s_db_service, s_admin, s_password, s_plugin_ids,
                                          s_group_id)
 
-                def _bg_deploy_inner(sid, s_alias, s_domain, s_port, s_db_name, s_db_user, s_db_pass,
+                def _bg_deploy_inner(task_id, sid, s_alias, s_domain, s_port, s_db_name, s_db_user, s_db_pass,
                                      s_app_detail_id, s_db_service, s_admin, s_password, s_plugin_ids,
                                      s_group_id):
                     """Inner deployment logic (runs inside Flask app context)."""
@@ -903,7 +904,7 @@ def register_routes(app):
 
                     try:
                         # === Step 1: Create database ===
-                        update_bg_task(sid, status="installing", message="1Panel正在创建数据库...")
+                        update_bg_task(task_id, status="installing", message="1Panel正在创建数据库...")
                         db_created = False
                         try:
                             db_resp = panel_client.create_database(
@@ -915,12 +916,12 @@ def register_routes(app):
                             logger.warning(f"DB creation failed for {s_domain}: {e}")
 
                         if not db_created:
-                            update_bg_task(sid, status="failed",
+                            update_bg_task(task_id, status="failed",
                                            message=f"创建数据库 {s_db_name} 失败，请检查1Panel数据库服务")
                             return
 
                         # === Step 2: Create website + install WordPress app (one-step via appType=new) ===
-                        update_bg_task(sid, status="installing",
+                        update_bg_task(task_id, status="installing",
                                        message="1Panel正在安装WordPress并创建网站...")
                         install_params = {
                             "PANEL_DB_TYPE": s_db_service,
@@ -1008,7 +1009,7 @@ def register_routes(app):
                                 except Exception:
                                     pass
 
-                            update_bg_task(sid, status="deploying",
+                            update_bg_task(task_id, status="deploying",
                                            message="1Panel已创建网站和WordPress应用，正在等待就绪...")
                         else:
                             # One-step creation failed, fall back to two-step approach
@@ -1016,7 +1017,7 @@ def register_routes(app):
                             logger.warning(f"Step2: One-step creation failed ({error_msg}), falling back to two-step")
 
                             # Fallback Step 2a: Install app first
-                            update_bg_task(sid, status="installing",
+                            update_bg_task(task_id, status="installing",
                                            message="1Panel正在安装WordPress应用...")
                             try:
                                 install_resp = panel_client.install_app(
@@ -1025,11 +1026,11 @@ def register_routes(app):
                                     advanced=True, allow_port=True,
                                 )
                             except Exception as e:
-                                update_bg_task(sid, status="failed", message=f"安装WordPress应用失败: {str(e)[:80]}")
+                                update_bg_task(task_id, status="failed", message=f"安装WordPress应用失败: {str(e)[:80]}")
                                 return
 
                             if install_resp.get("code") != 200:
-                                update_bg_task(sid, status="failed",
+                                update_bg_task(task_id, status="failed",
                                                message=f"安装WordPress应用失败: {install_resp.get('message', '未知错误')[:80]}")
                                 return
 
@@ -1050,7 +1051,7 @@ def register_routes(app):
                                 pass
 
                             # Fallback Step 2b: Create deployment website
-                            update_bg_task(sid, status="deploying",
+                            update_bg_task(task_id, status="deploying",
                                            message="1Panel正在部署网站...")
                             for _attempt2 in range(3):
                                 try:
@@ -1092,7 +1093,7 @@ def register_routes(app):
                             pass
 
                         # === Step 4: Wait for WordPress to be ready, then auto-install ===
-                        update_bg_task(sid, status="installing",
+                        update_bg_task(task_id, status="installing",
                                        message="WordPress正在启动，等待就绪...")
 
                         # Wait for WordPress container to fully start
@@ -1119,12 +1120,12 @@ def register_routes(app):
                             waited += 5
 
                         if not wp_ready:
-                            update_bg_task(sid, status="failed",
+                            update_bg_task(task_id, status="failed",
                                            message=f"WordPress应用启动超时({max_wait}秒)，请手动检查")
                             return
 
                         # === Step 5: Auto-complete WordPress installation ===
-                        update_bg_task(sid, status="installing",
+                        update_bg_task(task_id, status="installing",
                                        message="WordPress正在初始化配置...")
                         result = auto_install_wordpress(
                             container_name=container_name or "",
@@ -1139,27 +1140,27 @@ def register_routes(app):
                         if result.get("success"):
                             # === Step 6: Install plugins ===
                             if s_plugin_ids:
-                                update_bg_task(sid, status="installing",
+                                update_bg_task(task_id, status="installing",
                                                message=f"WordPress已安装，正在安装 {len(s_plugin_ids)} 个插件...")
                                 try:
                                     wp_url = f"http://{wp_host}:{s_port}"
                                     plugin_results = install_plugins_to_site(
                                         wp_url, s_admin, s_password, s_plugin_ids)
                                     ok = sum(1 for r in plugin_results if r.get("status") == "success")
-                                    update_bg_task(sid, status="installed",
+                                    update_bg_task(task_id, status="installed",
                                                    message=f"部署完成！WordPress已安装，{ok}/{len(s_plugin_ids)} 个插件安装成功")
                                 except Exception as pe:
-                                    update_bg_task(sid, status="installed",
+                                    update_bg_task(task_id, status="installed",
                                                    message=f"部署完成！WordPress已安装，插件安装失败: {str(pe)[:60]}")
                             else:
-                                update_bg_task(sid, status="installed",
+                                update_bg_task(task_id, status="installed",
                                                message="部署完成！1Panel(OpenResty) + WordPress 安装成功")
                         else:
-                            update_bg_task(sid, status="failed",
+                            update_bg_task(task_id, status="failed",
                                            message=f"WordPress初始化失败: {result.get('message', '未知错误')[:80]}")
 
                     except Exception as e:
-                        update_bg_task(sid, status="failed", message=f"部署异常: {str(e)[:100]}")
+                        update_bg_task(task_id, status="failed", message=f"部署异常: {str(e)[:100]}")
                         logger.error(f"BG deploy error for {s_domain}: {e}")
 
                 # Get group ID before starting bg thread
@@ -1170,13 +1171,13 @@ def register_routes(app):
 
                 bg_thread = threading.Thread(
                     target=_bg_deploy,
-                    args=(site_id_for_bg, alias, domain, port, db_name, db_user, db_pass,
+                    args=(bg_task_id, site_id_for_bg, alias, domain, port, db_name, db_user, db_pass,
                           app_detail_id, db_service, default_admin, default_password,
                           plugin_ids, group_id),
                     daemon=True,
                 )
                 bg_thread.start()
-                logger.info(f"Started background deployment for {domain} (site_id={site_id_for_bg})")
+                logger.info(f"Started background deployment for {domain} (site_id={site_id_for_bg}, task_id={bg_task_id})")
 
                 results.append({
                     "domain": domain,
@@ -1267,11 +1268,11 @@ def register_routes(app):
         )
         return jsonify({"code": 200, "data": result})
 
-    @app.route("/api/wordpress/install-status/<site_id>", methods=["GET"])
+    @app.route("/api/wordpress/install-status/<int:site_id>", methods=["GET"])
     @jwt_required()
     def wp_install_status(site_id):
         """Check WordPress installation status for a site."""
-        task = get_bg_task(site_id)
+        task = get_bg_task_by_site(site_id)
         if task:
             return jsonify({"code": 200, "data": {
                 "site_id": site_id,

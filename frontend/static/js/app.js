@@ -150,6 +150,14 @@ const app = createApp({
                 const resp = await API.getSites();
                 if (resp.code === 200) {
                     sites.value = resp.data || [];
+                    // Stop polling for site IDs that no longer exist (after compact)
+                    const currentIds = new Set(sites.value.map(s => s.id));
+                    for (const id of Object.keys(wpPollingTimers)) {
+                        if (!currentIds.has(Number(id))) {
+                            stopWPPolling(Number(id));
+                            delete wpInstallStatuses[Number(id)];
+                        }
+                    }
                 }
             } catch (e) {
                 console.error('加载站点失败:', e);

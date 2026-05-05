@@ -1,7 +1,6 @@
 import json
 import os
 import sqlite3
-import uuid
 from datetime import datetime
 
 from flask import current_app
@@ -21,7 +20,7 @@ def init_db():
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS sites (
-            id TEXT PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             site_name TEXT NOT NULL,
             url TEXT NOT NULL,
             admin_name TEXT DEFAULT '',
@@ -63,7 +62,7 @@ def init_db():
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS plugins (
-            id TEXT PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             filename TEXT NOT NULL,
             file_path TEXT NOT NULL,
@@ -77,7 +76,8 @@ def init_db():
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS bg_tasks (
-            id TEXT PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            site_id INTEGER NOT NULL,
             task_type TEXT NOT NULL,
             status TEXT DEFAULT 'pending',
             message TEXT DEFAULT '',
@@ -105,23 +105,98 @@ def init_db():
     conn.close()
 
 
+def _reset_sequence_if_empty(conn, table):
+    """Reset autoincrement counter to 1 if the table is empty.
+    
+    This ensures IDs restart from 1 after all rows are deleted.
+    If rows remain, the counter stays at max(id)+1.
+    """
+    count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+    if count == 0:
+        conn.execute(f"DELETE FROM sqlite_sequence WHERE name = ?", (table,))
+
+
+def _compact_ids(conn, table):
+    """Re-assign sequential IDs so only existing rows have continuous IDs.
+    
+    After deleting rows, this remaps remaining IDs to 1..N and resets
+    the autoincrement counter, so IDs are always compact and continuous.
+    """
+    rows = conn.execute(f'SELECT * FROM "{table}" ORDER BY id ASC').fetchall()
+    if not rows:
+        conn.execute("DELETE FROM sqlite_sequence WHERE name = ?", (table,))
+        return {}
+
+    # Build old_id -> new_id mapping
+    id_map = {}
+    for i, row in enumerate(rows, start=1):
+        old_id = row["id"]
+        if old_id != i:
+            id_map[old_id] = i
+
+    if not id_map:
+        return {}  # Already compact
+
+    # Get original table schema to recreate with proper constraints
+    schema_row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone()
+    original_schema = schema_row["sql"] if schema_row else None
+
+    # Get column info
+    col_info = conn.execute(f'PRAGMA table_info("{table}")').fetchall()
+    cols = [c["name"] for c in col_info]
+    col_names = ", ".join(cols)
+
+    # Create temporary table with same schema structure
+    temp_table = f"_{table}_tmp"
+    conn.execute(f'DROP TABLE IF EXISTS "{temp_table}"')
+
+    # Recreate with same schema but temp name — handle both quoted and unquoted table names
+    if original_schema:
+        import re
+        temp_schema = re.sub(
+            r'CREATE\s+TABLE\s+"?{table}"?'.format(table=re.escape(table)),
+            f'CREATE TABLE "{temp_table}"',
+            original_schema,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        conn.execute(temp_schema)
+
+    # Insert rows with new IDs
+    placeholders = ", ".join(["?"] * len(cols))
+    for i, row in enumerate(rows, start=1):
+        vals = list(row)
+        vals[0] = i  # Replace id with new sequential id
+        conn.execute(f'INSERT INTO "{temp_table}" ({col_names}) VALUES ({placeholders})', vals)
+
+    # Swap tables
+    conn.execute(f'DROP TABLE "{table}"')
+    conn.execute(f'ALTER TABLE "{temp_table}" RENAME TO "{table}"')
+
+    # Reset autoincrement
+    conn.execute("DELETE FROM sqlite_sequence WHERE name = ?", (table,))
+    conn.execute("INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)", (table, len(rows)))
+
+    return id_map
+
+
 # ---- Site CRUD ----
 
 def create_site(data):
     conn = get_db()
-    site_id = str(uuid.uuid4())[:8]
     now = datetime.utcnow().isoformat()
     try:
         conn.execute(
             """INSERT INTO sites 
-               (id, site_name, url, admin_name, admin_password, tag, security_id,
+               (site_name, url, admin_name, admin_password, tag, security_id,
                 http_username, http_password, verify_certificate, ssl_version,
                 panel_website_id, panel_app_install_id, panel_app_detail_id,
                 port, nginx_alias,
                 status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                site_id,
                 data.get("site_name", ""),
                 data.get("url", ""),
                 data.get("admin_name", ""),
@@ -142,6 +217,7 @@ def create_site(data):
                 now,
             ),
         )
+        site_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         conn.commit()
         return get_site(site_id)
     finally:
@@ -160,7 +236,7 @@ def get_site(site_id):
 def list_sites():
     conn = get_db()
     try:
-        rows = conn.execute("SELECT * FROM sites ORDER BY created_at DESC").fetchall()
+        rows = conn.execute("SELECT * FROM sites ORDER BY id ASC").fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
@@ -196,7 +272,17 @@ def update_site(site_id, data):
 def delete_site(site_id):
     conn = get_db()
     try:
+        # Also delete associated bg_tasks
+        conn.execute("DELETE FROM bg_tasks WHERE site_id = ?", (site_id,))
         conn.execute("DELETE FROM sites WHERE id = ?", (site_id,))
+        conn.commit()
+        # Compact IDs and update cross-references
+        site_id_map = _compact_ids(conn, "sites")
+        # Update bg_tasks.site_id with new site IDs
+        if site_id_map:
+            for old_id, new_id in site_id_map.items():
+                conn.execute("UPDATE bg_tasks SET site_id = ? WHERE site_id = ?", (new_id, old_id))
+        _compact_ids(conn, "bg_tasks")
         conn.commit()
     finally:
         conn.close()
@@ -258,14 +344,12 @@ def update_global_config(key, value):
 
 def create_plugin(data):
     conn = get_db()
-    plugin_id = str(uuid.uuid4())[:8]
     now = datetime.utcnow().isoformat()
     try:
         conn.execute(
-            """INSERT INTO plugins (id, name, filename, file_path, file_size, description, enabled, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO plugins (name, filename, file_path, file_size, description, enabled, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                plugin_id,
                 data.get("name", ""),
                 data.get("filename", ""),
                 data.get("file_path", ""),
@@ -275,6 +359,7 @@ def create_plugin(data):
                 now, now,
             ),
         )
+        plugin_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         conn.commit()
         return get_plugin(plugin_id)
     finally:
@@ -293,7 +378,7 @@ def get_plugin(plugin_id):
 def list_plugins():
     conn = get_db()
     try:
-        rows = conn.execute("SELECT * FROM plugins ORDER BY created_at DESC").fetchall()
+        rows = conn.execute("SELECT * FROM plugins ORDER BY id ASC").fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
@@ -306,6 +391,8 @@ def delete_plugin(plugin_id):
         if row and row["file_path"] and os.path.isfile(row["file_path"]):
             os.remove(row["file_path"])
         conn.execute("DELETE FROM plugins WHERE id = ?", (plugin_id,))
+        conn.commit()
+        _compact_ids(conn, "plugins")
         conn.commit()
     finally:
         conn.close()
@@ -322,15 +409,17 @@ def get_enabled_plugins():
 
 # ---- Background Tasks CRUD ----
 
-def create_bg_task(task_id, task_type, status="pending", message="", result=""):
+def create_bg_task(site_id, task_type, status="pending", message="", result=""):
     conn = get_db()
     now = datetime.utcnow().isoformat()
     try:
         conn.execute(
-            "INSERT INTO bg_tasks (id, task_type, status, message, result, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (task_id, task_type, status, message, result, now, now),
+            "INSERT INTO bg_tasks (site_id, task_type, status, message, result, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (site_id, task_type, status, message, result, now, now),
         )
+        task_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         conn.commit()
+        return task_id
     finally:
         conn.close()
 
@@ -354,6 +443,19 @@ def get_bg_task(task_id):
     conn = get_db()
     try:
         row = conn.execute("SELECT * FROM bg_tasks WHERE id = ?", (task_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_bg_task_by_site(site_id):
+    """Get the latest bg_task for a given site_id."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT * FROM bg_tasks WHERE site_id = ? ORDER BY id DESC LIMIT 1",
+            (site_id,),
+        ).fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
