@@ -97,18 +97,23 @@ Production: `./start.sh start` (uses gunicorn + gevent)
 ## Critical 1Panel API Patterns
 
 ### WordPress Installation Workflow (CORRECT - as of 2026-05)
+**Preferred: One-step creation (appType="new")**
 1. **Create database first** via `POST /databases` with base64-encoded password
-   - The `database` field must be the 1Panel DB service name (e.g., "mariadb")
-   - Password must be base64-encoded: `base64.b64encode(password.encode()).decode()`
-2. **Install WordPress** via `POST /apps/install` with:
-   - `PANEL_DB_HOST` = 1Panel database name (e.g., "mariadb"), NOT container name
-   - 1Panel auto-resolves this to the actual service address and sets PANEL_DB_PORT
-   - `advanced: true` and `allowPort: true` for external access
-3. **Create deployment website** via `POST /websites` with:
-   - `WebsiteGroupID: 1` (1Panel requires this, even if no groups exist)
-   - `domains: [{"domain": "example.com", "port": 80}]` (array of objects, NOT strings)
-   - `appType: "installed"` + `appInstallID: <id>` to link to installed WP app
-4. **Auto-install WordPress** via HTTP POST to wp-admin/install.php
+2. **Create website + install WordPress in ONE step** via `POST /websites` with:
+   - `appType: "new"` — tells 1Panel to install the app and create the website together
+   - `appInstall.name`: alias (e.g. "example-com")
+   - `appInstall.appDetailID`: WordPress app detail ID
+   - `appInstall.params`: all PANEL_DB_* and PANEL_APP_PORT_HTTP params
+   - `appInstall.advanced: true` and `appInstall.allowPort: true` for external port access
+   - `appInstall.services`: {"mariadb": "mariadb"}
+   - `primaryDomain`: domain (e.g. "example.com") — NO port in domain
+   - `appID`: 2 (WordPress app ID in 1Panel)
+3. **Auto-install WordPress** via HTTP POST to wp-admin/install.php
+
+**Fallback: Two-step creation (if one-step fails)**
+1. Create database
+2. Install WordPress via `POST /apps/install`
+3. Create deployment website via `POST /websites` with `appType: "installed"`
 
 ### 1Panel API Field Naming Conventions
 **CRITICAL**: 1Panel uses Go struct tags with specific capitalization:
