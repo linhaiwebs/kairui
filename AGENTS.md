@@ -153,6 +153,7 @@ Production: `./start.sh start` (uses gunicorn + gevent)
 - POST /api/sites - Create a site (local DB only)
 - PUT /api/sites/<id> - Update a site
 - DELETE /api/sites/<id> - Delete a site
+- POST /api/sites/<id>/fix-website - Fix missing 1Panel website for existing WP app
 - GET /api/sites/export/csv - Export sites as CSV
 - POST /api/wordpress/batch-create - Batch create WordPress sites via 1Panel
 - GET /api/wordpress/install-status/<site_id> - Check WP install status (polling)
@@ -195,10 +196,15 @@ Site Name, Url, Admin Name, Admin Password, Tag, Security ID, HTTP Username, HTT
 5. install_plugins_to_site(site_url, admin_user, admin_password, plugin_ids)
 
 ## Known Working Test Sites (as of 2026-05-05)
-- site1.lhwebs.com:8400 - Batch create test (verified WP login works)
-- site2.lhwebs.com:8401 - Batch create test
-- site3.lhwebs.com:8402 - Batch create test
-- All above tested: create → deploy → WP auto-install → CSV export → delete
+- test1.lhwebs.com:8081 - Full E2E test (1Panel website id=19, WP app id=59)
+- All verified: create → deploy website → WP auto-install → plugin install → CSV export → delete
+
+## Step 3 Fix (commit 29d20df)
+- **Issue**: 1Panel deployment website (OpenResty reverse proxy) was not being created during batch-create
+- **Root cause**: create_website could fail silently (only warning, no retry), and errors weren't logged
+- **Fix**: Added 3-attempt retry with detailed logging, alias conflict handling
+- **Added**: POST /api/sites/<id>/fix-website endpoint to repair sites missing 1Panel websites
+- **Frontend**: Orange "缺网站" badge + wrench button for sites with WP app but no website
 
 ## Dependencies
 Python: flask, flask-cors, flask-jwt-extended, requests, gunicorn, gevent
