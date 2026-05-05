@@ -6,7 +6,7 @@ from datetime import datetime
 
 from flask import current_app
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "wp_manager.db")
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wp_manager.db")
 
 
 def get_db():
@@ -35,6 +35,8 @@ def init_db():
             panel_website_id INTEGER,
             panel_app_install_id INTEGER,
             panel_app_detail_id INTEGER,
+            port INTEGER,
+            nginx_alias TEXT DEFAULT '',
             status TEXT DEFAULT 'active',
             created_at TEXT,
             updated_at TEXT
@@ -73,6 +75,18 @@ def init_db():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS bg_tasks (
+            id TEXT PRIMARY KEY,
+            task_type TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            message TEXT DEFAULT '',
+            result TEXT DEFAULT '',
+            created_at TEXT,
+            updated_at TEXT
+        )
+    """)
+
     # Insert default global config
     defaults = {
         "default_admin_name": "admin",
@@ -103,8 +117,9 @@ def create_site(data):
                (id, site_name, url, admin_name, admin_password, tag, security_id,
                 http_username, http_password, verify_certificate, ssl_version,
                 panel_website_id, panel_app_install_id, panel_app_detail_id,
+                port, nginx_alias,
                 status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 site_id,
                 data.get("site_name", ""),
@@ -120,6 +135,8 @@ def create_site(data):
                 data.get("panel_website_id"),
                 data.get("panel_app_install_id"),
                 data.get("panel_app_detail_id"),
+                data.get("port"),
+                data.get("nginx_alias", ""),
                 data.get("status", "active"),
                 now,
                 now,
@@ -158,7 +175,8 @@ def update_site(site_id, data):
         for key in [
             "site_name", "url", "admin_name", "admin_password", "tag", "security_id",
             "http_username", "http_password", "verify_certificate", "ssl_version",
-            "panel_website_id", "panel_app_install_id", "panel_app_detail_id", "status",
+            "panel_website_id", "panel_app_install_id", "panel_app_detail_id",
+            "port", "nginx_alias", "status",
         ]:
             if key in data:
                 sets.append(f"{key} = ?")
@@ -270,5 +288,44 @@ def get_enabled_plugins():
     try:
         rows = conn.execute("SELECT * FROM plugins WHERE enabled = 1").fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+# ---- Background Tasks CRUD ----
+
+def create_bg_task(task_id, task_type, status="pending", message="", result=""):
+    conn = get_db()
+    now = datetime.utcnow().isoformat()
+    try:
+        conn.execute(
+            "INSERT INTO bg_tasks (id, task_type, status, message, result, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (task_id, task_type, status, message, result, now, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_bg_task(task_id, status=None, message=None, result=None):
+    conn = get_db()
+    now = datetime.utcnow().isoformat()
+    try:
+        if status is not None:
+            conn.execute("UPDATE bg_tasks SET status = ?, updated_at = ? WHERE id = ?", (status, now, task_id))
+        if message is not None:
+            conn.execute("UPDATE bg_tasks SET message = ?, updated_at = ? WHERE id = ?", (message, now, task_id))
+        if result is not None:
+            conn.execute("UPDATE bg_tasks SET result = ?, updated_at = ? WHERE id = ?", (result, now, task_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_bg_task(task_id):
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT * FROM bg_tasks WHERE id = ?", (task_id,)).fetchone()
+        return dict(row) if row else None
     finally:
         conn.close()

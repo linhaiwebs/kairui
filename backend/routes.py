@@ -3,18 +3,23 @@ import json
 import logging
 import os
 import subprocess
+import threading
 import time
 import uuid
+
+import requests as http_requests
 
 from flask import jsonify, request
 from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required, verify_jwt_in_request
 
 from config import config
 from models import (
+    create_bg_task,
     create_plugin,
     create_site,
     delete_plugin,
     delete_site,
+    get_bg_task,
     get_enabled_plugins,
     get_global_config,
     get_plugin,
@@ -22,6 +27,7 @@ from models import (
     init_db,
     list_plugins,
     list_sites,
+    update_bg_task,
     update_global_config,
     update_site,
 )
@@ -34,131 +40,232 @@ PLUGIN_DIR = os.path.join(os.path.dirname(__file__), "plugins")
 os.makedirs(PLUGIN_DIR, exist_ok=True)
 
 
-def install_plugins_to_site(container_alias, plugin_ids):
-    """Install plugins to a WordPress site running in a Docker container.
+def install_plugins_to_site(site_url, admin_user, admin_password, plugin_ids):
+    """Install plugins to a WordPress site via wp-admin HTTP API.
     
-    Uses docker cp to copy the plugin zip, then docker exec to unzip and activate.
-    The container name in 1Panel follows the pattern: {appKey}-{alias} or just alias.
+    Steps:
+    1. Login to wp-admin via HTTP
+    2. Get upload nonce from plugin-install page
+    3. Upload each plugin zip via wp-admin/update.php
+    4. Activate each plugin via wp-admin/plugins.php
     """
+    import re as _re
+    
     results = []
-    for pid in plugin_ids:
-        plugin = get_plugin(pid)
-        if not plugin or not plugin.get("file_path") or not os.path.isfile(plugin["file_path"]):
-            results.append({"plugin": pid, "status": "error", "message": "插件文件不存在"})
-            continue
-
-        plugin_filename = plugin["filename"]
-        plugin_name = plugin["name"]
-
-        # Try different container name patterns used by 1Panel
-        container_names = [
-            container_alias,
-            f"wordpress-{container_alias}",
-            f"{container_alias}-wordpress",
-        ]
-
-        # Find the actual container
-        container_id = None
-        for cname in container_names:
-            try:
-                check = subprocess.run(
-                    ["docker", "inspect", "--format", "{{.Id}}", cname],
-                    capture_output=True, text=True, timeout=5
-                )
-                if check.returncode == 0 and check.stdout.strip():
-                    container_id = cname
-                    break
-            except Exception:
+    
+    try:
+        # Login to WordPress
+        session = http_requests.Session()
+        login_resp = session.post(
+            f"{site_url}/wp-login.php",
+            data={
+                "log": admin_user,
+                "pwd": admin_password,
+                "wp-submit": "Log In",
+                "redirect_to": f"{site_url}/wp-admin/",
+            },
+            timeout=30,
+            allow_redirects=True,
+        )
+        if login_resp.status_code != 200 or "wp-admin" not in login_resp.url:
+            return [{"plugin": p, "status": "error", "message": "WordPress登录失败"} for p in plugin_ids]
+        
+        for pid in plugin_ids:
+            plugin = get_plugin(pid)
+            if not plugin or not plugin.get("file_path") or not os.path.isfile(plugin["file_path"]):
+                results.append({"plugin": pid, "status": "error", "message": "插件文件不存在"})
                 continue
 
-        # If not found by name, try partial match
-        if not container_id:
+            plugin_name = plugin["name"]
+            plugin_filename = plugin["filename"]
+
             try:
-                ps = subprocess.run(
-                    ["docker", "ps", "--format", "{{.Names}}", "--filter", f"name={container_alias}"],
-                    capture_output=True, text=True, timeout=5
+                # Get upload nonce from plugin-install page
+                upload_page = session.get(
+                    f"{site_url}/wp-admin/plugin-install.php?tab=upload",
+                    timeout=15,
                 )
-                if ps.returncode == 0 and ps.stdout.strip():
-                    container_id = ps.stdout.strip().split("\n")[0]
+                nonce_match = _re.search(r'_wpnonce["\']\s*value=["\']([^"\']+)', upload_page.text)
+                if not nonce_match:
+                    results.append({
+                        "plugin": plugin_name, "status": "error",
+                        "message": "无法获取上传nonce"
+                    })
+                    continue
+                nonce = nonce_match.group(1)
+
+                # Upload plugin zip
+                with open(plugin["file_path"], "rb") as f:
+                    upload_resp = session.post(
+                        f"{site_url}/wp-admin/update.php?action=upload-plugin",
+                        files={"pluginzip": (plugin_filename, f, "application/zip")},
+                        data={"_wpnonce": nonce},
+                        timeout=60,
+                    )
+
+                if upload_resp.status_code != 200:
+                    results.append({
+                        "plugin": plugin_name, "status": "error",
+                        "message": f"上传失败: HTTP {upload_resp.status_code}"
+                    })
+                    continue
+
+                # Check if plugin was installed and find activation link
+                act_match = _re.search(
+                    r'action=activate[^"]*plugin=([^"&]+)[^"]*_wpnonce=([a-f0-9]+)',
+                    upload_resp.text,
+                )
+                if act_match:
+                    plugin_path = act_match.group(1)
+                    act_nonce = act_match.group(2)
+                    
+                    # Activate the plugin
+                    act_resp = session.get(
+                        f"{site_url}/wp-admin/plugins.php?action=activate&plugin={plugin_path}&_wpnonce={act_nonce}",
+                        timeout=30,
+                        allow_redirects=True,
+                    )
+                    if act_resp.status_code == 200:
+                        results.append({
+                            "plugin": plugin_name, "status": "success",
+                            "message": "插件已安装并启用"
+                        })
+                    else:
+                        results.append({
+                            "plugin": plugin_name, "status": "success",
+                            "message": "插件已安装，启用需确认"
+                        })
+                elif "已安装" in upload_resp.text or "already" in upload_resp.text.lower():
+                    results.append({
+                        "plugin": plugin_name, "status": "success",
+                        "message": "插件已存在"
+                    })
+                else:
+                    results.append({
+                        "plugin": plugin_name, "status": "error",
+                        "message": "上传后未找到激活链接"
+                    })
+
+            except http_requests.Timeout:
+                results.append({"plugin": plugin_name, "status": "error", "message": "请求超时"})
+            except Exception as e:
+                results.append({"plugin": plugin_name, "status": "error", "message": str(e)[:100]})
+
+    except Exception as e:
+        logger.error(f"Plugin install session error: {e}")
+        results = [{"plugin": p, "status": "error", "message": f"会话错误: {str(e)[:80]}"} for p in plugin_ids]
+
+    return results
+
+
+def auto_install_wordpress(container_name, site_url, site_title, admin_user, admin_password, admin_email, port=None):
+    """Auto-complete WordPress installation via HTTP POST to wp-admin/install.php.
+    
+    This bypasses the WordPress install page so the site is immediately usable.
+    Uses direct HTTP requests to the WordPress install endpoint.
+    """
+    import re
+    
+    # Determine the WordPress URL
+    from config import config as app_config
+    server_ip = app_config.PANEL_SERVER_IP
+    wp_base_url = f"http://{server_ip}:{port}" if port else site_url
+    
+    logger.info(f"Starting WP auto-install for {site_url} (base: {wp_base_url})")
+
+    # Wait for WordPress to be ready (up to 120 seconds)
+    wp_ready = False
+    for attempt in range(24):
+        try:
+            resp = http_requests.get(f"{wp_base_url}/", timeout=10, allow_redirects=True)
+            if resp.status_code == 200:
+                wp_ready = True
+                logger.info(f"WP ready after {(attempt+1)*5}s for {site_url}")
+                break
+            else:
+                logger.info(f"WP not ready (attempt {attempt+1}): status={resp.status_code}")
+        except Exception as e:
+            logger.info(f"WP not ready (attempt {attempt+1}): {str(e)[:80]}")
+        time.sleep(5)
+
+    if not wp_ready:
+        return {"success": False, "message": "WordPress容器启动超时，无法访问"}
+
+    # Small additional wait for database connection to stabilize
+    time.sleep(3)
+
+    # Check if WordPress is already installed
+    try:
+        resp = http_requests.get(f"{wp_base_url}/wp-admin/install.php", timeout=10, allow_redirects=True)
+        if "already installed" in resp.text.lower() or "已安装" in resp.text:
+            logger.info(f"WordPress already installed for {site_url}")
+            return {"success": True, "message": "WordPress已安装"}
+    except Exception:
+        pass
+
+    # First, try to set language to zh_CN
+    try:
+        lang_resp = http_requests.post(
+            f"{wp_base_url}/wp-admin/install.php?step=1",
+            data={"language": "zh_CN"},
+            timeout=30,
+        )
+    except Exception:
+        pass  # Language setup is optional
+
+    # Submit the WordPress installation form
+    try:
+        install_resp = http_requests.post(
+            f"{wp_base_url}/wp-admin/install.php?step=2",
+            data={
+                "weblog_title": site_title or "WordPress",
+                "user_name": admin_user,
+                "admin_password": admin_password,
+                "admin_password2": admin_password,
+                "pw_weak": "1",
+                "admin_email": admin_email,
+                "blog_public": "1",
+                "language": "zh_CN",
+            },
+            timeout=60,
+            allow_redirects=True,
+        )
+
+        if install_resp.status_code == 200:
+            # Check for success indicators
+            if "success" in install_resp.text.lower() or "成功" in install_resp.text or "installed" in install_resp.text.lower():
+                logger.info(f"WordPress auto-installed successfully for {site_url}")
+                return {"success": True, "message": "WordPress安装成功"}
+
+            # Check for "already installed" (race condition)
+            if "already installed" in install_resp.text.lower():
+                return {"success": True, "message": "WordPress已安装"}
+
+            # Check for errors
+            errors = re.findall(r'<p[^>]*class="[^"]*error[^"]*"[^>]*>(.*?)</p>', install_resp.text, re.DOTALL)
+            error_msg = re.sub(r'<[^>]+>', '', errors[0]).strip() if errors else ""
+            if error_msg:
+                logger.warning(f"WP install error for {site_url}: {error_msg[:200]}")
+                return {"success": False, "message": f"安装错误: {error_msg[:200]}"}
+
+            # If we can't determine, verify by trying to access wp-login
+            try:
+                login_check = http_requests.get(f"{wp_base_url}/wp-login.php", timeout=10)
+                if login_check.status_code == 200:
+                    return {"success": True, "message": "WordPress安装成功（验证通过）"}
             except Exception:
                 pass
 
-        if not container_id:
-            results.append({
-                "plugin": plugin_name,
-                "status": "error",
-                "message": f"未找到容器 {container_alias}，插件需手动安装"
-            })
-            continue
+            logger.warning(f"WP install status uncertain for {site_url}")
+            return {"success": False, "message": "安装状态不确定，请手动检查"}
 
-        try:
-            # Copy plugin zip to container
-            dest = f"/tmp/{plugin_filename}"
-            cp = subprocess.run(
-                ["docker", "cp", plugin["file_path"], f"{container_id}:{dest}"],
-                capture_output=True, text=True, timeout=30
-            )
-            if cp.returncode != 0:
-                results.append({
-                    "plugin": plugin_name, "status": "error",
-                    "message": f"复制插件失败: {cp.stderr[:100]}"
-                })
-                continue
+        return {"success": False, "message": f"安装请求返回 {install_resp.status_code}"}
 
-            # Unzip to wp-content/plugins
-            unzip = subprocess.run(
-                ["docker", "exec", container_id,
-                 "unzip", "-o", dest, "-d", "/var/www/html/wp-content/plugins/"],
-                capture_output=True, text=True, timeout=30
-            )
-
-            # Clean up temp file
-            subprocess.run(
-                ["docker", "exec", container_id, "rm", "-f", dest],
-                capture_output=True, text=True, timeout=10
-            )
-
-            if unzip.returncode != 0:
-                results.append({
-                    "plugin": plugin_name, "status": "error",
-                    "message": f"解压插件失败: {unzip.stderr[:100]}"
-                })
-                continue
-
-            # Try to activate via WP-CLI if available
-            # Determine the plugin directory name from zip
-            plugin_dir_name = plugin_name
-            activate = subprocess.run(
-                ["docker", "exec", container_id,
-                 "wp", "plugin", "activate", plugin_dir_name,
-                 "--allow-root", "--path=/var/www/html"],
-                capture_output=True, text=True, timeout=30
-            )
-
-            if activate.returncode == 0:
-                results.append({
-                    "plugin": plugin_name, "status": "success",
-                    "message": "插件已安装并启用"
-                })
-            else:
-                # WP-CLI might not be available, plugin is still installed (just not activated)
-                results.append({
-                    "plugin": plugin_name, "status": "success",
-                    "message": "插件已安装，需手动启用（WP-CLI不可用）"
-                })
-
-        except subprocess.TimeoutExpired:
-            results.append({
-                "plugin": plugin_name, "status": "error",
-                "message": "操作超时"
-            })
-        except Exception as e:
-            results.append({
-                "plugin": plugin_name, "status": "error",
-                "message": str(e)[:100]
-            })
-
-    return results
+    except http_requests.exceptions.Timeout:
+        return {"success": False, "message": "WP install request timeout"}
+    except Exception as e:
+        logger.error(f"WP install exception for {site_url}: {e}")
+        return {"success": False, "message": f"Install error: {str(e)[:100]}"}
 
 
 def register_routes(app):
@@ -246,8 +353,40 @@ def register_routes(app):
     @jwt_required()
     def remove_site(site_id):
         try:
+            site = get_site(site_id)
+            if not site:
+                return jsonify({"code": 404, "message": "站点不存在"}), 404
+
+            # Clean up nginx proxy config (if created via file API)
+            nginx_alias = site.get("nginx_alias")
+            if nginx_alias:
+                try:
+                    panel_client.delete_nginx_proxy_config(alias=nginx_alias)
+                    logger.info(f"Deleted nginx config for {nginx_alias}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete nginx config: {e}")
+
+            # Clean up 1Panel app install
+            if site.get("panel_app_install_id"):
+                try:
+                    panel_client.operate_installed(
+                        site["panel_app_install_id"], "delete",
+                        force_delete=True, delete_backup=True, delete_db=True,
+                    )
+                    logger.info(f"Deleted 1Panel app install {site['panel_app_install_id']}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete 1Panel app: {e}")
+
+            # Clean up 1Panel website record (if exists)
+            if site.get("panel_website_id"):
+                try:
+                    panel_client.delete_website(site["panel_website_id"])
+                    logger.info(f"Deleted 1Panel website {site['panel_website_id']}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete 1Panel website: {e}")
+
             delete_site(site_id)
-            return jsonify({"code": 200, "message": "Deleted"})
+            return jsonify({"code": 200, "message": "站点已删除"})
         except Exception as e:
             logger.error(f"Failed to delete site {site_id}: {e}")
             return jsonify({"code": 500, "message": f"删除站点失败: {str(e)[:100]}"}), 500
@@ -495,7 +634,14 @@ def register_routes(app):
     @app.route("/api/wordpress/batch-create", methods=["POST"])
     @jwt_required()
     def batch_create_wordpress():
-        """Create multiple WordPress sites in batch via 1Panel."""
+        """Create multiple WordPress sites in batch via 1Panel.
+        
+        Workflow:
+        1. For each domain, create a database via 1Panel's /databases API
+        2. Install WordPress with PANEL_DB_HOST='mariadb' (1Panel DB name)
+        3. 1Panel auto-resolves DB host address and sets PANEL_DB_PORT
+        4. If allowPort wasn't applied during install, fix via update_installed API
+        """
         try:
             data = request.get_json(silent=True) or {}
             domains = data.get("domains", [])
@@ -540,34 +686,31 @@ def register_routes(app):
                 return jsonify({"code": 500, "message": "WordPress应用详情数据为空"}), 500
             app_detail_id = detail_data.get("id")
 
-            # Get database service info
+            # Get database service name (default: mariadb)
             db_service = data.get("db_service") or global_cfg.get("db_service", "mariadb")
-            db_services_resp = panel_client.get_app_services(db_service)
-            if db_services_resp.get("code") != 200:
-                return jsonify({"code": 500, "message": f"获取数据库服务信息失败: {db_services_resp.get('message', '')}"}), 500
 
-            db_services_data = db_services_resp.get("data", [])
-            db_service_info = db_services_data[0] if db_services_data else None
-            if not db_service_info:
-                return jsonify({"code": 500, "message": "没有可用的数据库服务"}), 500
+            # Verify the database service exists in 1Panel
+            db_installed_resp = panel_client.search_installed_apps(name=db_service)
+            if db_installed_resp.get("code") != 200 or not db_installed_resp.get("data", {}).get("items", []):
+                return jsonify({"code": 500, "message": f"数据库服务 {db_service} 未安装或未运行，请先在1Panel中安装MariaDB"}), 500
 
             results = []
             base_port = data.get("base_port", 8081)
             used_ports = set()
 
-            # Get ALL currently used ports from 1Panel (not just WordPress)
+            # Get ALL currently used ports from 1Panel
             try:
                 installed_resp = panel_client.search_installed_apps(page=1, page_size=200)
                 if installed_resp.get("code") == 200:
                     for item in installed_resp.get("data", {}).get("items", []):
                         if item.get("httpPort"):
-                            if item.get("httpsPort"):
-                                used_ports.add(item["httpsPort"])
                             used_ports.add(item["httpPort"])
+                        if item.get("httpsPort"):
+                            used_ports.add(item["httpsPort"])
             except Exception:
                 pass
 
-            # Also scan host ports via ss/netstat for safety
+            # Also scan host ports for safety
             try:
                 port_scan = subprocess.run(
                     ["ss", "-tlnp", "-H"], capture_output=True, text=True, timeout=5
@@ -600,7 +743,7 @@ def register_routes(app):
                 alias = domain.replace(".", "-")
                 site_name = domain
 
-                # Find available port - always scan from base_port upward
+                # Find available port
                 port = find_available_port(base_port)
 
                 # Generate DB credentials
@@ -611,16 +754,45 @@ def register_routes(app):
                 db_user = f"wp_{db_suffix}"
                 db_pass = "".join(random.choices(string.ascii_letters + string.digits, k=16))
 
-                # Install WordPress app
+                # Step 1: Create database via 1Panel's /databases API
+                # This is critical - 1Panel resolves PANEL_DB_HOST from its database records
+                db_created = False
+                try:
+                    db_api_resp = panel_client.create_database(
+                        name=db_name,
+                        db_type=db_service,
+                        username=db_user,
+                        password=db_pass,
+                        permission="%",
+                        format_str="utf8mb4",
+                    )
+                    if db_api_resp.get("code") == 200:
+                        db_created = True
+                        logger.info(f"Database {db_name} created via 1Panel API")
+                    else:
+                        logger.warning(f"1Panel DB API failed: {db_api_resp.get('message', '')}")
+                except Exception as e:
+                    logger.warning(f"1Panel DB API exception: {e}")
+
+                if not db_created:
+                    results.append({
+                        "domain": domain, "status": "error",
+                        "message": f"创建数据库 {db_name} 失败，请检查1Panel数据库服务"
+                    })
+                    continue
+
+                # Step 2: Install WordPress with PANEL_DB_HOST = db_service name
+                # 1Panel resolves this to the actual service address and sets PANEL_DB_PORT
                 install_params = {
                     "PANEL_DB_TYPE": db_service,
+                    "PANEL_DB_HOST": db_service,  # 1Panel DB name, NOT container name
                     "PANEL_DB_NAME": db_name,
                     "PANEL_DB_USER": db_user,
                     "PANEL_DB_USER_PASSWORD": db_pass,
                     "PANEL_APP_PORT_HTTP": port,
                 }
 
-                services = {db_service: db_service_info.get("value", db_service)}
+                services = {db_service: db_service}
 
                 try:
                     install_resp = panel_client.install_app(
@@ -628,6 +800,8 @@ def register_routes(app):
                         name=alias,
                         params=install_params,
                         services=services,
+                        advanced=True,
+                        allow_port=True,
                     )
                 except Exception as e:
                     results.append({"domain": domain, "status": "error", "message": f"安装请求失败: {str(e)[:80]}"})
@@ -642,34 +816,50 @@ def register_routes(app):
 
                 # Get the installed app ID
                 app_install_id = None
+                container_name = None
                 try:
-                    new_installed = panel_client.search_installed_apps(name="wordpress")
+                    new_installed = panel_client.search_installed_apps(name=alias)
                     if new_installed.get("code") == 200:
-                        new_app = next((a for a in new_installed.get("data", {}).get("items", []) if a.get("name") == alias), None)
+                        new_app = next(
+                            (a for a in new_installed.get("data", {}).get("items", []) if a.get("name") == alias),
+                            None,
+                        )
                         if new_app:
                             app_install_id = new_app.get("id")
+                            container_name = new_app.get("container", "")
                 except Exception:
                     pass
 
-                # Create website
-                try:
-                    website_resp = panel_client.create_website(
-                        primary_domain=domain,
-                        alias=alias,
-                        app_type="installed",
-                        app_install_id=app_install_id,
-                        website_group_id=data.get("website_group_id", 1),
-                        proxy=f"http://127.0.0.1:{port}",
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to create website for {domain}: {e}")
-                    website_resp = {"code": 500}
+                # Step 3: If allowPort wasn't applied, fix via update API
+                if app_install_id:
+                    try:
+                        update_resp = panel_client.update_installed(
+                            install_id=app_install_id,
+                            params={"PANEL_APP_PORT_HTTP": port},
+                            advanced=True,
+                            allow_port=True,
+                        )
+                        if update_resp.get("code") != 200:
+                            logger.warning(f"Update allowPort failed for {alias}: {update_resp.get('message', '')}")
+                    except Exception as e:
+                        logger.warning(f"Update allowPort exception for {alias}: {e}")
 
-                panel_website_id = None
-                if website_resp.get("code") == 200:
-                    panel_website_id = website_resp.get("data")
-                    if isinstance(panel_website_id, dict):
-                        panel_website_id = panel_website_id.get("id")
+                # Step 4: Create nginx proxy config via 1Panel file API
+                # (POST /websites API returns 500, so we create nginx config manually)
+                nginx_result = None
+                try:
+                    nginx_result = panel_client.create_nginx_proxy_config(
+                        alias=alias,
+                        domain=domain,
+                        port=port,
+                    )
+                    if nginx_result.get("code") in (200, 207):
+                        logger.info(f"Nginx proxy config created for {domain}:{port}")
+                    else:
+                        logger.warning(f"Nginx config creation failed for {domain}: {nginx_result.get('message', '')}")
+                except Exception as e:
+                    logger.warning(f"Nginx config creation exception for {domain}: {e}")
+                    nginx_result = {"code": 500, "message": str(e)[:80]}
 
                 # Save to local DB
                 site = create_site({
@@ -683,28 +873,76 @@ def register_routes(app):
                     "http_password": http_password,
                     "verify_certificate": verify_cert,
                     "ssl_version": ssl_version,
-                    "panel_website_id": panel_website_id,
+                    "panel_website_id": None,
                     "panel_app_install_id": app_install_id,
                     "panel_app_detail_id": app_detail_id,
+                    "port": port,
+                    "nginx_alias": alias,
                 })
 
-                # Install plugins if any
-                plugin_results = []
-                if plugin_ids and app_install_id:
-                    time.sleep(5)  # Wait for WordPress to fully start
+                # Step 5: Auto-complete WordPress installation (background thread)
+                wp_install_result = None
+                site_id_for_bg = site["id"] if site else str(uuid.uuid4())[:8]
+
+                def _bg_wp_install(sid, cn, surl, stitle, auser, apwd, aemail, aport, pids=None):
+                    """Background thread to auto-install WordPress and then install plugins."""
                     try:
-                        plugin_results = install_plugins_to_site(alias, plugin_ids)
+                        update_bg_task(sid, status="installing", message="WordPress安装中...")
+                        result = auto_install_wordpress(
+                            container_name=cn,
+                            site_url=surl,
+                            site_title=stitle,
+                            admin_user=auser,
+                            admin_password=apwd,
+                            admin_email=aemail,
+                            port=aport,
+                        )
+                        final_status = "installed" if result.get("success") else "failed"
+                        update_bg_task(sid, status=final_status, message=result.get("message", ""))
+                        logger.info(f"BG WP install for {surl}: {result.get('message', '')}")
+                        
+                        # Install plugins after WP is ready
+                        if result.get("success") and pids:
+                            try:
+                                update_bg_task(sid, status="installed", message=f"WordPress已安装，正在安装{len(pids)}个插件...")
+                                from config import config as app_config
+                                wp_url = f"http://{app_config.PANEL_SERVER_IP}:{aport}" if aport else surl
+                                plugin_results = install_plugins_to_site(wp_url, auser, apwd, pids)
+                                success_plugins = sum(1 for r in plugin_results if r.get("status") == "success")
+                                update_bg_task(sid, status="installed", 
+                                    message=f"WordPress安装成功，{success_plugins}/{len(pids)}个插件安装成功")
+                                logger.info(f"BG plugins for {surl}: {plugin_results}")
+                            except Exception as pe:
+                                logger.warning(f"BG plugin install error for {surl}: {pe}")
+                                update_bg_task(sid, status="installed", 
+                                    message=f"WordPress安装成功，插件安装失败: {str(pe)[:60]}")
                     except Exception as e:
-                        logger.warning(f"Plugin installation failed for {domain}: {e}")
-                        plugin_results = [{"plugin": pid, "status": "error", "message": str(e)[:80]} for pid in plugin_ids]
+                        update_bg_task(sid, status="failed", message=str(e)[:100])
+                        logger.error(f"BG WP install error for {surl}: {e}")
+
+                create_bg_task(site_id_for_bg, "wp_install", status="installing", message="WordPress安装中...")
+                bg_thread = threading.Thread(
+                    target=_bg_wp_install,
+                    args=(site_id_for_bg, container_name, f"http://{domain}", site_name,
+                          default_admin, default_password, f"admin@{domain}", port, plugin_ids),
+                    daemon=True,
+                )
+                bg_thread.start()
+                logger.info(f"Started background WP install for {domain} (site_id={site_id_for_bg})")
+
+                # Plugin results will be populated by the background thread
+                plugin_results = []
 
                 results.append({
                     "domain": domain,
                     "status": "success",
                     "port": port,
                     "site_id": site["id"] if site else None,
-                    "panel_website_id": panel_website_id,
                     "panel_app_install_id": app_install_id,
+                    "container_name": container_name,
+                    "nginx_config": nginx_result.get("code") in (200, 207) if nginx_result else False,
+                    "wp_installed": False,  # Will be updated by background task
+                    "wp_install_status": "installing",
                     "plugin_results": plugin_results,
                 })
 
@@ -767,6 +1005,43 @@ def register_routes(app):
             return jsonify({"code": 200, "data": {"connected": False, "message": resp.get("message", "")}})
         except Exception as e:
             return jsonify({"code": 200, "data": {"connected": False, "message": str(e)}})
+
+    @app.route("/api/panel/test-wp-install", methods=["POST"])
+    @jwt_required()
+    def test_wp_install():
+        """Test WordPress auto-install on a specific port."""
+        data = request.get_json(silent=True) or {}
+        port = data.get("port")
+        domain = data.get("domain", "test.local")
+        if not port:
+            return jsonify({"code": 400, "message": "port required"}), 400
+        result = auto_install_wordpress(
+            container_name="",
+            site_url=f"http://{domain}",
+            site_title=domain,
+            admin_user="admin",
+            admin_password="Test123456!",
+            admin_email=f"admin@{domain}",
+            port=port,
+        )
+        return jsonify({"code": 200, "data": result})
+
+    @app.route("/api/wordpress/install-status/<site_id>", methods=["GET"])
+    @jwt_required()
+    def wp_install_status(site_id):
+        """Check WordPress installation status for a site."""
+        task = get_bg_task(site_id)
+        if task:
+            return jsonify({"code": 200, "data": {
+                "site_id": site_id,
+                "status": task.get("status", "unknown"),
+                "message": task.get("message", ""),
+            }})
+        return jsonify({"code": 200, "data": {
+            "site_id": site_id,
+            "status": "unknown",
+            "message": "未找到安装任务",
+        }})
 
     # ---- Plugins ----
 

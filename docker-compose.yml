@@ -21,7 +21,15 @@ services:
       - PANEL_HOST=${PANEL_HOST:-167.172.142.95}
       - PANEL_PORT=${PANEL_PORT:-3500}
       - PANEL_API_KEY=${PANEL_API_KEY:-gk7FQSSTtnudJbImg0E8MdXbmU3v7qF6}
+      # Admin credentials (override for production)
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-adsadmin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-Mm123567..}
+      # Security (CHANGE IN PRODUCTION!)
+      - SECRET_KEY=${SECRET_KEY:-wp-manager-secret-key-change-in-production}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-jwt-secret-key-change-in-production}
     volumes:
+      # Docker socket - required for docker exec (plugin install, DB creation)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       # Persist database and plugins
       - wp-data:/app/backend
       - wp-logs:/app/logs

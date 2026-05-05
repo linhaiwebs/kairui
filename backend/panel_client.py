@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import time
 
@@ -85,12 +86,14 @@ class OnePanelClient:
     def get_app_detail(self, app_id, version, detail_type="app"):
         return self._request("GET", f"/apps/detail/{app_id}/{version}/{detail_type}")
 
-    def install_app(self, app_detail_id, name, params, services=None, advanced=False):
+    def install_app(self, app_detail_id, name, params, services=None, advanced=True, allow_port=True, pull_image=True):
         body = {
             "appDetailId": app_detail_id,
             "name": name,
             "params": params,
             "advanced": advanced,
+            "allowPort": allow_port,
+            "pullImage": pull_image,
         }
         if services:
             body["services"] = services
@@ -128,6 +131,72 @@ class OnePanelClient:
 
     def get_app_services(self, key):
         return self._request("GET", f"/apps/services/{key}")
+
+    # ---- Databases ----
+    def search_databases(self, page=1, page_size=100, name="", db_type="mariadb"):
+        return self._request(
+            "POST",
+            "/databases/search",
+            {
+                "page": page, "pageSize": page_size, "name": name,
+                "type": db_type, "database": db_type,
+                "orderBy": "name", "order": "ascending",
+            },
+        )
+
+    def create_database(self, name, db_type="mariadb", username="", password="",
+                        permission="%", format_str="utf8mb4", from_source="local"):
+        """Create a database in 1Panel's managed MariaDB/MySQL.
+        
+        The password must be base64-encoded per 1Panel API requirements.
+        The 'database' field is the 1Panel database service name (e.g., 'mariadb').
+        """
+        encoded_password = base64.b64encode(password.encode()).decode()
+        return self._request(
+            "POST",
+            "/databases",
+            {
+                "name": name,
+                "type": db_type,
+                "username": username,
+                "password": encoded_password,
+                "permission": permission,
+                "database": db_type,
+                "format": format_str,
+                "from": from_source,
+            },
+        )
+
+    def delete_database(self, database_id, delete_user=False, force_delete=False):
+        return self._request(
+            "POST",
+            "/databases/del",
+            {
+                "id": database_id,
+                "deleteUser": delete_user,
+                "forceDelete": force_delete,
+            },
+        )
+
+    def update_installed(self, install_id, params=None, advanced=True, allow_port=True,
+                         pull_image=False, edit_compose=False, docker_compose=""):
+        """Update an installed app's parameters via 1Panel API.
+        
+        This writes the params to the .env file and rebuilds the container.
+        Key use case: fix allowPort for external access after installation.
+        """
+        body = {
+            "installId": install_id,
+            "advanced": advanced,
+            "allowPort": allow_port,
+            "pullImage": pull_image,
+            "editCompose": edit_compose,
+        }
+        if params:
+            body["params"] = params
+        if docker_compose:
+            body["dockerCompose"] = docker_compose
+        return self._request("POST", "/apps/installed/params/update", body)
 
     # ---- Websites ----
     def search_websites(self, page=1, page_size=100, name="", order_by="created_at", order="descending"):
@@ -258,6 +327,139 @@ class OnePanelClient:
                 "password": password,
             },
         )
+
+    # ---- File Operations ----
+    def create_file(self, path, is_dir=True):
+        """Create a file or directory via 1Panel file API."""
+        return self._request("POST", "/files", {"path": path, "isDir": is_dir})
+
+    def save_file(self, path, content):
+        """Save content to a file via 1Panel file API.
+        Note: The file must already exist; create it with create_file first.
+        """
+        return self._request("POST", "/files/save", {"path": path, "content": content})
+
+    def delete_file(self, path):
+        """Delete a file or directory via 1Panel file API."""
+        return self._request("POST", "/files/del", {"path": path})
+
+    def read_file(self, path, page=1, page_size=5000):
+        """Read file content via 1Panel file API."""
+        return self._request("POST", "/files/read", {"path": path, "page": page, "pageSize": page_size})
+
+    def reload_openresty(self):
+        """Reload OpenResty to apply new nginx configurations."""
+        # Find OpenResty install ID
+        or_resp = self.search_installed_apps(name="openresty")
+        if or_resp.get("code") != 200:
+            return or_resp
+        items = or_resp.get("data", {}).get("items", [])
+        if not items:
+            return {"code": 404, "message": "OpenResty未安装", "data": None}
+        or_id = items[0]["id"]
+        return self.operate_installed(or_id, "reload")
+
+    def create_nginx_proxy_config(self, alias, domain, port, website_dir="/opt/1panel/www"):
+        """Create nginx reverse proxy configuration for a WordPress site.
+        
+        This bypasses the broken POST /websites API by manually:
+        1. Creating site directory structure
+        2. Writing nginx proxy config to conf.d/
+        3. Reloading OpenResty
+        
+        Args:
+            alias: Site alias (used for directory names)
+            domain: Domain name for the site
+            port: HTTP port the WordPress container is listening on
+            website_dir: Base directory for website files (default: /opt/1panel/www)
+        
+        Returns:
+            dict with code and message
+        """
+        errors = []
+
+        # Step 1: Create site directory structure
+        site_dir = f"{website_dir}/sites/{alias}"
+        for subdir in ["log", "index", "ssl", "proxy"]:
+            resp = self.create_file(f"{site_dir}/{subdir}", is_dir=True)
+            if resp.get("code") not in (200, 500):  # 500 = already exists, that's OK
+                errors.append(f"创建目录 {site_dir}/{subdir} 失败: {resp.get('message', '')}")
+
+        # Create empty log files
+        for log_file in ["access.log", "error.log"]:
+            file_path = f"{site_dir}/log/{log_file}"
+            # Try creating the file
+            self.create_file(file_path, is_dir=False)
+            # Write empty content
+            self.save_file(file_path, "")
+
+        # Step 2: Create nginx proxy configuration
+        nginx_conf = f"""server {{
+    listen 80;
+    listen [::]:80;
+    server_name {domain};
+    
+    access_log /www/sites/{alias}/log/access.log main;
+    error_log /www/sites/{alias}/log/error.log;
+    
+    location / {{
+        proxy_pass http://127.0.0.1:{port};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_redirect off;
+        proxy_buffering off;
+    }}
+}}
+"""
+        conf_path = f"{website_dir}/conf.d/{alias}.conf"
+        
+        # Create and write the config file
+        self.create_file(conf_path, is_dir=False)
+        save_resp = self.save_file(conf_path, nginx_conf)
+        if save_resp.get("code") != 200:
+            errors.append(f"保存nginx配置失败: {save_resp.get('message', '')}")
+
+        # Step 3: Reload OpenResty
+        reload_resp = self.reload_openresty()
+        if reload_resp.get("code") != 200:
+            errors.append(f"重载OpenResty失败: {reload_resp.get('message', '')}")
+
+        if errors:
+            return {"code": 207, "message": "; ".join(errors), "data": {"conf_path": conf_path}}
+        return {"code": 200, "message": "nginx配置创建成功", "data": {"conf_path": conf_path}}
+
+    def delete_nginx_proxy_config(self, alias, domain="", website_dir="/opt/1panel/www"):
+        """Delete nginx proxy configuration and site directory.
+        
+        Args:
+            alias: Site alias used during creation
+            domain: Domain name (unused but kept for API compatibility)
+            website_dir: Base directory for website files
+        """
+        errors = []
+
+        # Delete nginx config
+        conf_path = f"{website_dir}/conf.d/{alias}.conf"
+        del_conf = self.delete_file(conf_path)
+        if del_conf.get("code") not in (200, 500):
+            errors.append(f"删除nginx配置失败: {del_conf.get('message', '')}")
+
+        # Delete site directory
+        site_dir = f"{website_dir}/sites/{alias}"
+        del_site = self.delete_file(site_dir)
+        if del_site.get("code") not in (200, 500):
+            errors.append(f"删除站点目录失败: {del_site.get('message', '')}")
+
+        # Reload OpenResty
+        reload_resp = self.reload_openresty()
+        if reload_resp.get("code") != 200:
+            errors.append(f"重载OpenResty失败: {reload_resp.get('message', '')}")
+
+        if errors:
+            return {"code": 207, "message": "; ".join(errors)}
+        return {"code": 200, "message": "nginx配置已删除"}
 
 
 # Singleton instance

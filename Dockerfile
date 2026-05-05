@@ -18,16 +18,18 @@ FROM python:3.12-slim
 LABEL maintainer="WP Site Manager"
 LABEL description="WordPress Site Manager - 1Panel集成管理平台"
 
-# Install runtime deps
+# Install runtime deps + Docker CLI (for docker exec to manage WordPress containers)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl iproute2 && \
+    apt-get install -y --no-install-recommends curl iproute2 ca-certificates gnupg lsb-release && \
+    mkdir -p /etc/apt/keyrings && \
+    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends docker-ce-cli && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy Python packages from builder
 COPY --from=builder /install /usr/local
-
-# Create non-root user
-RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser
 
 WORKDIR /app
 
@@ -37,11 +39,7 @@ COPY frontend/ ./frontend/
 COPY requirements.txt .
 
 # Create necessary directories
-RUN mkdir -p /app/backend/plugins /app/logs && \
-    chown -R appuser:appuser /app
-
-# Switch to non-root user
-USER appuser
+RUN mkdir -p /app/backend/plugins /app/logs
 
 # Environment defaults
 ENV WP_HOST=0.0.0.0

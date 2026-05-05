@@ -178,4 +178,9 @@ const API = {
     async togglePlugin(id) {
         return this.request('POST', `/api/plugins/${id}/toggle`);
     },
+
+    // WordPress install status
+    async getWPInstallStatus(siteId) {
+        return this.request('GET', `/api/wordpress/install-status/${siteId}`);
+    },
 };

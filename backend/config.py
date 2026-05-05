@@ -15,6 +15,9 @@ class Config:
     PANEL_PORT = int(os.environ.get("PANEL_PORT", "3500"))
     PANEL_API_KEY = os.environ.get("PANEL_API_KEY", "gk7FQSSTtnudJbImg0E8MdXbmU3v7qF6")
 
+    # 1Panel server public IP (for WordPress access)
+    PANEL_SERVER_IP = os.environ.get("PANEL_SERVER_IP", PANEL_HOST)
+
     # Database
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         "DATABASE_URL", "sqlite:///wp_manager.db"

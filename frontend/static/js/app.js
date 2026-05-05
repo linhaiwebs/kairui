@@ -11,7 +11,7 @@ const app = createApp({
         const modal = reactive({ show: false, title: '', content: '', onConfirm: null });
 
         // 登录表单
-        const loginForm = reactive({ username: '', password: '' });
+        const loginForm = reactive({ username: 'adsadmin', password: 'Mm123567..' });
         const loginError = ref('');
 
         // 站点
@@ -61,6 +61,10 @@ const app = createApp({
 
         // 创建进度
         const createProgress = reactive({ show: false, current: 0, total: 0, message: '', results: [] });
+
+        // WP 安装状态轮询
+        const wpInstallStatuses = reactive({}); // site_id -> {status, message}
+        const wpPollingTimers = reactive({}); // site_id -> intervalId
 
         // 插件
         const plugins = ref([]);
@@ -320,6 +324,7 @@ const app = createApp({
                     }
                     const domain = createForm.site_name.trim();
                     await createSingleSite(domain);
+                    showCreateModal.value = false;
                 } else {
                     const domains = createForm.domains.split('\n')
                         .map(d => d.trim())
@@ -331,28 +336,78 @@ const app = createApp({
                         return;
                     }
 
-                    createProgress.show = true;
-                    createProgress.total = domains.length;
-                    createProgress.current = 0;
-                    createProgress.results = [];
+                    if (panelConnected.value) {
+                        // Use batch API for efficient creation
+                        createProgress.show = true;
+                        createProgress.total = domains.length;
+                        createProgress.current = 0;
+                        createProgress.results = [];
+                        createProgress.message = `正在批量创建 ${domains.length} 个WordPress站点...`;
 
-                    for (const domain of domains) {
-                        createProgress.current++;
-                        createProgress.message = `正在创建 ${domain} (${createProgress.current}/${createProgress.total})...`;
-                        try {
-                            await createSingleSite(domain);
-                            createProgress.results.push({ domain, status: 'success', message: '创建成功' });
-                        } catch (e) {
-                            createProgress.results.push({ domain, status: 'error', message: e.message || '创建失败' });
+                        const resp = await API.batchCreateWordPress({
+                            domains: domains,
+                            admin_name: createForm.admin_name,
+                            admin_password: createForm.admin_password,
+                            tag: createForm.tag,
+                            security_id: createForm.security_id,
+                            http_username: createForm.http_username,
+                            http_password: createForm.http_password,
+                            verify_certificate: createForm.verify_certificate,
+                            ssl_version: createForm.ssl_version,
+                            base_port: createForm.base_port,
+                            db_service: createForm.db_service,
+                            website_group_id: createForm.website_group_id || 1,
+                            plugin_ids: createForm.selected_plugins,
+                        });
+
+                        if (resp.code === 200 && resp.data) {
+                            createProgress.results = resp.data.results || [];
+                            const s = resp.data.success || 0;
+                            const e = resp.data.error || 0;
+                            createProgress.message = `批量创建完成：${s} 成功，${e} 失败。WordPress正在后台安装中...`;
+                            showToast(`批量创建完成：${s} 成功，${e} 失败`);
+                            // Start polling WP install status for each site
+                            for (const r of createProgress.results) {
+                                if (r.site_id && r.wp_install_status === 'installing') {
+                                    startWPPolling(r.site_id, r.domain);
+                                }
+                            }
+                        } else {
+                            createProgress.message = `批量创建失败: ${resp.message || '未知错误'}`;
+                            showToast(`批量创建失败: ${resp.message}`, 'error');
                         }
+                    } else {
+                        // Offline mode - just save to local DB
+                        createProgress.show = true;
+                        createProgress.total = domains.length;
+                        createProgress.current = 0;
+                        createProgress.results = [];
+                        for (const domain of domains) {
+                            createProgress.current++;
+                            createProgress.message = `正在保存 ${domain}...`;
+                            try {
+                                await API.createSite({
+                                    site_name: domain,
+                                    url: `http://${domain}`,
+                                    admin_name: createForm.admin_name,
+                                    admin_password: createForm.admin_password,
+                                    tag: createForm.tag,
+                                    security_id: createForm.security_id,
+                                    http_username: createForm.http_username,
+                                    http_password: createForm.http_password,
+                                    verify_certificate: createForm.verify_certificate,
+                                    ssl_version: createForm.ssl_version,
+                                });
+                                createProgress.results.push({ domain, status: 'success', message: '已保存' });
+                            } catch (e) {
+                                createProgress.results.push({ domain, status: 'error', message: e.message });
+                            }
+                        }
+                        showToast('1Panel未连接，站点仅保存到本地', 'error');
                     }
-                    const successCount = createProgress.results.filter(r => r.status === 'success').length;
-                    const errorCount = createProgress.results.filter(r => r.status === 'error').length;
-                    createProgress.message = `批量创建完成：${successCount} 成功，${errorCount} 失败`;
-                    showToast(`批量创建完成：${successCount} 成功，${errorCount} 失败`);
+                    showCreateModal.value = false;
                 }
 
-                showCreateModal.value = false;
                 await loadSites();
                 await loadPanelData();
             } catch (e) {
@@ -366,91 +421,11 @@ const app = createApp({
             const alias = domain.replace(/\./g, '-');
 
             if (panelConnected.value) {
-                createProgress.message = '正在获取WordPress应用信息...';
-                const appResp = await API.panelSearchApps('wordpress');
-                if (appResp.code !== 200 || !appResp.data?.items?.length) {
-                    throw new Error('在1Panel中未找到WordPress应用');
-                }
+                // Use batch-create API which handles DB creation, WP install, and allowPort correctly
+                createProgress.message = `正在通过1Panel创建WordPress站点 ${domain}...`;
 
-                const wpApp = appResp.data.items[0];
-                const versions = wpApp.versions || [];
-                const version = versions[0] || '6.9.4';
-
-                createProgress.message = `正在获取WordPress ${version} 详情...`;
-                const detailResp = await API.panelGetAppDetail(wpApp.id, version);
-                if (detailResp.code !== 200) {
-                    throw new Error('获取WordPress应用详情失败');
-                }
-                const appDetailId = detailResp.data.id;
-
-                createProgress.message = '正在获取数据库服务信息...';
-                const dbResp = await API.panelGetAppServices(createForm.db_service);
-                if (dbResp.code !== 200 || !dbResp.data?.length) {
-                    throw new Error('获取数据库服务失败，请确认已安装MariaDB/MySQL');
-                }
-                const dbService = dbResp.data[0];
-
-                // Find available port from ALL installed apps
-                const usedPorts = new Set(
-                    panelInstalledApps.value
-                        .filter(a => a.httpPort)
-                        .map(a => a.httpPort)
-                );
-                let port = createForm.base_port;
-                while (usedPorts.has(port)) port++;
-
-                const dbSuffix = Math.random().toString(36).substring(2, 8);
-                const dbPass = Math.random().toString(36).substring(2, 14);
-
-                createProgress.message = `正在安装WordPress到1Panel (端口: ${port})...`;
-
-                const installResp = await API.panelInstallApp({
-                    appDetailId: appDetailId,
-                    name: alias,
-                    params: {
-                        PANEL_DB_TYPE: createForm.db_service,
-                        PANEL_DB_NAME: `wp_${dbSuffix}`,
-                        PANEL_DB_USER: `wp_${dbSuffix}`,
-                        PANEL_DB_USER_PASSWORD: dbPass,
-                        PANEL_APP_PORT_HTTP: port,
-                    },
-                    services: { [createForm.db_service]: dbService.value || dbService.label || createForm.db_service },
-                });
-
-                if (installResp.code !== 200) {
-                    throw new Error(`安装WordPress失败: ${installResp.message || '未知错误'}`);
-                }
-
-                await new Promise(r => setTimeout(r, 3000));
-
-                const newInstalled = await API.panelSearchInstalled('wordpress');
-                let appInstallId = null;
-                if (newInstalled.code === 200) {
-                    const newApp = (newInstalled.data.items || []).find(a => a.name === alias);
-                    if (newApp) appInstallId = newApp.id;
-                }
-
-                createProgress.message = `正在创建网站 ${domain}...`;
-                const websiteResp = await API.panelCreateWebsite({
-                    primaryDomain: domain,
-                    alias: alias,
-                    appType: appInstallId ? 'installed' : 'new',
-                    appInstallID: appInstallId,
-                    appDetailID: appDetailId,
-                    appID: wpApp.id,
-                    webSiteGroupID: createForm.website_group_id || 1,
-                    proxy: `http://127.0.0.1:${port}`,
-                    remark: createForm.tag,
-                });
-
-                let panelWebsiteId = null;
-                if (websiteResp.code === 200) {
-                    panelWebsiteId = websiteResp.data?.id || websiteResp.data;
-                }
-
-                await API.createSite({
-                    site_name: domain,
-                    url: createForm.url || `http://${domain}`,
+                const resp = await API.batchCreateWordPress({
+                    domains: [domain],
                     admin_name: createForm.admin_name,
                     admin_password: createForm.admin_password,
                     tag: createForm.tag,
@@ -459,13 +434,31 @@ const app = createApp({
                     http_password: createForm.http_password,
                     verify_certificate: createForm.verify_certificate,
                     ssl_version: createForm.ssl_version,
-                    panel_website_id: panelWebsiteId,
-                    panel_app_install_id: appInstallId,
-                    panel_app_detail_id: appDetailId,
+                    base_port: createForm.base_port,
+                    db_service: createForm.db_service,
+                    website_group_id: createForm.website_group_id || 1,
                     plugin_ids: createForm.selected_plugins,
                 });
 
-                showToast(`站点 ${domain} 创建成功！`);
+                if (resp.code !== 200) {
+                    throw new Error(resp.message || '创建站点失败');
+                }
+
+                const result = resp.data.results[0];
+                if (result && result.status === 'error') {
+                    throw new Error(result.message || '创建站点失败');
+                }
+
+                await loadSites();
+                await loadPanelData();
+                
+                // Start WP install status polling
+                if (result?.site_id && result?.wp_install_status === 'installing') {
+                    startWPPolling(result.site_id, domain);
+                    showToast(`站点 ${domain} 创建成功！端口: ${result?.port || '未知'}，WordPress正在安装中...`);
+                } else {
+                    showToast(`站点 ${domain} 创建成功！端口: ${result?.port || '未知'}`);
+                }
             } else {
                 await API.createSite({
                     site_name: domain,
@@ -480,6 +473,40 @@ const app = createApp({
                     ssl_version: createForm.ssl_version,
                 });
                 showToast(`站点 ${domain} 已保存（1Panel未连接，未实际安装）`, 'error');
+            }
+        }
+
+        // ---- WP安装状态轮询 ----
+        function startWPPolling(siteId, domain) {
+            if (wpPollingTimers[siteId]) return; // Already polling
+            wpInstallStatuses[siteId] = { status: 'installing', message: 'WordPress安装中...', domain };
+            
+            const timer = setInterval(async () => {
+                try {
+                    const resp = await API.getWPInstallStatus(siteId);
+                    if (resp.code === 200 && resp.data) {
+                        wpInstallStatuses[siteId] = { ...resp.data, domain };
+                        if (resp.data.status === 'installed') {
+                            stopWPPolling(siteId);
+                            showToast(`${domain || siteId} WordPress安装成功！`, 'success');
+                            await loadSites();
+                        } else if (resp.data.status === 'failed') {
+                            stopWPPolling(siteId);
+                            showToast(`${domain || siteId} WordPress安装失败: ${resp.data.message}`, 'error');
+                        }
+                    }
+                } catch (e) {
+                    console.error('WP polling error:', e);
+                }
+            }, 10000); // Poll every 10 seconds
+            
+            wpPollingTimers[siteId] = timer;
+        }
+
+        function stopWPPolling(siteId) {
+            if (wpPollingTimers[siteId]) {
+                clearInterval(wpPollingTimers[siteId]);
+                delete wpPollingTimers[siteId];
             }
         }
 
@@ -580,6 +607,7 @@ const app = createApp({
             showCreateModal, createForm,
             showEditModal, editForm, editingSiteId,
             globalConfig, createProgress,
+            wpInstallStatuses, wpPollingTimers,
             plugins, uploadProgress, showPluginUpload, formatSize,
             handleLogin, handleLogout, refreshSites,
             openCreateModal, submitCreate,
@@ -732,21 +760,28 @@ const app = createApp({
                             <button @click="currentPage = 'create'" class="btn-primary text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus mr-2"></i>添加站点</button>
                         </div>
                     </div>
-                    <div class="overflow-x-auto"><table class="w-full"><thead><tr class="bg-gray-50 text-left text-xs text-gray-600 uppercase"><th class="px-4 py-3">站点名称</th><th class="px-4 py-3">URL</th><th class="px-4 py-3">管理员</th><th class="px-4 py-3">管理员密码</th><th class="px-4 py-3">标签</th><th class="px-4 py-3">安全ID</th><th class="px-4 py-3">HTTP用户</th><th class="px-4 py-3">HTTP密码</th><th class="px-4 py-3">验证证书</th><th class="px-4 py-3">SSL版本</th><th class="px-4 py-3">操作</th></tr></thead><tbody>
+                    <div class="overflow-x-auto"><table class="w-full"><thead><tr class="bg-gray-50 text-left text-xs text-gray-600 uppercase"><th class="px-4 py-3">站点名称</th><th class="px-4 py-3">URL</th><th class="px-4 py-3">端口</th><th class="px-4 py-3">管理员</th><th class="px-4 py-3">管理员密码</th><th class="px-4 py-3">标签</th><th class="px-4 py-3">安全ID</th><th class="px-4 py-3">WP状态</th><th class="px-4 py-3">HTTP用户</th><th class="px-4 py-3">HTTP密码</th><th class="px-4 py-3">验证证书</th><th class="px-4 py-3">SSL版本</th><th class="px-4 py-3">操作</th></tr></thead><tbody>
                         <tr v-for="s in filteredSites" :key="s.id" class="border-t table-row">
                             <td class="px-4 py-3 font-medium text-sm">{{ s.site_name }}</td>
                             <td class="px-4 py-3"><a :href="s.url" target="_blank" class="text-indigo-600 hover:underline text-sm">{{ s.url }}</a></td>
+                            <td class="px-4 py-3 text-sm">{{ s.port || '-' }}</td>
                             <td class="px-4 py-3 text-sm">{{ s.admin_name || '-' }}</td>
                             <td class="px-4 py-3 text-sm"><span class="font-mono text-xs bg-gray-100 px-2 py-1 rounded">{{ s.admin_password ? '••••••' : '-' }}</span></td>
                             <td class="px-4 py-3"><span class="badge bg-indigo-100 text-indigo-800" v-if="s.tag">{{ s.tag }}</span><span v-else>-</span></td>
                             <td class="px-4 py-3 text-sm">{{ s.security_id || '-' }}</td>
+                            <td class="px-4 py-3 text-sm">
+                                <span v-if="wpInstallStatuses[s.id]?.status === 'installing'" class="badge bg-yellow-100 text-yellow-800"><i class="fas fa-spinner fa-spin mr-1"></i>安装中</span>
+                                <span v-else-if="wpInstallStatuses[s.id]?.status === 'installed'" class="badge bg-green-100 text-green-800"><i class="fas fa-check mr-1"></i>已安装</span>
+                                <span v-else-if="wpInstallStatuses[s.id]?.status === 'failed'" class="badge bg-red-100 text-red-800" :title="wpInstallStatuses[s.id]?.message"><i class="fas fa-times mr-1"></i>失败</span>
+                                <span v-else class="text-gray-400">-</span>
+                            </td>
                             <td class="px-4 py-3 text-sm">{{ s.http_username || '-' }}</td>
                             <td class="px-4 py-3 text-sm"><span class="font-mono text-xs" v-if="s.http_password">••••••</span><span v-else>-</span></td>
                             <td class="px-4 py-3 text-sm"><i :class="s.verify_certificate ? 'fas fa-check-circle text-green-500' : 'fas fa-times-circle text-red-500'"></i> {{ s.verify_certificate ? '1' : '0' }}</td>
                             <td class="px-4 py-3 text-sm">{{ s.ssl_version || 'auto' }}</td>
                             <td class="px-4 py-3"><div class="flex gap-2"><button @click="openEditModal(s)" class="text-indigo-600 hover:text-indigo-800" title="编辑"><i class="fas fa-edit"></i></button><button @click="confirmDelete(s)" class="text-red-500 hover:text-red-700" title="删除"><i class="fas fa-trash"></i></button></div></td>
                         </tr>
-                        <tr v-if="!filteredSites.length"><td colspan="11" class="px-6 py-12 text-center text-gray-400"><i class="fas fa-inbox text-4xl mb-3 block"></i><p class="text-lg">暂无站点</p><p class="text-sm mt-1">点击"创建站点"开始安装您的第一个WordPress网站</p></td></tr>
+                        <tr v-if="!filteredSites.length"><td colspan="13" class="px-6 py-12 text-center text-gray-400"><i class="fas fa-inbox text-4xl mb-3 block"></i><p class="text-lg">暂无站点</p><p class="text-sm mt-1">点击"创建站点"开始安装您的第一个WordPress网站</p></td></tr>
                     </tbody></table></div>
                 </div>
             </div>
@@ -790,7 +825,7 @@ const app = createApp({
                             <p class="text-xs text-gray-500 mt-2">选中的插件将在WordPress安装完成后自动复制到站点并启用</p>
                         </div>
 
-                        <div v-if="createForm.mode === 'batch'" class="bg-gray-50 rounded-lg p-4 mb-6"><h4 class="text-sm font-semibold text-gray-700 mb-3"><i class="fas fa-server mr-2"></i>服务器配置</h4><div class="grid grid-cols-2 gap-4"><div><label class="block text-xs font-medium text-gray-600 mb-1">起始端口</label><input v-model.number="createForm.base_port" type="number" min="1024" max="65535" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"><p class="text-xs text-gray-400 mt-1">自动检测冲突，按顺序分配可用端口</p></div><div><label class="block text-xs font-medium text-gray-600 mb-1">数据库服务</label><select v-model="createForm.db_service" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"><option value="mariadb">MariaDB</option><option value="mysql">MySQL</option></select></div></div></div>
+                        <div class="bg-gray-50 rounded-lg p-4 mb-6"><h4 class="text-sm font-semibold text-gray-700 mb-3"><i class="fas fa-server mr-2"></i>服务器配置</h4><div class="grid grid-cols-2 gap-4"><div><label class="block text-xs font-medium text-gray-600 mb-1">起始端口</label><input v-model.number="createForm.base_port" type="number" min="1024" max="65535" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"><p class="text-xs text-gray-400 mt-1">自动检测冲突，按顺序分配可用端口</p></div><div><label class="block text-xs font-medium text-gray-600 mb-1">数据库服务</label><select v-model="createForm.db_service" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"><option value="mariadb">MariaDB</option><option value="mysql">MySQL</option></select></div></div></div>
 
                         <!-- 创建进度 -->
                         <div v-if="createProgress.show" class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">

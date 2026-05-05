@@ -94,6 +94,28 @@ Production: `./start.sh start` (uses gunicorn + gevent)
 - Server: 167.172.142.95:3500
 - Base path: /api/v2/
 
+## Critical 1Panel API Patterns
+
+### WordPress Installation Workflow (CORRECT - as of 2024)
+1. **Create database first** via `POST /databases` with base64-encoded password
+   - The `database` field must be the 1Panel DB service name (e.g., "mariadb")
+   - Password must be base64-encoded: `base64.b64encode(password.encode()).decode()`
+2. **Install WordPress** via `POST /apps/install` with:
+   - `PANEL_DB_HOST` = 1Panel database name (e.g., "mariadb"), NOT container name
+   - 1Panel auto-resolves this to the actual service address and sets PANEL_DB_PORT
+   - `advanced: true` and `allowPort: true` for external access
+3. **Fix allowPort** if needed via `POST /apps/installed/params/update`
+   - Use this to ensure port is externally accessible
+
+### Common 1Panel API Gotchas
+- `/databases` requires base64-encoded password
+- `/databases/search` requires `type`, `database`, `orderBy`, `order` params
+- `PANEL_DB_HOST` must be the 1Panel DB service NAME, not container name — 1Panel resolves it via `databaseRepo.Get(commonRepo.WithByName(hostName))`
+- `.env` file changes via `files/save` don't persist through 1Panel rebuilds
+- Empty `CPUS`/`MEMORY_LIMIT` in `.env` causes Docker Comparse parse failure (UpErr)
+- The update endpoint is `/apps/installed/params/update`, NOT `/apps/installed/update`
+- `services` in install request should be `{dbServiceName: dbServiceName}`
+
 ## Admin Login
 - Username: adsadmin
 - Password: Mm123567..
@@ -107,6 +129,7 @@ Production: `./start.sh start` (uses gunicorn + gevent)
 - DELETE /api/sites/<id> - Delete a site
 - GET /api/sites/export/csv - Export sites as CSV
 - POST /api/wordpress/batch-create - Batch create WordPress sites via 1Panel
+- GET /api/wordpress/install-status/<site_id> - Check WP install status (polling)
 - GET /api/panel/status - Check 1Panel connection
 - POST /api/panel/websites/search - Search 1Panel websites
 - POST /api/panel/apps/installed/search - Search 1Panel installed apps
@@ -129,8 +152,27 @@ Site Name, Url, Admin Name, Admin Password, Tag, Security ID, HTTP Username, HTT
 ## Batch Creation Features
 - Auto port assignment starting from base_port (default 8081)
 - Port conflict avoidance: checks 1Panel installed apps + host ports (ss)
-- Plugin auto-installation via docker cp + wp-cli
+- Plugin auto-installation via wp-admin HTTP upload + activate (not docker)
 - Per-domain error handling (one failure doesn't stop the batch)
+
+## WordPress Auto-Install (Background Thread)
+- After 1Panel creates the WP app, a background thread auto-completes WP installation
+- Uses HTTP POST to wp-admin/install.php (bypasses the install page)
+- Status tracked in SQLite `bg_tasks` table (works across gunicorn workers)
+- Frontend polls `/api/wordpress/install-status/<site_id>` every 10s
+
+## Plugin Installation Flow
+1. User uploads .zip plugin file via /api/plugins
+2. On site creation, plugin_ids are passed to batch-create
+3. Background thread: after WP install completes → login to wp-admin → upload plugin zip → activate
+4. Uses HTTP-based installation (no docker commands needed for remote servers)
+5. install_plugins_to_site(site_url, admin_user, admin_password, plugin_ids)
+
+## Known Working Test Sites (as of 2026-05-05)
+- realtest.local:8270 - Basic WP install test
+- siteA.local:8280 - Batch create test
+- siteB.local:8281 - Batch create test
+- plugin-test.local:8290 - Plugin install test (wp-manager-hello plugin installed)
 
 ## Dependencies
 Python: flask, flask-cors, flask-jwt-extended, requests, gunicorn, gevent
