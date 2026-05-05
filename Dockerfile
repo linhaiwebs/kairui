@@ -8,7 +8,8 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /build
 
-# Install dependencies to a separate folder
+# Install dependencies to a separate folder (use mirror for faster download)
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
@@ -18,14 +19,12 @@ FROM python:3.12-slim
 LABEL maintainer="WP Site Manager"
 LABEL description="WordPress Site Manager - 1Panel集成管理平台"
 
-# Install runtime deps + Docker CLI (for docker exec to manage WordPress containers)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl iproute2 ca-certificates gnupg lsb-release && \
-    mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list && \
+# Install runtime deps only (no Docker CLI needed - plugin install uses HTTP API)
+# Use mirror to avoid Debian repo 502 errors
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null; \
+    sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null; \
     apt-get update && \
-    apt-get install -y --no-install-recommends docker-ce-cli && \
+    apt-get install -y --no-install-recommends curl iproute2 ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy Python packages from builder
