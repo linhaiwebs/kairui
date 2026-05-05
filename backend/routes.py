@@ -357,33 +357,36 @@ def register_routes(app):
             if not site:
                 return jsonify({"code": 404, "message": "站点不存在"}), 404
 
-            # Clean up nginx proxy config (if created via file API)
-            nginx_alias = site.get("nginx_alias")
-            if nginx_alias:
-                try:
-                    panel_client.delete_nginx_proxy_config(alias=nginx_alias)
-                    logger.info(f"Deleted nginx config for {nginx_alias}")
-                except Exception as e:
-                    logger.warning(f"Failed to delete nginx config: {e}")
-
-            # Clean up 1Panel app install
-            if site.get("panel_app_install_id"):
-                try:
-                    panel_client.operate_installed(
-                        site["panel_app_install_id"], "delete",
-                        force_delete=True, delete_backup=True, delete_db=True,
-                    )
-                    logger.info(f"Deleted 1Panel app install {site['panel_app_install_id']}")
-                except Exception as e:
-                    logger.warning(f"Failed to delete 1Panel app: {e}")
-
-            # Clean up 1Panel website record (if exists)
+            # Clean up 1Panel resources
             if site.get("panel_website_id"):
+                # Deployment website: deleting via 1Panel will clean up nginx config + app
                 try:
-                    panel_client.delete_website(site["panel_website_id"])
-                    logger.info(f"Deleted 1Panel website {site['panel_website_id']}")
+                    panel_client.delete_website(
+                        site["panel_website_id"],
+                        delete_app=True, delete_backup=True, force_delete=True,
+                    )
+                    logger.info(f"Deleted 1Panel deployment website {site['panel_website_id']}")
                 except Exception as e:
                     logger.warning(f"Failed to delete 1Panel website: {e}")
+            else:
+                # Legacy: manually clean up nginx config and app
+                nginx_alias = site.get("nginx_alias")
+                if nginx_alias:
+                    try:
+                        panel_client.delete_nginx_proxy_config(alias=nginx_alias)
+                        logger.info(f"Deleted nginx config for {nginx_alias}")
+                    except Exception as e:
+                        logger.warning(f"Failed to delete nginx config: {e}")
+
+                if site.get("panel_app_install_id"):
+                    try:
+                        panel_client.operate_installed(
+                            site["panel_app_install_id"], "delete",
+                            force_delete=True, delete_backup=True, delete_db=True,
+                        )
+                        logger.info(f"Deleted 1Panel app install {site['panel_app_install_id']}")
+                    except Exception as e:
+                        logger.warning(f"Failed to delete 1Panel app: {e}")
 
             delete_site(site_id)
             return jsonify({"code": 200, "message": "站点已删除"})
@@ -844,22 +847,38 @@ def register_routes(app):
                     except Exception as e:
                         logger.warning(f"Update allowPort exception for {alias}: {e}")
 
-                # Step 4: Create nginx proxy config via 1Panel file API
-                # (POST /websites API returns 500, so we create nginx config manually)
-                nginx_result = None
+                # Step 4: Create deployment website in 1Panel (一键部署)
+                # This links the installed WordPress app to the domain with nginx reverse proxy
+                website_result = None
+                panel_website_id = None
                 try:
-                    nginx_result = panel_client.create_nginx_proxy_config(
+                    # Ensure website group exists
+                    group_id = panel_client.ensure_website_group()
+                    
+                    # The alias must match the installed app name
+                    website_result = panel_client.create_website(
+                        primary_domain=domain,
                         alias=alias,
-                        domain=domain,
-                        port=port,
+                        app_type="installed",
+                        app_install_id=app_install_id,
+                        website_group_id=group_id,
+                        enable_ipv6=True,
                     )
-                    if nginx_result.get("code") in (200, 207):
-                        logger.info(f"Nginx proxy config created for {domain}:{port}")
+                    if website_result.get("code") == 200:
+                        logger.info(f"Deployment website created for {domain} (app_install_id={app_install_id})")
+                        # Find the website ID by searching
+                        ws = panel_client.search_websites(name=domain)
+                        if ws.get("code") == 200:
+                            items = ws.get("data", {}).get("items") or []
+                            for w in items:
+                                if w.get("alias") == alias:
+                                    panel_website_id = w.get("id")
+                                    break
                     else:
-                        logger.warning(f"Nginx config creation failed for {domain}: {nginx_result.get('message', '')}")
+                        logger.warning(f"Create deployment website failed for {domain}: {website_result.get('message', '')}")
                 except Exception as e:
-                    logger.warning(f"Nginx config creation exception for {domain}: {e}")
-                    nginx_result = {"code": 500, "message": str(e)[:80]}
+                    logger.warning(f"Create deployment website exception for {domain}: {e}")
+                    website_result = {"code": 500, "message": str(e)[:80]}
 
                 # Save to local DB
                 site = create_site({
@@ -873,7 +892,7 @@ def register_routes(app):
                     "http_password": http_password,
                     "verify_certificate": verify_cert,
                     "ssl_version": ssl_version,
-                    "panel_website_id": None,
+                    "panel_website_id": panel_website_id,
                     "panel_app_install_id": app_install_id,
                     "panel_app_detail_id": app_detail_id,
                     "port": port,
@@ -939,8 +958,9 @@ def register_routes(app):
                     "port": port,
                     "site_id": site["id"] if site else None,
                     "panel_app_install_id": app_install_id,
+                    "panel_website_id": panel_website_id,
                     "container_name": container_name,
-                    "nginx_config": nginx_result.get("code") in (200, 207) if nginx_result else False,
+                    "website_created": website_result.get("code") == 200 if website_result else False,
                     "wp_installed": False,  # Will be updated by background task
                     "wp_install_status": "installing",
                     "plugin_results": plugin_results,

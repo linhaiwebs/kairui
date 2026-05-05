@@ -223,18 +223,35 @@ class OnePanelClient:
         app_id=None,
         website_group_id=1,
         remark="",
-        other_domains="",
+        enable_ipv6=True,
         proxy="",
     ):
+        """Create a deployment website in 1Panel (一键部署).
+        
+        For app_type="installed", links an existing installed app (e.g. WordPress) to a domain.
+        1Panel will auto-generate nginx reverse proxy config based on the app's port.
+        
+        Args:
+            primary_domain: Main domain (e.g. "example.com")
+            alias: Site alias, must match installed app name (e.g. "wordpress1-lhwebs-com")
+            app_type: "installed" (link existing app) or "new" (create new app)
+            app_install_id: ID of the installed app (required for app_type="installed")
+            app_detail_id: App detail ID (for app_type="new")
+            app_id: App ID (for app_type="new")
+            website_group_id: Website group ID (default: 1)
+            remark: Site remark/description
+            enable_ipv6: Enable IPv6 listening (default: True)
+            proxy: Proxy URL (optional)
+        """
+        domains = [{"domain": primary_domain, "port": 80, "ssl": False}]
         body = {
-            "primaryDomain": primary_domain,
             "type": "deployment",
             "alias": alias,
             "webSiteGroupID": website_group_id,
+            "IPV6": enable_ipv6,
+            "domains": domains,
             "appType": app_type,
             "remark": remark,
-            "otherDomains": other_domains,
-            "IPV6": False,
         }
         if app_type == "installed" and app_install_id:
             body["appInstallID"] = app_install_id
@@ -264,7 +281,7 @@ class OnePanelClient:
     def get_website(self, website_id):
         return self._request("GET", f"/websites/{website_id}")
 
-    def delete_website(self, website_id, delete_app=True, delete_backup=True, force_delete=False):
+    def delete_website(self, website_id, delete_app=True, delete_backup=True, force_delete=False, delete_db=True):
         return self._request(
             "POST",
             "/websites/del",
@@ -273,6 +290,7 @@ class OnePanelClient:
                 "deleteApp": delete_app,
                 "deleteBackup": delete_backup,
                 "forceDelete": force_delete,
+                "deleteDB": delete_db,
             },
         )
 
@@ -291,10 +309,41 @@ class OnePanelClient:
 
     # ---- Groups ----
     def search_groups(self, group_type="website"):
-        return self._request("POST", "/groups/search", {"type": group_type})
+        return self._request("POST", "/groups/search", {
+            "page": 1, "pageSize": 100,
+            "type": group_type,
+            "orderBy": "created_at", "order": "descending",
+        })
 
     def create_group(self, name, group_type="website"):
         return self._request("POST", "/groups", {"name": name, "type": group_type})
+
+    def ensure_website_group(self, group_name="Default", group_type="website"):
+        """Ensure a website group exists and return its ID.
+        
+        Returns the ID of the first matching group, or creates one if none exist.
+        """
+        resp = self.search_groups(group_type)
+        if resp.get("code") == 200:
+            groups = resp.get("data", [])
+            if isinstance(groups, list) and groups:
+                return groups[0].get("id", 1)
+            # Also try resp.data format
+            data = resp.get("data", {})
+            if isinstance(data, dict):
+                items = data.get("items", [])
+                if items:
+                    return items[0].get("id", 1)
+        # Create the group
+        create_resp = self.create_group(group_name, group_type)
+        if create_resp.get("code") == 200:
+            # Re-search to get the ID
+            resp2 = self.search_groups(group_type)
+            if resp2.get("code") == 200:
+                groups = resp2.get("data", [])
+                if isinstance(groups, list) and groups:
+                    return groups[0].get("id", 1)
+        return 1  # Fallback
 
     # ---- Website HTTPS ----
     def get_https_config(self, website_id):

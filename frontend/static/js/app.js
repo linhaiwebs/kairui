@@ -342,7 +342,7 @@ const app = createApp({
                         createProgress.total = domains.length;
                         createProgress.current = 0;
                         createProgress.results = [];
-                        createProgress.message = `正在批量创建 ${domains.length} 个WordPress站点...`;
+                        createProgress.message = `正在批量一键部署 ${domains.length} 个WordPress站点...`;
 
                         const resp = await API.batchCreateWordPress({
                             domains: domains,
@@ -422,7 +422,7 @@ const app = createApp({
 
             if (panelConnected.value) {
                 // Use batch-create API which handles DB creation, WP install, and allowPort correctly
-                createProgress.message = `正在通过1Panel创建WordPress站点 ${domain}...`;
+                createProgress.message = `正在通过1Panel一键部署WordPress站点 ${domain}...`;
 
                 const resp = await API.batchCreateWordPress({
                     domains: [domain],
@@ -455,9 +455,9 @@ const app = createApp({
                 // Start WP install status polling
                 if (result?.site_id && result?.wp_install_status === 'installing') {
                     startWPPolling(result.site_id, domain);
-                    showToast(`站点 ${domain} 创建成功！端口: ${result?.port || '未知'}，WordPress正在安装中...`);
+                    showToast(`站点 ${domain} 一键部署成功！端口: ${result?.port || '未知'}，WordPress正在安装中...`);
                 } else {
-                    showToast(`站点 ${domain} 创建成功！端口: ${result?.port || '未知'}`);
+                    showToast(`站点 ${domain} 一键部署成功！端口: ${result?.port || '未知'}`);
                 }
             } else {
                 await API.createSite({
@@ -773,6 +773,7 @@ const app = createApp({
                                 <span v-if="wpInstallStatuses[s.id]?.status === 'installing'" class="badge bg-yellow-100 text-yellow-800"><i class="fas fa-spinner fa-spin mr-1"></i>安装中</span>
                                 <span v-else-if="wpInstallStatuses[s.id]?.status === 'installed'" class="badge bg-green-100 text-green-800"><i class="fas fa-check mr-1"></i>已安装</span>
                                 <span v-else-if="wpInstallStatuses[s.id]?.status === 'failed'" class="badge bg-red-100 text-red-800" :title="wpInstallStatuses[s.id]?.message"><i class="fas fa-times mr-1"></i>失败</span>
+                                <span v-else-if="s.panel_website_id" class="badge bg-green-100 text-green-800" title="已通过1Panel一键部署创建"><i class="fas fa-rocket mr-1"></i>已部署</span>
                                 <span v-else class="text-gray-400">-</span>
                             </td>
                             <td class="px-4 py-3 text-sm">{{ s.http_username || '-' }}</td>
