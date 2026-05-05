@@ -1,0 +1,45 @@
+# ============================================================
+# WordPress Site Manager - Docker Compose
+# ============================================================
+version: "3.8"
+
+services:
+  wp-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wp-site-manager
+    restart: unless-stopped
+    ports:
+      - "${WP_PORT:-8011}:8011"
+    environment:
+      - WP_HOST=0.0.0.0
+      - WP_PORT=8011
+      - WP_WORKERS=4
+      - FLASK_ENV=production
+      # 1Panel API configuration (override in .env or here)
+      - PANEL_HOST=${PANEL_HOST:-167.172.142.95}
+      - PANEL_PORT=${PANEL_PORT:-3500}
+      - PANEL_API_KEY=${PANEL_API_KEY:-gk7FQSSTtnudJbImg0E8MdXbmU3v7qF6}
+    volumes:
+      # Persist database and plugins
+      - wp-data:/app/backend
+      - wp-logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8011/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - wp-network
+
+volumes:
+  wp-data:
+    driver: local
+  wp-logs:
+    driver: local
+
+networks:
+  wp-network:
+    driver: bridge

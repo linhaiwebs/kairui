@@ -1,0 +1,61 @@
+# ============================================================
+# WordPress Site Manager - Systemd Service
+# 安装方法:
+#   sudo cp wp-manager.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable wp-manager
+#   sudo systemctl start wp-manager
+#
+# 管理命令:
+#   sudo systemctl start wp-manager     # 启动
+#   sudo systemctl stop wp-manager      # 停止
+#   sudo systemctl restart wp-manager   # 重启
+#   sudo systemctl status wp-manager    # 状态
+#   journalctl -u wp-manager -f         # 查看日志
+# ============================================================
+[Unit]
+Description=WordPress Site Manager
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/wp-manager
+Environment="PATH=/opt/wp-manager/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="WP_HOST=0.0.0.0"
+Environment="WP_PORT=8011"
+Environment="WP_WORKERS=4"
+
+ExecStartPre=/opt/wp-manager/venv/bin/pip install -q -r /opt/wp-manager/requirements.txt
+ExecStart=/opt/wp-manager/venv/bin/gunicorn \
+    --bind 0.0.0.0:8011 \
+    --workers 4 \
+    --worker-class gevent \
+    --timeout 120 \
+    --chdir /opt/wp-manager/backend \
+    --access-logfile /opt/wp-manager/logs/access.log \
+    --error-logfile /opt/wp-manager/logs/error.log \
+    --pid /opt/wp-manager/app.pid \
+    app:create_app()
+
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s TERM $MAINPID
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/wp-manager/logs /opt/wp-manager/backend/plugins /opt/wp-manager/backend/wp_manager.db
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

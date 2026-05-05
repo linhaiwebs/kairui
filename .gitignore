@@ -7,17 +7,26 @@ dist/
 build/
 .eggs/
 
+# Virtual environment
+venv/
+.venv/
+
 # Database
 *.db
 
 # Uploaded plugin files
 backend/plugins/*.zip
 
+# Logs
+logs/
+*.log
+
+# PID
+app.pid
+
 # Environment
 .env
-.venv/
-venv/
-env/
+.env.local
 
 # IDE
 .vscode/
@@ -28,6 +37,3 @@ env/
 # OS
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log
