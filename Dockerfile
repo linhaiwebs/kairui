@@ -20,7 +20,7 @@ LABEL description="WordPress Site Manager - 1Panel集成管理平台"
 
 # Install runtime deps
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl ss && \
+    apt-get install -y --no-install-recommends curl iproute2 && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy Python packages from builder
