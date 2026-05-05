@@ -1,0 +1,78 @@
+/* Additional custom styles for WordPress Site Manager */
+
+/* Smooth transitions for all interactive elements */
+a, button, input, select, textarea {
+    transition: all 0.2s ease;
+}
+
+/* Better focus states */
+input:focus, select:focus, textarea:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+/* Table improvements */
+table {
+    border-collapse: collapse;
+}
+
+.table-row {
+    transition: background-color 0.15s ease;
+}
+
+/* Responsive sidebar */
+@media (max-width: 768px) {
+    .sidebar-gradient {
+        width: 4rem;
+    }
+    .sidebar-gradient span,
+    .sidebar-gradient h2,
+    .sidebar-gradient p {
+        display: none;
+    }
+}
+
+/* Loading overlay */
+.loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+/* Scrollable modals */
+.modal-scroll {
+    max-height: 85vh;
+    overflow-y: auto;
+}
+
+/* Badge variants */
+.badge-success {
+    background-color: #dcfce7;
+    color: #166534;
+}
+
+.badge-error {
+    background-color: #fee2e2;
+    color: #991b1b;
+}
+
+.badge-warning {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+.badge-info {
+    background-color: #dbeafe;
+    color: #1e40af;
+}
+
+/* Print styles for CSV export preview */
+@media print {
+    .no-print {
+        display: none !important;
+    }
+}
