@@ -138,9 +138,9 @@ class OnePanelClient:
             "POST",
             "/databases/search",
             {
-                "page": page, "pageSize": page_size, "name": name,
-                "type": db_type, "database": db_type,
-                "orderBy": "name", "order": "ascending",
+                "Page": page, "PageSize": page_size, "Name": name,
+                "Type": db_type, "Database": db_type,
+                "OrderBy": "name", "Order": "ascending",
             },
         )
 
@@ -167,14 +167,16 @@ class OnePanelClient:
             },
         )
 
-    def delete_database(self, database_id, delete_user=False, force_delete=False):
+    def delete_database(self, database_id, db_type="mariadb", delete_user=False, force_delete=False):
         return self._request(
             "POST",
             "/databases/del",
             {
                 "id": database_id,
-                "deleteUser": delete_user,
-                "forceDelete": force_delete,
+                "Type": db_type,
+                "Database": db_type,
+                "DeleteUser": delete_user,
+                "ForceDelete": force_delete,
             },
         )
 
@@ -203,8 +205,8 @@ class OnePanelClient:
         body = {
             "page": page,
             "pageSize": page_size,
-            "orderBy": order_by,
-            "order": order,
+            "OrderBy": order_by,
+            "Order": order,
         }
         if name:
             body["name"] = name
@@ -243,11 +245,11 @@ class OnePanelClient:
             enable_ipv6: Enable IPv6 listening (default: True)
             proxy: Proxy URL (optional)
         """
-        domains = [{"domain": primary_domain, "port": 80, "ssl": False}]
+        domains = [{"domain": primary_domain, "port": 80}]
         body = {
             "type": "deployment",
             "alias": alias,
-            "webSiteGroupID": website_group_id,
+            "WebsiteGroupID": website_group_id,
             "IPV6": enable_ipv6,
             "domains": domains,
             "appType": app_type,
@@ -287,10 +289,10 @@ class OnePanelClient:
             "/websites/del",
             {
                 "id": website_id,
-                "deleteApp": delete_app,
-                "deleteBackup": delete_backup,
-                "forceDelete": force_delete,
-                "deleteDB": delete_db,
+                "DeleteApp": delete_app,
+                "DeleteBackup": delete_backup,
+                "ForceDelete": force_delete,
+                "DeleteDB": delete_db,
             },
         )
 

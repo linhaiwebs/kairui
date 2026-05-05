@@ -202,6 +202,34 @@ def delete_site(site_id):
         conn.close()
 
 
+def update_site_fields(site_id, fields):
+    """Update specific fields of a site (lightweight partial update)."""
+    conn = get_db()
+    now = datetime.utcnow().isoformat()
+    try:
+        allowed = {
+            "site_name", "url", "admin_name", "admin_password", "tag", "security_id",
+            "http_username", "http_password", "verify_certificate", "ssl_version",
+            "panel_website_id", "panel_app_install_id", "panel_app_detail_id",
+            "port", "nginx_alias", "status",
+        }
+        sets = []
+        vals = []
+        for key, value in fields.items():
+            if key in allowed:
+                sets.append(f"{key} = ?")
+                vals.append(value)
+        if not sets:
+            return
+        sets.append("updated_at = ?")
+        vals.append(now)
+        vals.append(site_id)
+        conn.execute(f"UPDATE sites SET {', '.join(sets)} WHERE id = ?", vals)
+        conn.commit()
+    finally:
+        conn.close()
+
+
 # ---- Global Config ----
 
 def get_global_config():

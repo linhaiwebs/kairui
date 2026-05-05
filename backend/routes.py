@@ -30,6 +30,7 @@ from models import (
     update_bg_task,
     update_global_config,
     update_site,
+    update_site_fields,
 )
 from panel_client import panel_client
 
@@ -745,8 +746,6 @@ def register_routes(app):
 
                 alias = domain.replace(".", "-")
                 site_name = domain
-
-                # Find available port
                 port = find_available_port(base_port)
 
                 # Generate DB credentials
@@ -757,134 +756,7 @@ def register_routes(app):
                 db_user = f"wp_{db_suffix}"
                 db_pass = "".join(random.choices(string.ascii_letters + string.digits, k=16))
 
-                # Step 1: Create database via 1Panel's /databases API
-                # This is critical - 1Panel resolves PANEL_DB_HOST from its database records
-                db_created = False
-                try:
-                    db_api_resp = panel_client.create_database(
-                        name=db_name,
-                        db_type=db_service,
-                        username=db_user,
-                        password=db_pass,
-                        permission="%",
-                        format_str="utf8mb4",
-                    )
-                    if db_api_resp.get("code") == 200:
-                        db_created = True
-                        logger.info(f"Database {db_name} created via 1Panel API")
-                    else:
-                        logger.warning(f"1Panel DB API failed: {db_api_resp.get('message', '')}")
-                except Exception as e:
-                    logger.warning(f"1Panel DB API exception: {e}")
-
-                if not db_created:
-                    results.append({
-                        "domain": domain, "status": "error",
-                        "message": f"创建数据库 {db_name} 失败，请检查1Panel数据库服务"
-                    })
-                    continue
-
-                # Step 2: Install WordPress with PANEL_DB_HOST = db_service name
-                # 1Panel resolves this to the actual service address and sets PANEL_DB_PORT
-                install_params = {
-                    "PANEL_DB_TYPE": db_service,
-                    "PANEL_DB_HOST": db_service,  # 1Panel DB name, NOT container name
-                    "PANEL_DB_NAME": db_name,
-                    "PANEL_DB_USER": db_user,
-                    "PANEL_DB_USER_PASSWORD": db_pass,
-                    "PANEL_APP_PORT_HTTP": port,
-                }
-
-                services = {db_service: db_service}
-
-                try:
-                    install_resp = panel_client.install_app(
-                        app_detail_id=app_detail_id,
-                        name=alias,
-                        params=install_params,
-                        services=services,
-                        advanced=True,
-                        allow_port=True,
-                    )
-                except Exception as e:
-                    results.append({"domain": domain, "status": "error", "message": f"安装请求失败: {str(e)[:80]}"})
-                    continue
-
-                if install_resp.get("code") != 200:
-                    results.append({"domain": domain, "status": "error", "message": install_resp.get("message", "安装失败")})
-                    continue
-
-                # Wait for install to register
-                time.sleep(3)
-
-                # Get the installed app ID
-                app_install_id = None
-                container_name = None
-                try:
-                    new_installed = panel_client.search_installed_apps(name=alias)
-                    if new_installed.get("code") == 200:
-                        new_app = next(
-                            (a for a in new_installed.get("data", {}).get("items", []) if a.get("name") == alias),
-                            None,
-                        )
-                        if new_app:
-                            app_install_id = new_app.get("id")
-                            container_name = new_app.get("container", "")
-                except Exception:
-                    pass
-
-                # Step 3: If allowPort wasn't applied, fix via update API
-                if app_install_id:
-                    try:
-                        update_resp = panel_client.update_installed(
-                            install_id=app_install_id,
-                            params={"PANEL_APP_PORT_HTTP": port},
-                            advanced=True,
-                            allow_port=True,
-                        )
-                        if update_resp.get("code") != 200:
-                            logger.warning(f"Update allowPort failed for {alias}: {update_resp.get('message', '')}")
-                    except Exception as e:
-                        logger.warning(f"Update allowPort exception for {alias}: {e}")
-
-                # Step 4: Create deployment website in 1Panel (一键部署)
-                # 1Panel uses OpenResty to auto-configure reverse proxy for the installed WP app
-                # - alias = domain-derived (matches installed app name)
-                # - appType = "installed" links to the installed WP app
-                # - webSiteGroupID = default group (ID=1)
-                # - IPV6 = True
-                website_result = None
-                panel_website_id = None
-                try:
-                    # Ensure website group exists
-                    group_id = panel_client.ensure_website_group()
-                    
-                    # The alias must match the installed app name
-                    website_result = panel_client.create_website(
-                        primary_domain=domain,
-                        alias=alias,
-                        app_type="installed",
-                        app_install_id=app_install_id,
-                        website_group_id=group_id,
-                        enable_ipv6=True,
-                    )
-                    if website_result.get("code") == 200:
-                        logger.info(f"Deployment website created for {domain} (app_install_id={app_install_id})")
-                        # Find the website ID by searching
-                        ws = panel_client.search_websites(name=domain)
-                        if ws.get("code") == 200:
-                            items = ws.get("data", {}).get("items") or []
-                            for w in items:
-                                if w.get("alias") == alias:
-                                    panel_website_id = w.get("id")
-                                    break
-                    else:
-                        logger.warning(f"Create deployment website failed for {domain}: {website_result.get('message', '')}")
-                except Exception as e:
-                    logger.warning(f"Create deployment website exception for {domain}: {e}")
-                    website_result = {"code": 500, "message": str(e)[:80]}
-
-                # Save to local DB
+                # Create a placeholder site in local DB immediately
                 site = create_site({
                     "site_name": site_name,
                     "url": f"http://{domain}",
@@ -896,78 +768,242 @@ def register_routes(app):
                     "http_password": http_password,
                     "verify_certificate": verify_cert,
                     "ssl_version": ssl_version,
-                    "panel_website_id": panel_website_id,
-                    "panel_app_install_id": app_install_id,
-                    "panel_app_detail_id": app_detail_id,
                     "port": port,
-                    "nginx_alias": alias,
                 })
-
-                # Step 5: Auto-complete WordPress installation (background thread)
-                wp_install_result = None
                 site_id_for_bg = site["id"] if site else str(uuid.uuid4())[:8]
 
-                def _bg_wp_install(sid, cn, surl, stitle, auser, apwd, aemail, aport, pids=None):
-                    """Background thread to auto-install WordPress and then install plugins."""
-                    try:
-                        update_bg_task(sid, status="installing", message="WordPress安装中...")
-                        result = auto_install_wordpress(
-                            container_name=cn,
-                            site_url=surl,
-                            site_title=stitle,
-                            admin_user=auser,
-                            admin_password=apwd,
-                            admin_email=aemail,
-                            port=aport,
-                        )
-                        final_status = "installed" if result.get("success") else "failed"
-                        update_bg_task(sid, status=final_status, message=result.get("message", ""))
-                        logger.info(f"BG WP install for {surl}: {result.get('message', '')}")
-                        
-                        # Install plugins after WP is ready
-                        if result.get("success") and pids:
-                            try:
-                                update_bg_task(sid, status="installed", message=f"WordPress已安装，正在安装{len(pids)}个插件...")
-                                from config import config as app_config
-                                wp_url = f"http://{app_config.PANEL_SERVER_IP}:{aport}" if aport else surl
-                                plugin_results = install_plugins_to_site(wp_url, auser, apwd, pids)
-                                success_plugins = sum(1 for r in plugin_results if r.get("status") == "success")
-                                update_bg_task(sid, status="installed", 
-                                    message=f"WordPress安装成功，{success_plugins}/{len(pids)}个插件安装成功")
-                                logger.info(f"BG plugins for {surl}: {plugin_results}")
-                            except Exception as pe:
-                                logger.warning(f"BG plugin install error for {surl}: {pe}")
-                                update_bg_task(sid, status="installed", 
-                                    message=f"WordPress安装成功，插件安装失败: {str(pe)[:60]}")
-                    except Exception as e:
-                        update_bg_task(sid, status="failed", message=str(e)[:100])
-                        logger.error(f"BG WP install error for {surl}: {e}")
+                # Initialize bg task — the full deployment runs in background
+                create_bg_task(site_id_for_bg, "wp_install", status="installing",
+                               message="1Panel正在创建数据库...")
 
-                create_bg_task(site_id_for_bg, "wp_install", status="installing", message="WordPress安装中...")
+                # ---- Background thread: full deployment pipeline ----
+                def _bg_deploy(sid, s_alias, s_domain, s_port, s_db_name, s_db_user, s_db_pass,
+                                s_app_detail_id, s_db_service, s_admin, s_password, s_plugin_ids,
+                                s_group_id):
+                    """Full deployment pipeline in background with real-time status updates."""
+                    # Push Flask application context for this thread
+                    with app.app_context():
+                        _bg_deploy_inner(sid, s_alias, s_domain, s_port, s_db_name, s_db_user, s_db_pass,
+                                         s_app_detail_id, s_db_service, s_admin, s_password, s_plugin_ids,
+                                         s_group_id)
+
+                def _bg_deploy_inner(sid, s_alias, s_domain, s_port, s_db_name, s_db_user, s_db_pass,
+                                     s_app_detail_id, s_db_service, s_admin, s_password, s_plugin_ids,
+                                     s_group_id):
+                    """Inner deployment logic (runs inside Flask app context)."""
+                    container_name = None
+                    app_install_id = None
+                    panel_website_id = None
+
+                    try:
+                        # === Step 1: Create database ===
+                        update_bg_task(sid, status="installing", message="1Panel正在创建数据库...")
+                        db_created = False
+                        try:
+                            db_resp = panel_client.create_database(
+                                name=s_db_name, db_type=s_db_service, username=s_db_user,
+                                password=s_db_pass, permission="%", format_str="utf8mb4",
+                            )
+                            db_created = db_resp.get("code") == 200
+                        except Exception as e:
+                            logger.warning(f"DB creation failed for {s_domain}: {e}")
+
+                        if not db_created:
+                            update_bg_task(sid, status="failed",
+                                           message=f"创建数据库 {s_db_name} 失败，请检查1Panel数据库服务")
+                            return
+
+                        # === Step 2: Install WordPress app ===
+                        update_bg_task(sid, status="installing",
+                                       message="1Panel正在安装WordPress应用...")
+                        install_params = {
+                            "PANEL_DB_TYPE": s_db_service,
+                            "PANEL_DB_HOST": s_db_service,
+                            "PANEL_DB_NAME": s_db_name,
+                            "PANEL_DB_USER": s_db_user,
+                            "PANEL_DB_USER_PASSWORD": s_db_pass,
+                            "PANEL_APP_PORT_HTTP": s_port,
+                        }
+                        try:
+                            install_resp = panel_client.install_app(
+                                app_detail_id=s_app_detail_id, name=s_alias,
+                                params=install_params, services={s_db_service: s_db_service},
+                                advanced=True, allow_port=True,
+                            )
+                        except Exception as e:
+                            update_bg_task(sid, status="failed", message=f"安装WordPress应用失败: {str(e)[:80]}")
+                            return
+
+                        if install_resp.get("code") != 200:
+                            update_bg_task(sid, status="failed",
+                                           message=f"安装WordPress应用失败: {install_resp.get('message', '未知错误')[:80]}")
+                            return
+
+                        # Wait for app to start
+                        time.sleep(5)
+
+                        # Get installed app ID
+                        try:
+                            new_installed = panel_client.search_installed_apps(name=s_alias)
+                            if new_installed.get("code") == 200:
+                                new_app = next(
+                                    (a for a in new_installed.get("data", {}).get("items", [])
+                                     if a.get("name") == s_alias), None,
+                                )
+                                if new_app:
+                                    app_install_id = new_app.get("id")
+                                    container_name = new_app.get("container", "")
+                        except Exception:
+                            pass
+
+                        # Fix allowPort if needed
+                        if app_install_id:
+                            try:
+                                panel_client.update_installed(
+                                    install_id=app_install_id,
+                                    params={"PANEL_APP_PORT_HTTP": s_port},
+                                    advanced=True, allow_port=True,
+                                )
+                            except Exception:
+                                pass
+
+                        # === Step 3: Create deployment website (OpenResty) ===
+                        update_bg_task(sid, status="deploying",
+                                       message="1Panel正在部署网站，使用OpenResty...")
+                        try:
+                            website_result = panel_client.create_website(
+                                primary_domain=s_domain,
+                                alias=s_alias,
+                                app_type="installed",
+                                app_install_id=app_install_id,
+                                website_group_id=s_group_id,
+                                enable_ipv6=True,
+                            )
+                            if website_result.get("code") == 200:
+                                # Find the website ID
+                                ws = panel_client.search_websites(name=s_domain)
+                                if ws.get("code") == 200:
+                                    items = ws.get("data", {}).get("items") or []
+                                    for w in items:
+                                        if w.get("alias") == s_alias:
+                                            panel_website_id = w.get("id")
+                                            break
+                                update_bg_task(sid, status="deploying",
+                                               message="1Panel已部署网站(OpenResty)，正在等待WordPress就绪...")
+                            else:
+                                logger.warning(f"Create deployment website failed: {website_result.get('message', '')}")
+                                update_bg_task(sid, status="installing",
+                                               message="网站部署未成功，正在尝试直接初始化WordPress...")
+                        except Exception as e:
+                            logger.warning(f"Create deployment website exception: {e}")
+                            update_bg_task(sid, status="installing",
+                                           message="网站部署异常，正在尝试直接初始化WordPress...")
+
+                        # Update local DB with panel IDs
+                        try:
+                            update_site_fields(sid, {
+                                "panel_website_id": panel_website_id,
+                                "panel_app_install_id": app_install_id,
+                                "panel_app_detail_id": s_app_detail_id,
+                                "nginx_alias": s_alias,
+                            })
+                        except Exception:
+                            pass
+
+                        # === Step 4: Wait for WordPress to be ready, then auto-install ===
+                        update_bg_task(sid, status="installing",
+                                       message="WordPress正在启动，等待就绪...")
+
+                        # Wait for WordPress container to fully start
+                        from config import config as app_config
+                        wp_host = app_config.PANEL_SERVER_IP
+                        wp_check_url = f"http://{wp_host}:{s_port}/"
+                        logger.info(f"WP readiness check: url={wp_check_url}")
+                        max_wait = 120  # seconds
+                        waited = 0
+                        wp_ready = False
+                        while waited < max_wait:
+                            try:
+                                check_resp = http_requests.get(
+                                    wp_check_url,
+                                    timeout=5, allow_redirects=False,
+                                )
+                                logger.info(f"WP check: status={check_resp.status_code}, waited={waited}s")
+                                if check_resp.status_code in (200, 301, 302):
+                                    wp_ready = True
+                                    break
+                            except Exception as ce:
+                                logger.info(f"WP check failed: {ce}, waited={waited}s")
+                            time.sleep(5)
+                            waited += 5
+
+                        if not wp_ready:
+                            update_bg_task(sid, status="failed",
+                                           message=f"WordPress应用启动超时({max_wait}秒)，请手动检查")
+                            return
+
+                        # === Step 5: Auto-complete WordPress installation ===
+                        update_bg_task(sid, status="installing",
+                                       message="WordPress正在初始化配置...")
+                        result = auto_install_wordpress(
+                            container_name=container_name or "",
+                            site_url=f"http://{s_domain}",
+                            site_title=s_domain,
+                            admin_user=s_admin,
+                            admin_password=s_password,
+                            admin_email=f"admin@{s_domain}",
+                            port=s_port,
+                        )
+
+                        if result.get("success"):
+                            # === Step 6: Install plugins ===
+                            if s_plugin_ids:
+                                update_bg_task(sid, status="installing",
+                                               message=f"WordPress已安装，正在安装 {len(s_plugin_ids)} 个插件...")
+                                try:
+                                    wp_url = f"http://{wp_host}:{s_port}"
+                                    plugin_results = install_plugins_to_site(
+                                        wp_url, s_admin, s_password, s_plugin_ids)
+                                    ok = sum(1 for r in plugin_results if r.get("status") == "success")
+                                    update_bg_task(sid, status="installed",
+                                                   message=f"部署完成！WordPress已安装，{ok}/{len(s_plugin_ids)} 个插件安装成功")
+                                except Exception as pe:
+                                    update_bg_task(sid, status="installed",
+                                                   message=f"部署完成！WordPress已安装，插件安装失败: {str(pe)[:60]}")
+                            else:
+                                update_bg_task(sid, status="installed",
+                                               message="部署完成！1Panel(OpenResty) + WordPress 安装成功")
+                        else:
+                            update_bg_task(sid, status="failed",
+                                           message=f"WordPress初始化失败: {result.get('message', '未知错误')[:80]}")
+
+                    except Exception as e:
+                        update_bg_task(sid, status="failed", message=f"部署异常: {str(e)[:100]}")
+                        logger.error(f"BG deploy error for {s_domain}: {e}")
+
+                # Get group ID before starting bg thread
+                try:
+                    group_id = panel_client.ensure_website_group()
+                except Exception:
+                    group_id = 1
+
                 bg_thread = threading.Thread(
-                    target=_bg_wp_install,
-                    args=(site_id_for_bg, container_name, f"http://{domain}", site_name,
-                          default_admin, default_password, f"admin@{domain}", port, plugin_ids),
+                    target=_bg_deploy,
+                    args=(site_id_for_bg, alias, domain, port, db_name, db_user, db_pass,
+                          app_detail_id, db_service, default_admin, default_password,
+                          plugin_ids, group_id),
                     daemon=True,
                 )
                 bg_thread.start()
-                logger.info(f"Started background WP install for {domain} (site_id={site_id_for_bg})")
-
-                # Plugin results will be populated by the background thread
-                plugin_results = []
+                logger.info(f"Started background deployment for {domain} (site_id={site_id_for_bg})")
 
                 results.append({
                     "domain": domain,
                     "status": "success",
                     "port": port,
                     "site_id": site["id"] if site else None,
-                    "panel_app_install_id": app_install_id,
-                    "panel_website_id": panel_website_id,
-                    "container_name": container_name,
-                    "website_created": website_result.get("code") == 200 if website_result else False,
-                    "wp_installed": False,  # Will be updated by background task
                     "wp_install_status": "installing",
-                    "plugin_results": plugin_results,
+                    "wp_install_message": "1Panel正在创建数据库...",
                 })
 
             success_count = sum(1 for r in results if r["status"] == "success")

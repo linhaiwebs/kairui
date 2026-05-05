@@ -364,8 +364,8 @@ const app = createApp({
                             createProgress.results = resp.data.results || [];
                             const s = resp.data.success || 0;
                             const e = resp.data.error || 0;
-                            createProgress.message = `批量创建完成：${s} 成功，${e} 失败。WordPress正在后台安装中...`;
-                            showToast(`批量创建完成：${s} 成功，${e} 失败`);
+                            createProgress.message = `批量部署已提交：${s} 个站点正在部署中...`;
+                            showToast(`批量部署已提交：${s} 个站点正在1Panel中部署`);
                             // Start polling WP install status for each site
                             for (const r of createProgress.results) {
                                 if (r.site_id && r.wp_install_status === 'installing') {
@@ -455,9 +455,9 @@ const app = createApp({
                 // Start WP install status polling
                 if (result?.site_id && result?.wp_install_status === 'installing') {
                     startWPPolling(result.site_id, domain);
-                    showToast(`站点 ${domain} 一键部署成功！端口: ${result?.port || '未知'}，WordPress正在安装中...`);
+                    showToast(`站点 ${domain} 部署已提交，1Panel正在部署...`);
                 } else {
-                    showToast(`站点 ${domain} 一键部署成功！端口: ${result?.port || '未知'}`);
+                    showToast(`站点 ${domain} 部署已提交，端口: ${result?.port || '未知'}`);
                 }
             } else {
                 await API.createSite({
@@ -479,7 +479,7 @@ const app = createApp({
         // ---- WP安装状态轮询 ----
         function startWPPolling(siteId, domain) {
             if (wpPollingTimers[siteId]) return; // Already polling
-            wpInstallStatuses[siteId] = { status: 'installing', message: 'WordPress安装中...', domain };
+            wpInstallStatuses[siteId] = { status: 'installing', message: '1Panel正在创建数据库...', domain };
             
             const timer = setInterval(async () => {
                 try {
@@ -488,17 +488,17 @@ const app = createApp({
                         wpInstallStatuses[siteId] = { ...resp.data, domain };
                         if (resp.data.status === 'installed') {
                             stopWPPolling(siteId);
-                            showToast(`${domain || siteId} WordPress安装成功！`, 'success');
+                            showToast(`${domain || siteId} 部署完成！WordPress安装成功`, 'success');
                             await loadSites();
                         } else if (resp.data.status === 'failed') {
                             stopWPPolling(siteId);
-                            showToast(`${domain || siteId} WordPress安装失败: ${resp.data.message}`, 'error');
+                            showToast(`${domain || siteId} 部署失败: ${resp.data.message}`, 'error');
                         }
                     }
                 } catch (e) {
                     console.error('WP polling error:', e);
                 }
-            }, 10000); // Poll every 10 seconds
+            }, 5000); // Poll every 5 seconds for real-time updates
             
             wpPollingTimers[siteId] = timer;
         }
@@ -770,11 +770,13 @@ const app = createApp({
                             <td class="px-4 py-3"><span class="badge bg-indigo-100 text-indigo-800" v-if="s.tag">{{ s.tag }}</span><span v-else>-</span></td>
                             <td class="px-4 py-3 text-sm">{{ s.security_id || '-' }}</td>
                             <td class="px-4 py-3 text-sm">
-                                <span v-if="wpInstallStatuses[s.id]?.status === 'installing'" class="badge bg-yellow-100 text-yellow-800"><i class="fas fa-spinner fa-spin mr-1"></i>安装中</span>
-                                <span v-else-if="wpInstallStatuses[s.id]?.status === 'installed'" class="badge bg-green-100 text-green-800"><i class="fas fa-check mr-1"></i>已安装</span>
-                                <span v-else-if="wpInstallStatuses[s.id]?.status === 'failed'" class="badge bg-red-100 text-red-800" :title="wpInstallStatuses[s.id]?.message"><i class="fas fa-times mr-1"></i>失败</span>
-                                <span v-else-if="s.panel_website_id" class="badge bg-green-100 text-green-800" title="已通过1Panel一键部署创建"><i class="fas fa-rocket mr-1"></i>已部署</span>
+                                <span v-if="wpInstallStatuses[s.id]?.status === 'deploying'" class="badge bg-blue-100 text-blue-800" :title="wpInstallStatuses[s.id]?.message"><i class="fas fa-server fa-spin mr-1"></i>部署中</span>
+                                <span v-else-if="wpInstallStatuses[s.id]?.status === 'installing'" class="badge bg-yellow-100 text-yellow-800" :title="wpInstallStatuses[s.id]?.message"><i class="fas fa-spinner fa-spin mr-1"></i>安装中</span>
+                                <span v-else-if="wpInstallStatuses[s.id]?.status === 'installed'" class="badge bg-green-100 text-green-800" :title="wpInstallStatuses[s.id]?.message"><i class="fas fa-check-circle mr-1"></i>已完成</span>
+                                <span v-else-if="wpInstallStatuses[s.id]?.status === 'failed'" class="badge bg-red-100 text-red-800" :title="wpInstallStatuses[s.id]?.message"><i class="fas fa-times-circle mr-1"></i>失败</span>
+                                <span v-else-if="s.panel_website_id" class="badge bg-green-100 text-green-800" title="已通过1Panel一键部署"><i class="fas fa-rocket mr-1"></i>已部署</span>
                                 <span v-else class="text-gray-400">-</span>
+                                <div v-if="wpInstallStatuses[s.id]?.message" class="text-xs text-gray-500 mt-1 max-w-[180px] truncate">{{ wpInstallStatuses[s.id].message }}</div>
                             </td>
                             <td class="px-4 py-3 text-sm">{{ s.http_username || '-' }}</td>
                             <td class="px-4 py-3 text-sm"><span class="font-mono text-xs" v-if="s.http_password">••••••</span><span v-else>-</span></td>

@@ -96,7 +96,7 @@ Production: `./start.sh start` (uses gunicorn + gevent)
 
 ## Critical 1Panel API Patterns
 
-### WordPress Installation Workflow (CORRECT - as of 2024)
+### WordPress Installation Workflow (CORRECT - as of 2026-05)
 1. **Create database first** via `POST /databases` with base64-encoded password
    - The `database` field must be the 1Panel DB service name (e.g., "mariadb")
    - Password must be base64-encoded: `base64.b64encode(password.encode()).decode()`
@@ -104,17 +104,43 @@ Production: `./start.sh start` (uses gunicorn + gevent)
    - `PANEL_DB_HOST` = 1Panel database name (e.g., "mariadb"), NOT container name
    - 1Panel auto-resolves this to the actual service address and sets PANEL_DB_PORT
    - `advanced: true` and `allowPort: true` for external access
-3. **Fix allowPort** if needed via `POST /apps/installed/params/update`
-   - Use this to ensure port is externally accessible
+3. **Create deployment website** via `POST /websites` with:
+   - `WebsiteGroupID: 1` (1Panel requires this, even if no groups exist)
+   - `domains: [{"domain": "example.com", "port": 80}]` (array of objects, NOT strings)
+   - `appType: "installed"` + `appInstallID: <id>` to link to installed WP app
+4. **Auto-install WordPress** via HTTP POST to wp-admin/install.php
+
+### 1Panel API Field Naming Conventions
+**CRITICAL**: 1Panel uses Go struct tags with specific capitalization:
+- `WebsiteGroupID` (NOT `webSiteGroupID`) - capital W and G
+- `OrderBy` / `Order` (NOT `orderBy` / `order`) - capital O
+- `Page` / `PageSize` for databases/search (but lowercase `page`/`pageSize` for apps)
+- `DeleteApp` / `DeleteBackup` / `ForceDelete` / `DeleteDB` (NOT camelCase)
+- `DeleteUser` / `ForceDelete` for databases
+- `IPV6` (all caps) for website creation
+- `appInstallID` (camelCase) for website creation
+- **Rule of thumb**: Check swagger at `/swagger/doc.json` or test empirically
+
+### 1Panel API Endpoint Notes
+- `POST /websites/search` requires `OrderBy` and `Order` (capital O) as required fields
+- `POST /databases/search` requires `Page`, `PageSize`, `OrderBy`, `Order`, `Type`, `Database`
+- `POST /websites` creates a deployment website (NOT `/websites/create`)
+- `POST /websites/del` deletes a website (with DeleteApp to also remove the linked app)
+- `POST /apps/installed/op` operates on installed apps (operate: "delete", "start", "stop", "restart")
+- `GET /websites/groups` returns website groups (returns 500 "record not found" if no groups)
 
 ### Common 1Panel API Gotchas
 - `/databases` requires base64-encoded password
-- `/databases/search` requires `type`, `database`, `orderBy`, `order` params
+- `/databases/search` requires `Type`, `Database`, `OrderBy`, `Order` params (all capitalized)
 - `PANEL_DB_HOST` must be the 1Panel DB service NAME, not container name — 1Panel resolves it via `databaseRepo.Get(commonRepo.WithByName(hostName))`
 - `.env` file changes via `files/save` don't persist through 1Panel rebuilds
-- Empty `CPUS`/`MEMORY_LIMIT` in `.env` causes Docker Comparse parse failure (UpErr)
+- Empty `CPUS`/`MEMORY_LIMIT` in `.env` causes Docker Compose parse failure (UpErr)
 - The update endpoint is `/apps/installed/params/update`, NOT `/apps/installed/update`
 - `services` in install request should be `{dbServiceName: dbServiceName}`
+- "标识已存在" error: alias conflicts with existing app/website, must be unique
+- "域名已被网站使用" error: domain already assigned to another website
+- Deleting a website with `DeleteApp: true` also removes the linked app
+- Website group ID=1 works as default even without creating a group first
 
 ## Admin Login
 - Username: adsadmin
@@ -169,10 +195,10 @@ Site Name, Url, Admin Name, Admin Password, Tag, Security ID, HTTP Username, HTT
 5. install_plugins_to_site(site_url, admin_user, admin_password, plugin_ids)
 
 ## Known Working Test Sites (as of 2026-05-05)
-- realtest.local:8270 - Basic WP install test
-- siteA.local:8280 - Batch create test
-- siteB.local:8281 - Batch create test
-- plugin-test.local:8290 - Plugin install test (wp-manager-hello plugin installed)
+- site1.lhwebs.com:8400 - Batch create test (verified WP login works)
+- site2.lhwebs.com:8401 - Batch create test
+- site3.lhwebs.com:8402 - Batch create test
+- All above tested: create → deploy → WP auto-install → CSV export → delete
 
 ## Dependencies
 Python: flask, flask-cors, flask-jwt-extended, requests, gunicorn, gevent
