@@ -10,6 +10,9 @@ build/
 # Database
 *.db
 
+# Uploaded plugin files
+backend/plugins/*.zip
+
 # Environment
 .env
 .venv/

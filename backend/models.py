@@ -59,6 +59,20 @@ def init_db():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS plugins (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            file_size INTEGER DEFAULT 0,
+            description TEXT DEFAULT '',
+            enabled INTEGER DEFAULT 1,
+            created_at TEXT,
+            updated_at TEXT
+        )
+    """)
+
     # Insert default global config
     defaults = {
         "default_admin_name": "admin",
@@ -190,5 +204,71 @@ def update_global_config(key, value):
             (key, json.dumps(value) if isinstance(value, (list, dict)) else value, now),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+# ---- Plugin CRUD ----
+
+def create_plugin(data):
+    conn = get_db()
+    plugin_id = str(uuid.uuid4())[:8]
+    now = datetime.utcnow().isoformat()
+    try:
+        conn.execute(
+            """INSERT INTO plugins (id, name, filename, file_path, file_size, description, enabled, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                plugin_id,
+                data.get("name", ""),
+                data.get("filename", ""),
+                data.get("file_path", ""),
+                data.get("file_size", 0),
+                data.get("description", ""),
+                1 if data.get("enabled", True) else 0,
+                now, now,
+            ),
+        )
+        conn.commit()
+        return get_plugin(plugin_id)
+    finally:
+        conn.close()
+
+
+def get_plugin(plugin_id):
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT * FROM plugins WHERE id = ?", (plugin_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_plugins():
+    conn = get_db()
+    try:
+        rows = conn.execute("SELECT * FROM plugins ORDER BY created_at DESC").fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def delete_plugin(plugin_id):
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT file_path FROM plugins WHERE id = ?", (plugin_id,)).fetchone()
+        if row and row["file_path"] and os.path.isfile(row["file_path"]):
+            os.remove(row["file_path"])
+        conn.execute("DELETE FROM plugins WHERE id = ?", (plugin_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_enabled_plugins():
+    conn = get_db()
+    try:
+        rows = conn.execute("SELECT * FROM plugins WHERE enabled = 1").fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()

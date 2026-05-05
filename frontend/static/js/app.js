@@ -51,6 +51,7 @@ const app = createApp({
             base_port: 8081,
             db_service: 'mariadb',
             website_group_id: 1,
+            selected_plugins: [],
         });
 
         // 编辑站点
@@ -60,6 +61,11 @@ const app = createApp({
 
         // 创建进度
         const createProgress = reactive({ show: false, current: 0, total: 0, message: '', results: [] });
+
+        // 插件
+        const plugins = ref([]);
+        const uploadProgress = ref(0);
+        const showPluginUpload = ref(false);
 
         // 全局配置
         const globalConfig = reactive({
@@ -83,6 +89,14 @@ const app = createApp({
             modal.content = content;
             modal.onConfirm = onConfirm;
             modal.show = true;
+        }
+
+        function formatSize(bytes) {
+            if (!bytes) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
         }
 
         async function handleLogin() {
@@ -120,6 +134,7 @@ const app = createApp({
                     checkPanelStatus(),
                     loadPanelData(),
                     loadConfig(),
+                    loadPlugins(),
                 ]);
             } finally {
                 loading.value = false;
@@ -190,6 +205,91 @@ const app = createApp({
             }
         }
 
+        // ---- 插件 ----
+        async function loadPlugins() {
+            try {
+                const resp = await API.getPlugins();
+                if (resp.code === 200) {
+                    plugins.value = resp.data || [];
+                }
+            } catch (e) {
+                console.error('加载插件失败:', e);
+            }
+        }
+
+        async function handlePluginUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            if (!file.name.endsWith('.zip')) {
+                showToast('仅支持 .zip 格式的插件文件', 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('description', '');
+
+            loading.value = true;
+            try {
+                const resp = await API.uploadPlugin(formData);
+                if (resp.code === 200) {
+                    showToast(`插件 ${file.name} 上传成功`);
+                    await loadPlugins();
+                    // Auto-select the newly uploaded plugin
+                    if (resp.data?.id) {
+                        createForm.selected_plugins.push(resp.data.id);
+                    }
+                } else {
+                    showToast(resp.message || '上传失败', 'error');
+                }
+            } catch (e) {
+                showToast('上传失败', 'error');
+            } finally {
+                loading.value = false;
+                event.target.value = '';
+            }
+        }
+
+        async function handleDeletePlugin(plugin) {
+            showModal(
+                '删除插件',
+                `确定要删除插件 "${plugin.name}" 吗？已安装的站点不受影响，但新创建的站点将不再自动安装此插件。`,
+                async () => {
+                    loading.value = true;
+                    try {
+                        await API.deletePlugin(plugin.id);
+                        createForm.selected_plugins = createForm.selected_plugins.filter(id => id !== plugin.id);
+                        showToast('插件已删除');
+                        await loadPlugins();
+                    } catch (e) {
+                        showToast('删除失败', 'error');
+                    } finally {
+                        loading.value = false;
+                    }
+                    modal.show = false;
+                }
+            );
+        }
+
+        async function handleTogglePlugin(plugin) {
+            try {
+                await API.togglePlugin(plugin.id);
+                await loadPlugins();
+                showToast(plugin.enabled ? '插件已禁用' : '插件已启用');
+            } catch (e) {
+                showToast('操作失败', 'error');
+            }
+        }
+
+        function togglePluginSelection(pluginId) {
+            const idx = createForm.selected_plugins.indexOf(pluginId);
+            if (idx >= 0) {
+                createForm.selected_plugins.splice(idx, 1);
+            } else {
+                createForm.selected_plugins.push(pluginId);
+            }
+        }
+
         // ---- 创建站点 ----
         function openCreateModal(mode = 'single') {
             createForm.mode = mode;
@@ -205,6 +305,7 @@ const app = createApp({
             createForm.ssl_version = 'auto';
             createForm.domains = '';
             createForm.base_port = 8081;
+            createForm.selected_plugins = [];
             showCreateModal.value = true;
         }
 
@@ -220,7 +321,6 @@ const app = createApp({
                     const domain = createForm.site_name.trim();
                     await createSingleSite(domain);
                 } else {
-                    // 批量创建
                     const domains = createForm.domains.split('\n')
                         .map(d => d.trim())
                         .filter(d => d.length > 0);
@@ -266,7 +366,6 @@ const app = createApp({
             const alias = domain.replace(/\./g, '-');
 
             if (panelConnected.value) {
-                // 1. 获取 WordPress 应用信息
                 createProgress.message = '正在获取WordPress应用信息...';
                 const appResp = await API.panelSearchApps('wordpress');
                 if (appResp.code !== 200 || !appResp.data?.items?.length) {
@@ -277,7 +376,6 @@ const app = createApp({
                 const versions = wpApp.versions || [];
                 const version = versions[0] || '6.9.4';
 
-                // 2. 获取应用详情
                 createProgress.message = `正在获取WordPress ${version} 详情...`;
                 const detailResp = await API.panelGetAppDetail(wpApp.id, version);
                 if (detailResp.code !== 200) {
@@ -285,7 +383,6 @@ const app = createApp({
                 }
                 const appDetailId = detailResp.data.id;
 
-                // 3. 获取数据库服务
                 createProgress.message = '正在获取数据库服务信息...';
                 const dbResp = await API.panelGetAppServices(createForm.db_service);
                 if (dbResp.code !== 200 || !dbResp.data?.length) {
@@ -293,7 +390,7 @@ const app = createApp({
                 }
                 const dbService = dbResp.data[0];
 
-                // 4. 查找可用端口
+                // Find available port from ALL installed apps
                 const usedPorts = new Set(
                     panelInstalledApps.value
                         .filter(a => a.httpPort)
@@ -302,13 +399,11 @@ const app = createApp({
                 let port = createForm.base_port;
                 while (usedPorts.has(port)) port++;
 
-                // 5. 生成数据库凭据
                 const dbSuffix = Math.random().toString(36).substring(2, 8);
                 const dbPass = Math.random().toString(36).substring(2, 14);
 
                 createProgress.message = `正在安装WordPress到1Panel (端口: ${port})...`;
 
-                // 6. 安装 WordPress 应用
                 const installResp = await API.panelInstallApp({
                     appDetailId: appDetailId,
                     name: alias,
@@ -326,10 +421,8 @@ const app = createApp({
                     throw new Error(`安装WordPress失败: ${installResp.message || '未知错误'}`);
                 }
 
-                // 等待安装注册
                 await new Promise(r => setTimeout(r, 3000));
 
-                // 7. 查找已安装的应用ID
                 const newInstalled = await API.panelSearchInstalled('wordpress');
                 let appInstallId = null;
                 if (newInstalled.code === 200) {
@@ -337,7 +430,6 @@ const app = createApp({
                     if (newApp) appInstallId = newApp.id;
                 }
 
-                // 8. 创建网站
                 createProgress.message = `正在创建网站 ${domain}...`;
                 const websiteResp = await API.panelCreateWebsite({
                     primaryDomain: domain,
@@ -356,7 +448,6 @@ const app = createApp({
                     panelWebsiteId = websiteResp.data?.id || websiteResp.data;
                 }
 
-                // 9. 保存到本地数据库
                 await API.createSite({
                     site_name: domain,
                     url: createForm.url || `http://${domain}`,
@@ -371,11 +462,11 @@ const app = createApp({
                     panel_website_id: panelWebsiteId,
                     panel_app_install_id: appInstallId,
                     panel_app_detail_id: appDetailId,
+                    plugin_ids: createForm.selected_plugins,
                 });
 
                 showToast(`站点 ${domain} 创建成功！`);
             } else {
-                // 仅本地保存
                 await API.createSite({
                     site_name: domain,
                     url: createForm.url || `http://${domain}`,
@@ -449,13 +540,11 @@ const app = createApp({
             );
         }
 
-        // ---- 导出CSV ----
         function exportCSV() {
             API.exportCSV();
             showToast('CSV文件已导出');
         }
 
-        // ---- 保存配置 ----
         async function saveGlobalConfig() {
             loading.value = true;
             try {
@@ -468,7 +557,6 @@ const app = createApp({
             }
         }
 
-        // ---- 初始化 ----
         onMounted(async () => {
             if (API.token) {
                 try {
@@ -492,10 +580,12 @@ const app = createApp({
             showCreateModal, createForm,
             showEditModal, editForm, editingSiteId,
             globalConfig, createProgress,
+            plugins, uploadProgress, showPluginUpload, formatSize,
             handleLogin, handleLogout, refreshSites,
             openCreateModal, submitCreate,
             openEditModal, submitEdit,
             confirmDelete, saveGlobalConfig, exportCSV,
+            loadPlugins, handlePluginUpload, handleDeletePlugin, handleTogglePlugin, togglePluginSelection,
             showToast, showModal,
         };
     },
@@ -549,31 +639,30 @@ const app = createApp({
                     </div>
                 </div>
             </div>
-
             <nav class="flex-1 p-4 space-y-1">
                 <a @click="currentPage = 'dashboard'"
                     :class="['flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition', currentPage === 'dashboard' ? 'bg-white bg-opacity-20' : 'hover:bg-white hover:bg-opacity-10']">
-                    <i class="fas fa-tachometer-alt w-5 text-center"></i>
-                    <span>仪表盘</span>
+                    <i class="fas fa-tachometer-alt w-5 text-center"></i><span>仪表盘</span>
                 </a>
                 <a @click="currentPage = 'sites'"
                     :class="['flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition', currentPage === 'sites' ? 'bg-white bg-opacity-20' : 'hover:bg-white hover:bg-opacity-10']">
-                    <i class="fas fa-globe w-5 text-center"></i>
-                    <span>站点列表</span>
+                    <i class="fas fa-globe w-5 text-center"></i><span>站点列表</span>
                     <span class="ml-auto bg-indigo-500 text-xs px-2 py-0.5 rounded-full">{{ sites.length }}</span>
                 </a>
                 <a @click="currentPage = 'create'"
                     :class="['flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition', currentPage === 'create' ? 'bg-white bg-opacity-20' : 'hover:bg-white hover:bg-opacity-10']">
-                    <i class="fas fa-plus-circle w-5 text-center"></i>
-                    <span>创建站点</span>
+                    <i class="fas fa-plus-circle w-5 text-center"></i><span>创建站点</span>
+                </a>
+                <a @click="currentPage = 'plugins'"
+                    :class="['flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition', currentPage === 'plugins' ? 'bg-white bg-opacity-20' : 'hover:bg-white hover:bg-opacity-10']">
+                    <i class="fas fa-plug w-5 text-center"></i><span>插件管理</span>
+                    <span class="ml-auto bg-indigo-500 text-xs px-2 py-0.5 rounded-full">{{ plugins.length }}</span>
                 </a>
                 <a @click="currentPage = 'settings'"
                     :class="['flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition', currentPage === 'settings' ? 'bg-white bg-opacity-20' : 'hover:bg-white hover:bg-opacity-10']">
-                    <i class="fas fa-cog w-5 text-center"></i>
-                    <span>系统设置</span>
+                    <i class="fas fa-cog w-5 text-center"></i><span>系统设置</span>
                 </a>
             </nav>
-
             <div class="p-4 border-t border-indigo-700">
                 <div class="flex items-center gap-3 px-2">
                     <div class="w-8 h-8 bg-indigo-500 rounded-full flex items-center justify-center">
@@ -596,7 +685,7 @@ const app = createApp({
             <header class="bg-white border-b px-8 py-4 flex items-center justify-between">
                 <div>
                     <h1 class="text-xl font-bold text-gray-800">
-                        {{ currentPage === 'dashboard' ? '仪表盘' : currentPage === 'sites' ? '站点列表' : currentPage === 'create' ? '创建WordPress站点' : '系统设置' }}
+                        {{ currentPage === 'dashboard' ? '仪表盘' : currentPage === 'sites' ? '站点列表' : currentPage === 'create' ? '创建WordPress站点' : currentPage === 'plugins' ? '插件管理' : '系统设置' }}
                     </h1>
                     <p class="text-sm text-gray-500">
                         <span :class="panelConnected ? 'text-green-500' : 'text-red-500'">
@@ -605,434 +694,170 @@ const app = createApp({
                         </span>
                     </p>
                 </div>
-                <div class="flex gap-3">
-                    <button @click="refreshSites" class="px-4 py-2 border rounded-lg hover:bg-gray-50 transition text-sm">
-                        <i class="fas fa-sync-alt mr-2" :class="{'fa-spin': loading}"></i>刷新
-                    </button>
-                </div>
+                <button @click="refreshSites" class="px-4 py-2 border rounded-lg hover:bg-gray-50 transition text-sm">
+                    <i class="fas fa-sync-alt mr-2" :class="{'fa-spin': loading}"></i>刷新
+                </button>
             </header>
 
-            <!-- 仪表盘页面 -->
+            <!-- 仪表盘 -->
             <div v-if="currentPage === 'dashboard'" class="p-8 fade-in">
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                    <div class="bg-white rounded-xl p-6 card-shadow">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm text-gray-500">站点总数</p>
-                                <p class="text-3xl font-bold text-gray-800 mt-1">{{ sites.length }}</p>
-                            </div>
-                            <div class="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
-                                <i class="fas fa-globe text-indigo-600 text-xl"></i>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="bg-white rounded-xl p-6 card-shadow">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm text-gray-500">活跃站点</p>
-                                <p class="text-3xl font-bold text-green-600 mt-1">{{ sites.filter(s => s.status === 'active').length }}</p>
-                            </div>
-                            <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                                <i class="fas fa-check-circle text-green-600 text-xl"></i>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="bg-white rounded-xl p-6 card-shadow">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm text-gray-500">1Panel 网站</p>
-                                <p class="text-3xl font-bold text-purple-600 mt-1">{{ panelWebsites.length }}</p>
-                            </div>
-                            <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                                <i class="fas fa-server text-purple-600 text-xl"></i>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="bg-white rounded-xl p-6 card-shadow">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm text-gray-500">已安装应用</p>
-                                <p class="text-3xl font-bold text-orange-600 mt-1">{{ panelInstalledApps.length }}</p>
-                            </div>
-                            <div class="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
-                                <i class="fas fa-cubes text-orange-600 text-xl"></i>
-                            </div>
-                        </div>
-                    </div>
+                    <div class="bg-white rounded-xl p-6 card-shadow"><div class="flex items-center justify-between"><div><p class="text-sm text-gray-500">站点总数</p><p class="text-3xl font-bold text-gray-800 mt-1">{{ sites.length }}</p></div><div class="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center"><i class="fas fa-globe text-indigo-600 text-xl"></i></div></div></div>
+                    <div class="bg-white rounded-xl p-6 card-shadow"><div class="flex items-center justify-between"><div><p class="text-sm text-gray-500">活跃站点</p><p class="text-3xl font-bold text-green-600 mt-1">{{ sites.filter(s => s.status === 'active').length }}</p></div><div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center"><i class="fas fa-check-circle text-green-600 text-xl"></i></div></div></div>
+                    <div class="bg-white rounded-xl p-6 card-shadow"><div class="flex items-center justify-between"><div><p class="text-sm text-gray-500">1Panel 网站</p><p class="text-3xl font-bold text-purple-600 mt-1">{{ panelWebsites.length }}</p></div><div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center"><i class="fas fa-server text-purple-600 text-xl"></i></div></div></div>
+                    <div class="bg-white rounded-xl p-6 card-shadow"><div class="flex items-center justify-between"><div><p class="text-sm text-gray-500">已安装应用</p><p class="text-3xl font-bold text-orange-600 mt-1">{{ panelInstalledApps.length }}</p></div><div class="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center"><i class="fas fa-cubes text-orange-600 text-xl"></i></div></div></div>
                 </div>
-
-                <!-- 1Panel 网站表格 -->
                 <div class="bg-white rounded-xl card-shadow mb-8">
-                    <div class="px-6 py-4 border-b flex items-center justify-between">
-                        <h3 class="font-semibold text-gray-800">1Panel 网站</h3>
-                    </div>
-                    <div class="overflow-x-auto">
-                        <table class="w-full">
-                            <thead>
-                                <tr class="bg-gray-50 text-left text-sm text-gray-600">
-                                    <th class="px-6 py-3">域名</th>
-                                    <th class="px-6 py-3">类型</th>
-                                    <th class="px-6 py-3">状态</th>
-                                    <th class="px-6 py-3">应用</th>
-                                    <th class="px-6 py-3">SSL</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="w in panelWebsites" :key="w.id" class="border-t table-row">
-                                    <td class="px-6 py-3 font-medium">{{ w.primaryDomain }}</td>
-                                    <td class="px-6 py-3"><span class="badge bg-blue-100 text-blue-800">{{ w.type }}</span></td>
-                                    <td class="px-6 py-3">
-                                        <span :class="w.status === 'Running' ? 'status-running' : 'status-stopped'">
-                                            <i class="fas fa-circle text-xs mr-1"></i>{{ w.status }}
-                                        </span>
-                                    </td>
-                                    <td class="px-6 py-3">{{ w.appName || '-' }}</td>
-                                    <td class="px-6 py-3">
-                                        <span :class="w.sslStatus === 'success' ? 'text-green-500' : 'text-red-500'" class="badge"
-                                            :style="{background: w.sslStatus === 'success' ? '#dcfce7' : '#fee2e2', color: w.sslStatus === 'success' ? '#166534' : '#991b1b'}">
-                                            {{ w.sslStatus === 'success' ? 'SSL 已启用' : '未启用SSL' }}
-                                        </span>
-                                    </td>
-                                </tr>
-                                <tr v-if="!panelWebsites.length">
-                                    <td colspan="5" class="px-6 py-8 text-center text-gray-400">
-                                        <i class="fas fa-inbox text-4xl mb-2"></i>
-                                        <p>1Panel中暂无网站</p>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+                    <div class="px-6 py-4 border-b"><h3 class="font-semibold text-gray-800">1Panel 网站</h3></div>
+                    <div class="overflow-x-auto"><table class="w-full"><thead><tr class="bg-gray-50 text-left text-sm text-gray-600"><th class="px-6 py-3">域名</th><th class="px-6 py-3">类型</th><th class="px-6 py-3">状态</th><th class="px-6 py-3">应用</th><th class="px-6 py-3">SSL</th></tr></thead><tbody>
+                        <tr v-for="w in panelWebsites" :key="w.id" class="border-t table-row"><td class="px-6 py-3 font-medium">{{ w.primaryDomain }}</td><td class="px-6 py-3"><span class="badge bg-blue-100 text-blue-800">{{ w.type }}</span></td><td class="px-6 py-3"><span :class="w.status === 'Running' ? 'status-running' : 'status-stopped'"><i class="fas fa-circle text-xs mr-1"></i>{{ w.status }}</span></td><td class="px-6 py-3">{{ w.appName || '-' }}</td><td class="px-6 py-3"><span class="badge" :style="{background: w.sslStatus === 'success' ? '#dcfce7' : '#fee2e2', color: w.sslStatus === 'success' ? '#166534' : '#991b1b'}">{{ w.sslStatus === 'success' ? 'SSL 已启用' : '未启用SSL' }}</span></td></tr>
+                        <tr v-if="!panelWebsites.length"><td colspan="5" class="px-6 py-8 text-center text-gray-400"><i class="fas fa-inbox text-4xl mb-2"></i><p>1Panel中暂无网站</p></td></tr>
+                    </tbody></table></div>
                 </div>
-
-                <!-- 已安装应用 -->
                 <div class="bg-white rounded-xl card-shadow">
-                    <div class="px-6 py-4 border-b flex items-center justify-between">
-                        <h3 class="font-semibold text-gray-800">1Panel 已安装应用</h3>
-                    </div>
+                    <div class="px-6 py-4 border-b"><h3 class="font-semibold text-gray-800">1Panel 已安装应用</h3></div>
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-6">
-                        <div v-for="a in panelInstalledApps" :key="a.id"
-                            class="border rounded-lg p-4 hover:shadow-md transition">
-                            <div class="flex items-center justify-between mb-2">
-                                <h4 class="font-semibold">{{ a.appName }}</h4>
-                                <span :class="a.status === 'Running' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'"
-                                    class="badge">{{ a.status }}</span>
-                            </div>
-                            <p class="text-sm text-gray-500">v{{ a.version }}</p>
-                            <p class="text-sm text-gray-500" v-if="a.httpPort">端口: {{ a.httpPort }}</p>
-                        </div>
+                        <div v-for="a in panelInstalledApps" :key="a.id" class="border rounded-lg p-4 hover:shadow-md transition"><div class="flex items-center justify-between mb-2"><h4 class="font-semibold">{{ a.appName }}</h4><span :class="a.status === 'Running' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'" class="badge">{{ a.status }}</span></div><p class="text-sm text-gray-500">v{{ a.version }}</p><p class="text-sm text-gray-500" v-if="a.httpPort">端口: {{ a.httpPort }}</p></div>
                     </div>
                 </div>
             </div>
 
-            <!-- 站点列表页面 -->
+            <!-- 站点列表 -->
             <div v-if="currentPage === 'sites'" class="p-8 fade-in">
                 <div class="bg-white rounded-xl card-shadow">
                     <div class="px-6 py-4 border-b flex items-center justify-between flex-wrap gap-4">
-                        <div class="flex items-center gap-4 flex-1">
-                            <div class="relative flex-1 max-w-md">
-                                <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
-                                <input v-model="searchQuery" type="text" placeholder="搜索站点..."
-                                    class="w-full pl-10 pr-4 py-2 border rounded-lg focus:border-indigo-500">
-                            </div>
-                        </div>
+                        <div class="relative flex-1 max-w-md"><i class="fas fa-search absolute left-3 top-3 text-gray-400"></i><input v-model="searchQuery" type="text" placeholder="搜索站点..." class="w-full pl-10 pr-4 py-2 border rounded-lg focus:border-indigo-500"></div>
                         <div class="flex gap-3">
-                            <button @click="exportCSV" class="px-4 py-2 border rounded-lg hover:bg-gray-50 text-sm">
-                                <i class="fas fa-download mr-2"></i>导出CSV
-                            </button>
-                            <button @click="currentPage = 'create'" class="btn-primary text-white px-4 py-2 rounded-lg text-sm">
-                                <i class="fas fa-plus mr-2"></i>添加站点
-                            </button>
+                            <button @click="exportCSV" class="px-4 py-2 border rounded-lg hover:bg-gray-50 text-sm"><i class="fas fa-download mr-2"></i>导出CSV</button>
+                            <button @click="currentPage = 'create'" class="btn-primary text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus mr-2"></i>添加站点</button>
                         </div>
                     </div>
-                    <div class="overflow-x-auto">
-                        <table class="w-full">
-                            <thead>
-                                <tr class="bg-gray-50 text-left text-xs text-gray-600 uppercase">
-                                    <th class="px-4 py-3">站点名称</th>
-                                    <th class="px-4 py-3">URL</th>
-                                    <th class="px-4 py-3">管理员</th>
-                                    <th class="px-4 py-3">管理员密码</th>
-                                    <th class="px-4 py-3">标签</th>
-                                    <th class="px-4 py-3">安全ID</th>
-                                    <th class="px-4 py-3">HTTP用户</th>
-                                    <th class="px-4 py-3">HTTP密码</th>
-                                    <th class="px-4 py-3">验证证书</th>
-                                    <th class="px-4 py-3">SSL版本</th>
-                                    <th class="px-4 py-3">操作</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="s in filteredSites" :key="s.id" class="border-t table-row">
-                                    <td class="px-4 py-3 font-medium text-sm">{{ s.site_name }}</td>
-                                    <td class="px-4 py-3">
-                                        <a :href="s.url" target="_blank" class="text-indigo-600 hover:underline text-sm">{{ s.url }}</a>
-                                    </td>
-                                    <td class="px-4 py-3 text-sm">{{ s.admin_name || '-' }}</td>
-                                    <td class="px-4 py-3 text-sm">
-                                        <span class="font-mono text-xs bg-gray-100 px-2 py-1 rounded">{{ s.admin_password ? '••••••' : '-' }}</span>
-                                    </td>
-                                    <td class="px-4 py-3"><span class="badge bg-indigo-100 text-indigo-800" v-if="s.tag">{{ s.tag }}</span><span v-else>-</span></td>
-                                    <td class="px-4 py-3 text-sm">{{ s.security_id || '-' }}</td>
-                                    <td class="px-4 py-3 text-sm">{{ s.http_username || '-' }}</td>
-                                    <td class="px-4 py-3 text-sm">
-                                        <span class="font-mono text-xs" v-if="s.http_password">••••••</span>
-                                        <span v-else>-</span>
-                                    </td>
-                                    <td class="px-4 py-3 text-sm">
-                                        <i :class="s.verify_certificate ? 'fas fa-check-circle text-green-500' : 'fas fa-times-circle text-red-500'"></i>
-                                        {{ s.verify_certificate ? '1' : '0' }}
-                                    </td>
-                                    <td class="px-4 py-3 text-sm">{{ s.ssl_version || 'auto' }}</td>
-                                    <td class="px-4 py-3">
-                                        <div class="flex gap-2">
-                                            <button @click="openEditModal(s)" class="text-indigo-600 hover:text-indigo-800" title="编辑">
-                                                <i class="fas fa-edit"></i>
-                                            </button>
-                                            <button @click="confirmDelete(s)" class="text-red-500 hover:text-red-700" title="删除">
-                                                <i class="fas fa-trash"></i>
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                                <tr v-if="!filteredSites.length">
-                                    <td colspan="11" class="px-6 py-12 text-center text-gray-400">
-                                        <i class="fas fa-inbox text-4xl mb-3 block"></i>
-                                        <p class="text-lg">暂无站点</p>
-                                        <p class="text-sm mt-1">点击"创建站点"开始安装您的第一个WordPress网站</p>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+                    <div class="overflow-x-auto"><table class="w-full"><thead><tr class="bg-gray-50 text-left text-xs text-gray-600 uppercase"><th class="px-4 py-3">站点名称</th><th class="px-4 py-3">URL</th><th class="px-4 py-3">管理员</th><th class="px-4 py-3">管理员密码</th><th class="px-4 py-3">标签</th><th class="px-4 py-3">安全ID</th><th class="px-4 py-3">HTTP用户</th><th class="px-4 py-3">HTTP密码</th><th class="px-4 py-3">验证证书</th><th class="px-4 py-3">SSL版本</th><th class="px-4 py-3">操作</th></tr></thead><tbody>
+                        <tr v-for="s in filteredSites" :key="s.id" class="border-t table-row">
+                            <td class="px-4 py-3 font-medium text-sm">{{ s.site_name }}</td>
+                            <td class="px-4 py-3"><a :href="s.url" target="_blank" class="text-indigo-600 hover:underline text-sm">{{ s.url }}</a></td>
+                            <td class="px-4 py-3 text-sm">{{ s.admin_name || '-' }}</td>
+                            <td class="px-4 py-3 text-sm"><span class="font-mono text-xs bg-gray-100 px-2 py-1 rounded">{{ s.admin_password ? '••••••' : '-' }}</span></td>
+                            <td class="px-4 py-3"><span class="badge bg-indigo-100 text-indigo-800" v-if="s.tag">{{ s.tag }}</span><span v-else>-</span></td>
+                            <td class="px-4 py-3 text-sm">{{ s.security_id || '-' }}</td>
+                            <td class="px-4 py-3 text-sm">{{ s.http_username || '-' }}</td>
+                            <td class="px-4 py-3 text-sm"><span class="font-mono text-xs" v-if="s.http_password">••••••</span><span v-else>-</span></td>
+                            <td class="px-4 py-3 text-sm"><i :class="s.verify_certificate ? 'fas fa-check-circle text-green-500' : 'fas fa-times-circle text-red-500'"></i> {{ s.verify_certificate ? '1' : '0' }}</td>
+                            <td class="px-4 py-3 text-sm">{{ s.ssl_version || 'auto' }}</td>
+                            <td class="px-4 py-3"><div class="flex gap-2"><button @click="openEditModal(s)" class="text-indigo-600 hover:text-indigo-800" title="编辑"><i class="fas fa-edit"></i></button><button @click="confirmDelete(s)" class="text-red-500 hover:text-red-700" title="删除"><i class="fas fa-trash"></i></button></div></td>
+                        </tr>
+                        <tr v-if="!filteredSites.length"><td colspan="11" class="px-6 py-12 text-center text-gray-400"><i class="fas fa-inbox text-4xl mb-3 block"></i><p class="text-lg">暂无站点</p><p class="text-sm mt-1">点击"创建站点"开始安装您的第一个WordPress网站</p></td></tr>
+                    </tbody></table></div>
                 </div>
             </div>
 
-            <!-- 创建站点页面 -->
+            <!-- 创建站点 -->
             <div v-if="currentPage === 'create'" class="p-8 fade-in">
                 <div class="max-w-3xl mx-auto">
                     <div class="bg-white rounded-xl card-shadow p-8">
-                        <!-- 模式切换 -->
                         <div class="flex gap-4 mb-8">
-                            <button @click="openCreateModal('single')"
-                                :class="['flex-1 py-3 rounded-lg font-semibold transition', createForm.mode === 'single' ? 'btn-primary text-white' : 'border hover:bg-gray-50']">
-                                <i class="fas fa-plus mr-2"></i>单个创建
-                            </button>
-                            <button @click="openCreateModal('batch')"
-                                :class="['flex-1 py-3 rounded-lg font-semibold transition', createForm.mode === 'batch' ? 'btn-primary text-white' : 'border hover:bg-gray-50']">
-                                <i class="fas fa-layer-group mr-2"></i>批量创建
-                            </button>
+                            <button @click="openCreateModal('single')" :class="['flex-1 py-3 rounded-lg font-semibold transition', createForm.mode === 'single' ? 'btn-primary text-white' : 'border hover:bg-gray-50']"><i class="fas fa-plus mr-2"></i>单个创建</button>
+                            <button @click="openCreateModal('batch')" :class="['flex-1 py-3 rounded-lg font-semibold transition', createForm.mode === 'batch' ? 'btn-primary text-white' : 'border hover:bg-gray-50']"><i class="fas fa-layer-group mr-2"></i>批量创建</button>
                         </div>
+                        <div v-if="!panelConnected" class="mb-6 bg-red-50 border border-red-200 rounded-lg p-4"><p class="text-red-700 text-sm"><i class="fas fa-exclamation-triangle mr-2"></i>1Panel未连接，站点将仅保存到本地，不会实际安装WordPress。</p></div>
+                        <div v-else class="mb-6 bg-green-50 border border-green-200 rounded-lg p-4"><p class="text-green-700 text-sm"><i class="fas fa-check-circle mr-2"></i>1Panel已连接，站点将通过1Panel API实际安装WordPress到服务器。</p></div>
+                        <div v-if="createForm.mode === 'single'" class="mb-6"><label class="block text-sm font-medium text-gray-700 mb-1">域名 / 站点名称</label><input v-model="createForm.site_name" type="text" placeholder="例如: site1.example.com" class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"><p class="text-xs text-gray-500 mt-1">将作为WordPress站点的主域名，同时用于1Panel创建网站</p></div>
+                        <div v-else class="mb-6"><label class="block text-sm font-medium text-gray-700 mb-1">域名列表（每行一个）</label><textarea v-model="createForm.domains" rows="6" placeholder="site1.example.com&#10;site2.example.com&#10;site3.example.com" class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"></textarea><p class="text-xs text-gray-500 mt-1">每个域名将创建一个独立的WordPress站点，端口自动递增避免冲突</p></div>
+                        <div v-if="createForm.mode === 'single'" class="mb-6"><label class="block text-sm font-medium text-gray-700 mb-1">URL（可选，留空则自动生成）</label><input v-model="createForm.url" type="text" placeholder="http://site1.example.com" class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"></div>
+                        <div class="grid grid-cols-2 gap-6 mb-6"><div><label class="block text-sm font-medium text-gray-700 mb-1">WP 管理员用户名</label><input v-model="createForm.admin_name" type="text" class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">WP 管理员密码</label><input v-model="createForm.admin_password" type="text" class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"></div></div>
+                        <div class="grid grid-cols-2 gap-6 mb-6"><div><label class="block text-sm font-medium text-gray-700 mb-1">标签</label><input v-model="createForm.tag" type="text" placeholder="例如: 生产环境" class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">安全ID</label><input v-model="createForm.security_id" type="text" placeholder="安全标识" class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"></div></div>
+                        <div class="bg-gray-50 rounded-lg p-4 mb-6"><h4 class="text-sm font-semibold text-gray-700 mb-3"><i class="fas fa-shield-alt mr-2"></i>HTTP 认证</h4><div class="grid grid-cols-2 gap-4"><div><label class="block text-xs font-medium text-gray-600 mb-1">HTTP 用户名</label><input v-model="createForm.http_username" type="text" placeholder="可选" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"></div><div><label class="block text-xs font-medium text-gray-600 mb-1">HTTP 密码</label><input v-model="createForm.http_password" type="text" placeholder="可选" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"></div></div></div>
+                        <div class="bg-gray-50 rounded-lg p-4 mb-6"><h4 class="text-sm font-semibold text-gray-700 mb-3"><i class="fas fa-certificate mr-2"></i>SSL 配置</h4><div class="grid grid-cols-2 gap-4"><div><label class="block text-xs font-medium text-gray-600 mb-1">验证证书</label><select v-model="createForm.verify_certificate" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"><option :value="true">是 (1)</option><option :value="false">否 (0)</option></select></div><div><label class="block text-xs font-medium text-gray-600 mb-1">SSL 版本</label><select v-model="createForm.ssl_version" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"><option value="auto">自动</option><option value="1.3">TLS 1.3</option><option value="1.2">TLS 1.2</option><option value="1.1">TLS 1.1</option><option value="1.0">TLS 1.0</option></select></div></div></div>
 
-                        <!-- 1Panel连接提示 -->
-                        <div v-if="!panelConnected" class="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
-                            <p class="text-red-700 text-sm"><i class="fas fa-exclamation-triangle mr-2"></i>1Panel未连接，站点将仅保存到本地，不会实际安装WordPress。请检查1Panel连接配置。</p>
-                        </div>
-                        <div v-else class="mb-6 bg-green-50 border border-green-200 rounded-lg p-4">
-                            <p class="text-green-700 text-sm"><i class="fas fa-check-circle mr-2"></i>1Panel已连接，站点将通过1Panel API实际安装WordPress到服务器。</p>
-                        </div>
-
-                        <!-- 域名输入 -->
-                        <div v-if="createForm.mode === 'single'" class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">域名 / 站点名称</label>
-                            <input v-model="createForm.site_name" type="text" placeholder="例如: site1.example.com"
-                                class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500">
-                            <p class="text-xs text-gray-500 mt-1">将作为WordPress站点的主域名，同时用于1Panel创建网站</p>
-                        </div>
-                        <div v-else class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">域名列表（每行一个）</label>
-                            <textarea v-model="createForm.domains" rows="6" placeholder="site1.example.com&#10;site2.example.com&#10;site3.example.com"
-                                class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"></textarea>
-                            <p class="text-xs text-gray-500 mt-1">每个域名将创建一个独立的WordPress站点</p>
-                        </div>
-
-                        <!-- URL -->
-                        <div v-if="createForm.mode === 'single'" class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">URL（可选，留空则自动生成）</label>
-                            <input v-model="createForm.url" type="text" placeholder="http://site1.example.com"
-                                class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500">
-                        </div>
-
-                        <!-- 管理员信息 -->
-                        <div class="grid grid-cols-2 gap-6 mb-6">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">WP 管理员用户名</label>
-                                <input v-model="createForm.admin_name" type="text"
-                                    class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">WP 管理员密码</label>
-                                <input v-model="createForm.admin_password" type="text"
-                                    class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500">
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-6 mb-6">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">标签</label>
-                                <input v-model="createForm.tag" type="text" placeholder="例如: 生产环境"
-                                    class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">安全ID</label>
-                                <input v-model="createForm.security_id" type="text" placeholder="安全标识"
-                                    class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500">
-                            </div>
-                        </div>
-
-                        <!-- HTTP认证 -->
+                        <!-- 插件选择 -->
                         <div class="bg-gray-50 rounded-lg p-4 mb-6">
-                            <h4 class="text-sm font-semibold text-gray-700 mb-3">
-                                <i class="fas fa-shield-alt mr-2"></i>HTTP 认证
-                            </h4>
-                            <div class="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">HTTP 用户名</label>
-                                    <input v-model="createForm.http_username" type="text" placeholder="可选"
-                                        class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">HTTP 密码</label>
-                                    <input v-model="createForm.http_password" type="text" placeholder="可选"
-                                        class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500">
+                            <div class="flex items-center justify-between mb-3">
+                                <h4 class="text-sm font-semibold text-gray-700"><i class="fas fa-plug mr-2"></i>预装插件</h4>
+                                <button @click="currentPage = 'plugins'" class="text-xs text-indigo-600 hover:text-indigo-800"><i class="fas fa-upload mr-1"></i>上传插件</button>
+                            </div>
+                            <div v-if="!plugins.filter(p => p.enabled).length" class="text-sm text-gray-400 py-2">暂无可用插件，请先上传 .zip 格式的WordPress插件</div>
+                            <div v-else class="space-y-2">
+                                <div v-for="p in plugins.filter(p => p.enabled)" :key="p.id"
+                                    @click="togglePluginSelection(p.id)"
+                                    :class="['flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition border', createForm.selected_plugins.includes(p.id) ? 'bg-indigo-50 border-indigo-300' : 'bg-white border-gray-200 hover:border-indigo-200']">
+                                    <i :class="createForm.selected_plugins.includes(p.id) ? 'fas fa-check-square text-indigo-600' : 'far fa-square text-gray-400']" class="text-lg"></i>
+                                    <div class="flex-1">
+                                        <p class="text-sm font-medium">{{ p.name }}</p>
+                                        <p class="text-xs text-gray-500">{{ p.filename }} · {{ formatSize(p.file_size) }}</p>
+                                    </div>
                                 </div>
                             </div>
+                            <p class="text-xs text-gray-500 mt-2">选中的插件将在WordPress安装完成后自动复制到站点并启用</p>
                         </div>
 
-                        <!-- SSL配置 -->
-                        <div class="bg-gray-50 rounded-lg p-4 mb-6">
-                            <h4 class="text-sm font-semibold text-gray-700 mb-3">
-                                <i class="fas fa-certificate mr-2"></i>SSL 配置
-                            </h4>
-                            <div class="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">验证证书</label>
-                                    <select v-model="createForm.verify_certificate"
-                                        class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500">
-                                        <option :value="true">是 (1)</option>
-                                        <option :value="false">否 (0)</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">SSL 版本</label>
-                                    <select v-model="createForm.ssl_version"
-                                        class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500">
-                                        <option value="auto">自动</option>
-                                        <option value="1.3">TLS 1.3</option>
-                                        <option value="1.2">TLS 1.2</option>
-                                        <option value="1.1">TLS 1.1</option>
-                                        <option value="1.0">TLS 1.0</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 批量创建的服务器配置 -->
-                        <div v-if="createForm.mode === 'batch'" class="bg-gray-50 rounded-lg p-4 mb-6">
-                            <h4 class="text-sm font-semibold text-gray-700 mb-3">
-                                <i class="fas fa-server mr-2"></i>服务器配置
-                            </h4>
-                            <div class="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">起始端口</label>
-                                    <input v-model.number="createForm.base_port" type="number" min="1024" max="65535"
-                                        class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">数据库服务</label>
-                                    <select v-model="createForm.db_service"
-                                        class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500">
-                                        <option value="mariadb">MariaDB</option>
-                                        <option value="mysql">MySQL</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
+                        <div v-if="createForm.mode === 'batch'" class="bg-gray-50 rounded-lg p-4 mb-6"><h4 class="text-sm font-semibold text-gray-700 mb-3"><i class="fas fa-server mr-2"></i>服务器配置</h4><div class="grid grid-cols-2 gap-4"><div><label class="block text-xs font-medium text-gray-600 mb-1">起始端口</label><input v-model.number="createForm.base_port" type="number" min="1024" max="65535" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"><p class="text-xs text-gray-400 mt-1">自动检测冲突，按顺序分配可用端口</p></div><div><label class="block text-xs font-medium text-gray-600 mb-1">数据库服务</label><select v-model="createForm.db_service" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"><option value="mariadb">MariaDB</option><option value="mysql">MySQL</option></select></div></div></div>
 
                         <!-- 创建进度 -->
                         <div v-if="createProgress.show" class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                            <h4 class="text-sm font-semibold text-blue-800 mb-2">
-                                <i class="fas fa-spinner fa-spin mr-2"></i>{{ createProgress.message }}
-                            </h4>
-                            <div v-if="createProgress.total > 1" class="w-full bg-blue-200 rounded-full h-2 mb-2">
-                                <div class="bg-blue-600 h-2 rounded-full transition-all"
-                                    :style="{width: (createProgress.current / createProgress.total * 100) + '%'}"></div>
-                            </div>
-                            <div v-for="r in createProgress.results" :key="r.domain" class="text-xs mt-1">
-                                <span :class="r.status === 'success' ? 'text-green-600' : 'text-red-600'">
-                                    <i :class="r.status === 'success' ? 'fas fa-check' : 'fas fa-times'" class="mr-1"></i>
-                                    {{ r.domain }} - {{ r.message }}
-                                </span>
-                            </div>
+                            <h4 class="text-sm font-semibold text-blue-800 mb-2"><i class="fas fa-spinner fa-spin mr-2"></i>{{ createProgress.message }}</h4>
+                            <div v-if="createProgress.total > 1" class="w-full bg-blue-200 rounded-full h-2 mb-2"><div class="bg-blue-600 h-2 rounded-full transition-all" :style="{width: (createProgress.current / createProgress.total * 100) + '%'}"></div></div>
+                            <div v-for="r in createProgress.results" :key="r.domain" class="text-xs mt-1"><span :class="r.status === 'success' ? 'text-green-600' : 'text-red-600'"><i :class="r.status === 'success' ? 'fas fa-check' : 'fas fa-times'" class="mr-1"></i>{{ r.domain }} - {{ r.message }}</span></div>
                         </div>
 
-                        <button @click="submitCreate" :disabled="loading"
-                            class="w-full btn-primary text-white py-3 rounded-lg font-semibold hover:shadow-lg transition">
-                            <i v-if="loading" class="fas fa-spinner fa-spin mr-2"></i>
-                            <i v-else class="fas fa-rocket mr-2"></i>
+                        <button @click="submitCreate" :disabled="loading" class="w-full btn-primary text-white py-3 rounded-lg font-semibold hover:shadow-lg transition">
+                            <i v-if="loading" class="fas fa-spinner fa-spin mr-2"></i><i v-else class="fas fa-rocket mr-2"></i>
                             {{ createForm.mode === 'single' ? '创建WordPress站点' : '批量创建WordPress站点' }}
                         </button>
                     </div>
                 </div>
             </div>
 
-            <!-- 设置页面 -->
-            <div v-if="currentPage === 'settings'" class="p-8 fade-in">
-                <div class="max-w-3xl mx-auto space-y-6">
-                    <!-- 全局默认配置 -->
-                    <div class="bg-white rounded-xl card-shadow p-6">
-                        <h3 class="font-semibold text-gray-800 mb-4">
-                            <i class="fas fa-sliders-h mr-2 text-indigo-500"></i>默认WordPress配置
-                        </h3>
-                        <div class="space-y-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">默认管理员用户名</label>
-                                <input v-model="globalConfig.default_admin_name" type="text"
-                                    class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">默认管理员密码</label>
-                                <input v-model="globalConfig.default_admin_password" type="text"
-                                    class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
-                                <p class="text-xs text-gray-500 mt-1">应用于所有新创建的WordPress站点</p>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">默认数据库服务</label>
-                                <select v-model="globalConfig.db_service"
-                                    class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
-                                    <option value="mariadb">MariaDB</option>
-                                    <option value="mysql">MySQL</option>
-                                </select>
+            <!-- 插件管理 -->
+            <div v-if="currentPage === 'plugins'" class="p-8 fade-in">
+                <div class="max-w-4xl mx-auto">
+                    <!-- 上传区域 -->
+                    <div class="bg-white rounded-xl card-shadow p-6 mb-6">
+                        <h3 class="font-semibold text-gray-800 mb-4"><i class="fas fa-upload mr-2 text-indigo-500"></i>上传插件</h3>
+                        <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-indigo-400 transition cursor-pointer" @click="$refs.pluginFile.click()">
+                            <i class="fas fa-cloud-upload-alt text-4xl text-gray-400 mb-3"></i>
+                            <p class="text-gray-600 mb-1">点击上传 WordPress 插件 (.zip)</p>
+                            <p class="text-xs text-gray-400">支持标准WordPress插件zip格式，上传后可在创建站点时选择安装</p>
+                            <input ref="pluginFile" type="file" accept=".zip" @change="handlePluginUpload" class="hidden">
+                        </div>
+                    </div>
+                    <!-- 插件列表 -->
+                    <div class="bg-white rounded-xl card-shadow">
+                        <div class="px-6 py-4 border-b flex items-center justify-between">
+                            <h3 class="font-semibold text-gray-800">已上传插件</h3>
+                            <span class="text-sm text-gray-500">共 {{ plugins.length }} 个</span>
+                        </div>
+                        <div v-if="!plugins.length" class="p-8 text-center text-gray-400">
+                            <i class="fas fa-puzzle-piece text-4xl mb-3"></i>
+                            <p>暂无插件，请上传WordPress插件的.zip文件</p>
+                        </div>
+                        <div v-else class="divide-y">
+                            <div v-for="p in plugins" :key="p.id" class="px-6 py-4 flex items-center gap-4 hover:bg-gray-50 transition">
+                                <div class="w-10 h-10 rounded-lg flex items-center justify-center" :class="p.enabled ? 'bg-indigo-100' : 'bg-gray-100'">
+                                    <i class="fas fa-puzzle-piece" :class="p.enabled ? 'text-indigo-600' : 'text-gray-400'"></i>
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <p class="font-medium text-sm">{{ p.name }}</p>
+                                    <p class="text-xs text-gray-500">{{ p.filename }} · {{ formatSize(p.file_size) }}</p>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <button @click="handleTogglePlugin(p)" :class="p.enabled ? 'text-green-600 hover:text-green-800' : 'text-gray-400 hover:text-gray-600'" :title="p.enabled ? '点击禁用' : '点击启用'">
+                                        <i :class="p.enabled ? 'fas fa-toggle-on text-xl' : 'fas fa-toggle-off text-xl'"></i>
+                                    </button>
+                                    <button @click="handleDeletePlugin(p)" class="text-red-400 hover:text-red-600" title="删除">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
 
-                    <!-- 默认插件 -->
-                    <div class="bg-white rounded-xl card-shadow p-6">
-                        <h3 class="font-semibold text-gray-800 mb-4">
-                            <i class="fas fa-plug mr-2 text-indigo-500"></i>默认插件（参考）
-                        </h3>
-                        <textarea v-model="globalConfig.default_plugins" rows="4"
-                            placeholder="每行输入一个插件名称"
-                            class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500"></textarea>
-                        <p class="text-xs text-gray-500 mt-1">这些插件将标注在新站点上，需手动安装</p>
-                    </div>
-
-                    <!-- 默认主题 -->
-                    <div class="bg-white rounded-xl card-shadow p-6">
-                        <h3 class="font-semibold text-gray-800 mb-4">
-                            <i class="fas fa-palette mr-2 text-indigo-500"></i>默认主题（参考）
-                        </h3>
-                        <textarea v-model="globalConfig.default_themes" rows="4"
-                            placeholder="每行输入一个主题名称"
-                            class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500"></textarea>
-                        <p class="text-xs text-gray-500 mt-1">这些主题将标注在新站点上，需手动安装</p>
-                    </div>
-
-                    <button @click="saveGlobalConfig" :disabled="loading"
-                        class="w-full btn-primary text-white py-3 rounded-lg font-semibold">
-                        <i class="fas fa-save mr-2"></i>保存设置
-                    </button>
+            <!-- 设置 -->
+            <div v-if="currentPage === 'settings'" class="p-8 fade-in">
+                <div class="max-w-3xl mx-auto space-y-6">
+                    <div class="bg-white rounded-xl card-shadow p-6"><h3 class="font-semibold text-gray-800 mb-4"><i class="fas fa-sliders-h mr-2 text-indigo-500"></i>默认WordPress配置</h3><div class="space-y-4"><div><label class="block text-sm font-medium text-gray-700 mb-1">默认管理员用户名</label><input v-model="globalConfig.default_admin_name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">默认管理员密码</label><input v-model="globalConfig.default_admin_password" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500"><p class="text-xs text-gray-500 mt-1">应用于所有新创建的WordPress站点</p></div><div><label class="block text-sm font-medium text-gray-700 mb-1">默认数据库服务</label><select v-model="globalConfig.db_service" class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500"><option value="mariadb">MariaDB</option><option value="mysql">MySQL</option></select></div></div></div>
+                    <button @click="saveGlobalConfig" :disabled="loading" class="w-full btn-primary text-white py-3 rounded-lg font-semibold"><i class="fas fa-save mr-2"></i>保存设置</button>
                 </div>
             </div>
         </main>
@@ -1040,111 +865,26 @@ const app = createApp({
         <!-- 编辑弹窗 -->
         <div v-if="showEditModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
             <div class="bg-white rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto w-full max-w-2xl mx-4 fade-in">
-                <div class="p-6 border-b flex items-center justify-between">
-                    <h2 class="text-lg font-bold">编辑站点</h2>
-                    <button @click="showEditModal = false" class="text-gray-400 hover:text-gray-600">
-                        <i class="fas fa-times text-xl"></i>
-                    </button>
-                </div>
+                <div class="p-6 border-b flex items-center justify-between"><h2 class="text-lg font-bold">编辑站点</h2><button @click="showEditModal = false" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times text-xl"></i></button></div>
                 <div class="p-6 space-y-4">
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">站点名称</label>
-                            <input v-model="editForm.site_name" type="text"
-                                class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">URL</label>
-                            <input v-model="editForm.url" type="text"
-                                class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">管理员</label>
-                            <input v-model="editForm.admin_name" type="text"
-                                class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">管理员密码</label>
-                            <input v-model="editForm.admin_password" type="text"
-                                class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">标签</label>
-                            <input v-model="editForm.tag" type="text"
-                                class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">安全ID</label>
-                            <input v-model="editForm.security_id" type="text"
-                                class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">HTTP 用户名</label>
-                            <input v-model="editForm.http_username" type="text"
-                                class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">HTTP 密码</label>
-                            <input v-model="editForm.http_password" type="text"
-                                class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">验证证书</label>
-                            <select v-model="editForm.verify_certificate"
-                                class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
-                                <option :value="true">是 (1)</option>
-                                <option :value="false">否 (0)</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">SSL 版本</label>
-                            <select v-model="editForm.ssl_version"
-                                class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
-                                <option value="auto">自动</option>
-                                <option value="1.3">TLS 1.3</option>
-                                <option value="1.2">TLS 1.2</option>
-                                <option value="1.1">TLS 1.1</option>
-                                <option value="1.0">TLS 1.0</option>
-                            </select>
-                        </div>
-                    </div>
+                    <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-medium text-gray-700 mb-1">站点名称</label><input v-model="editForm.site_name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">URL</label><input v-model="editForm.url" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500"></div></div>
+                    <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-medium text-gray-700 mb-1">管理员</label><input v-model="editForm.admin_name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">管理员密码</label><input v-model="editForm.admin_password" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500"></div></div>
+                    <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-medium text-gray-700 mb-1">标签</label><input v-model="editForm.tag" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">安全ID</label><input v-model="editForm.security_id" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500"></div></div>
+                    <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-medium text-gray-700 mb-1">HTTP 用户名</label><input v-model="editForm.http_username" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">HTTP 密码</label><input v-model="editForm.http_password" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500"></div></div>
+                    <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-medium text-gray-700 mb-1">验证证书</label><select v-model="editForm.verify_certificate" class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500"><option :value="true">是 (1)</option><option :value="false">否 (0)</option></select></div><div><label class="block text-sm font-medium text-gray-700 mb-1">SSL 版本</label><select v-model="editForm.ssl_version" class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500"><option value="auto">自动</option><option value="1.3">TLS 1.3</option><option value="1.2">TLS 1.2</option><option value="1.1">TLS 1.1</option><option value="1.0">TLS 1.0</option></select></div></div>
                 </div>
-                <div class="p-6 border-t flex gap-3 justify-end">
-                    <button @click="showEditModal = false" class="px-6 py-2 border rounded-lg hover:bg-gray-50">取消</button>
-                    <button @click="submitEdit" :disabled="loading" class="btn-primary text-white px-6 py-2 rounded-lg">
-                        <i v-if="loading" class="fas fa-spinner fa-spin mr-2"></i>
-                        保存更改
-                    </button>
-                </div>
+                <div class="p-6 border-t flex gap-3 justify-end"><button @click="showEditModal = false" class="px-6 py-2 border rounded-lg hover:bg-gray-50">取消</button><button @click="submitEdit" :disabled="loading" class="btn-primary text-white px-6 py-2 rounded-lg"><i v-if="loading" class="fas fa-spinner fa-spin mr-2"></i>保存更改</button></div>
             </div>
         </div>
 
         <!-- 确认弹窗 -->
         <div v-if="modal.show" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
-            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 fade-in">
-                <div class="p-6">
-                    <h2 class="text-lg font-bold text-gray-800 mb-2">{{ modal.title }}</h2>
-                    <p class="text-gray-600">{{ modal.content }}</p>
-                </div>
-                <div class="p-6 border-t flex gap-3 justify-end">
-                    <button @click="modal.show = false" class="px-6 py-2 border rounded-lg hover:bg-gray-50">取消</button>
-                    <button @click="modal.onConfirm()" class="bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600">删除</button>
-                </div>
-            </div>
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 fade-in"><div class="p-6"><h2 class="text-lg font-bold text-gray-800 mb-2">{{ modal.title }}</h2><p class="text-gray-600">{{ modal.content }}</p></div><div class="p-6 border-t flex gap-3 justify-end"><button @click="modal.show = false" class="px-6 py-2 border rounded-lg hover:bg-gray-50">取消</button><button @click="modal.onConfirm()" class="bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600">删除</button></div></div>
         </div>
 
         <!-- 提示 -->
         <div v-if="toast.show" class="toast fade-in">
-            <div :class="['rounded-lg shadow-lg px-6 py-4 flex items-center gap-3',
-                toast.type === 'success' ? 'bg-green-500 text-white' : toast.type === 'error' ? 'bg-red-500 text-white' : 'bg-blue-500 text-white']">
+            <div :class="['rounded-lg shadow-lg px-6 py-4 flex items-center gap-3', toast.type === 'success' ? 'bg-green-500 text-white' : toast.type === 'error' ? 'bg-red-500 text-white' : 'bg-blue-500 text-white']">
                 <i :class="toast.type === 'success' ? 'fas fa-check-circle' : toast.type === 'error' ? 'fas fa-exclamation-circle' : 'fas fa-info-circle'"></i>
                 <span>{{ toast.message }}</span>
             </div>

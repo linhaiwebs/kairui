@@ -37,9 +37,17 @@ class OnePanelClient:
 
     def _request(self, method, path, json_data=None, params=None):
         url = f"{self._base_url()}/api/v2{path}"
-        resp = requests.request(
-            method, url, headers=self._headers(), json=json_data, params=params, timeout=30
-        )
+        try:
+            resp = requests.request(
+                method, url, headers=self._headers(), json=json_data, params=params, timeout=30
+            )
+        except requests.exceptions.ConnectionError:
+            return {"code": 503, "message": "无法连接到1Panel服务", "data": None}
+        except requests.exceptions.Timeout:
+            return {"code": 504, "message": "1Panel服务响应超时", "data": None}
+        except requests.exceptions.RequestException as e:
+            return {"code": 502, "message": f"1Panel请求失败: {str(e)[:100]}", "data": None}
+
         if resp.status_code == 404:
             return {"code": 404, "message": "API endpoint not found", "data": None}
         try:

@@ -1,8 +1,9 @@
 import logging
 import os
 import sys
+import traceback
 
-from flask import Flask, send_from_directory
+from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 
@@ -43,6 +44,24 @@ def create_app():
 
     # Register API routes
     register_routes(app)
+
+    # Global error handlers to prevent crashes
+    @app.errorhandler(Exception)
+    def handle_unhandled_exception(e):
+        logger.error(f"Unhandled exception: {traceback.format_exc()}")
+        return jsonify({"code": 500, "message": f"服务器内部错误: {str(e)[:100]}"}), 500
+
+    @app.errorhandler(404)
+    def handle_404(e):
+        return jsonify({"code": 404, "message": "资源不存在"}), 404
+
+    @app.errorhandler(405)
+    def handle_405(e):
+        return jsonify({"code": 405, "message": "方法不允许"}), 405
+
+    @app.errorhandler(500)
+    def handle_500(e):
+        return jsonify({"code": 500, "message": "服务器内部错误"}), 500
 
     # Serve frontend static files
     frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend")
