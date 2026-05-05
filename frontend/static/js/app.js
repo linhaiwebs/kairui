@@ -780,7 +780,7 @@ const app = createApp({
                                 <div v-for="p in plugins.filter(p => p.enabled)" :key="p.id"
                                     @click="togglePluginSelection(p.id)"
                                     :class="['flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition border', createForm.selected_plugins.includes(p.id) ? 'bg-indigo-50 border-indigo-300' : 'bg-white border-gray-200 hover:border-indigo-200']">
-                                    <i :class="createForm.selected_plugins.includes(p.id) ? 'fas fa-check-square text-indigo-600' : 'far fa-square text-gray-400']" class="text-lg"></i>
+                                    <i :class="[createForm.selected_plugins.includes(p.id) ? 'fas fa-check-square text-indigo-600' : 'far fa-square text-gray-400']" class="text-lg"></i>
                                     <div class="flex-1">
                                         <p class="text-sm font-medium">{{ p.name }}</p>
                                         <p class="text-xs text-gray-500">{{ p.filename }} · {{ formatSize(p.file_size) }}</p>
