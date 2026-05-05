@@ -2,7 +2,7 @@ const { createApp, ref, reactive, computed, onMounted, watch, nextTick } = Vue;
 
 const app = createApp({
     setup() {
-        // ---- State ----
+        // ---- 状态 ----
         const isLoggedIn = ref(false);
         const currentUser = ref('');
         const currentPage = ref('dashboard');
@@ -10,11 +10,11 @@ const app = createApp({
         const toast = reactive({ show: false, message: '', type: 'success' });
         const modal = reactive({ show: false, title: '', content: '', onConfirm: null });
 
-        // Login form
+        // 登录表单
         const loginForm = reactive({ username: '', password: '' });
         const loginError = ref('');
 
-        // Sites
+        // 站点
         const sites = ref([]);
         const searchQuery = ref('');
         const filteredSites = computed(() => {
@@ -27,16 +27,16 @@ const app = createApp({
             );
         });
 
-        // Panel data
+        // 1Panel 数据
         const panelConnected = ref(false);
         const panelWebsites = ref([]);
         const panelInstalledApps = ref([]);
         const panelGroups = ref([]);
 
-        // Create site form
+        // 创建站点表单
         const showCreateModal = ref(false);
         const createForm = reactive({
-            mode: 'single', // 'single' or 'batch'
+            mode: 'single',
             site_name: '',
             url: '',
             admin_name: 'admin',
@@ -47,19 +47,21 @@ const app = createApp({
             http_password: '',
             verify_certificate: true,
             ssl_version: 'auto',
-            // Batch fields
             domains: '',
             base_port: 8081,
             db_service: 'mariadb',
             website_group_id: 1,
         });
 
-        // Edit site
+        // 编辑站点
         const showEditModal = ref(false);
         const editForm = reactive({});
         const editingSiteId = ref('');
 
-        // Config
+        // 创建进度
+        const createProgress = reactive({ show: false, current: 0, total: 0, message: '', results: [] });
+
+        // 全局配置
         const globalConfig = reactive({
             default_admin_name: 'admin',
             default_admin_password: '',
@@ -68,7 +70,7 @@ const app = createApp({
             db_service: 'mariadb',
         });
 
-        // ---- Methods ----
+        // ---- 方法 ----
         function showToast(message, type = 'success') {
             toast.message = message;
             toast.type = type;
@@ -91,13 +93,13 @@ const app = createApp({
                 if (resp.code === 200) {
                     isLoggedIn.value = true;
                     currentUser.value = resp.data.username;
-                    showToast('Login successful');
+                    showToast('登录成功');
                     loadInitialData();
                 } else {
-                    loginError.value = resp.message || 'Invalid credentials';
+                    loginError.value = resp.message || '用户名或密码错误';
                 }
             } catch (e) {
-                loginError.value = 'Connection error';
+                loginError.value = '连接错误';
             } finally {
                 loading.value = false;
             }
@@ -131,7 +133,7 @@ const app = createApp({
                     sites.value = resp.data || [];
                 }
             } catch (e) {
-                console.error('Failed to load sites:', e);
+                console.error('加载站点失败:', e);
             }
         }
 
@@ -161,7 +163,7 @@ const app = createApp({
                     panelGroups.value = groupsResp.data || [];
                 }
             } catch (e) {
-                console.error('Failed to load panel data:', e);
+                console.error('加载1Panel数据失败:', e);
             }
         }
 
@@ -174,7 +176,7 @@ const app = createApp({
                     createForm.db_service = resp.data.db_service || 'mariadb';
                 }
             } catch (e) {
-                console.error('Failed to load config:', e);
+                console.error('加载配置失败:', e);
             }
         }
 
@@ -182,13 +184,13 @@ const app = createApp({
             loading.value = true;
             try {
                 await Promise.all([loadSites(), loadPanelData()]);
-                showToast('Data refreshed');
+                showToast('数据已刷新');
             } finally {
                 loading.value = false;
             }
         }
 
-        // ---- Create Site ----
+        // ---- 创建站点 ----
         function openCreateModal(mode = 'single') {
             createForm.mode = mode;
             createForm.site_name = '';
@@ -210,179 +212,187 @@ const app = createApp({
             loading.value = true;
             try {
                 if (createForm.mode === 'single') {
-                    // Create via 1Panel
-                    if (panelConnected.value) {
-                        const domain = createForm.site_name;
-                        const alias = domain.replace(/\./g, '-');
-
-                        // Get WordPress app info
-                        const appResp = await API.panelSearchApps('wordpress');
-                        if (appResp.code !== 200 || !appResp.data?.items?.length) {
-                            showToast('Failed to find WordPress app in 1Panel', 'error');
-                            loading.value = false;
-                            return;
-                        }
-
-                        const wpApp = appResp.data.items[0];
-                        const versions = wpApp.versions || [];
-                        const version = versions[0] || '6.9.4';
-
-                        // Get app detail
-                        const detailResp = await API.panelGetAppDetail(wpApp.id, version);
-                        if (detailResp.code !== 200) {
-                            showToast('Failed to get WordPress app detail', 'error');
-                            loading.value = false;
-                            return;
-                        }
-                        const appDetailId = detailResp.data.id;
-
-                        // Get DB services
-                        const dbResp = await API.panelGetAppServices(createForm.db_service);
-                        if (dbResp.code !== 200 || !dbResp.data?.length) {
-                            showToast('Failed to get database service', 'error');
-                            loading.value = false;
-                            return;
-                        }
-                        const dbService = dbResp.data[0];
-
-                        // Find available port
-                        let port = createForm.base_port;
-                        const usedPorts = new Set(
-                            panelInstalledApps.value
-                                .filter(a => a.appKey === 'wordpress')
-                                .map(a => a.httpPort)
-                        );
-                        while (usedPorts.has(port)) port++;
-
-                        // Generate DB credentials
-                        const dbSuffix = Math.random().toString(36).substring(2, 8);
-                        const installData = {
-                            appDetailId: appDetailId,
-                            name: alias,
-                            params: {
-                                PANEL_DB_TYPE: createForm.db_service,
-                                PANEL_DB_NAME: `wp_${dbSuffix}`,
-                                PANEL_DB_USER: `wp_${dbSuffix}`,
-                                PANEL_DB_USER_PASSWORD: Math.random().toString(36).substring(2, 14),
-                                PANEL_APP_PORT_HTTP: port,
-                            },
-                            services: { [createForm.db_service]: dbService.value },
-                        };
-
-                        const installResp = await API.panelInstallApp(installData);
-                        if (installResp.code !== 200) {
-                            showToast(`Install failed: ${installResp.message}`, 'error');
-                            loading.value = false;
-                            return;
-                        }
-
-                        // Wait a bit for the app to register
-                        await new Promise(r => setTimeout(r, 2000));
-
-                        // Find the newly installed app
-                        const newInstalled = await API.panelSearchInstalled('wordpress');
-                        let appInstallId = null;
-                        if (newInstalled.code === 200) {
-                            const newApp = newInstalled.data.items.find(a => a.name === alias);
-                            if (newApp) appInstallId = newApp.id;
-                        }
-
-                        // Create website in 1Panel
-                        const websiteResp = await API.panelCreateWebsite({
-                            primaryDomain: domain,
-                            alias: alias,
-                            appType: appInstallId ? 'installed' : 'new',
-                            appInstallID: appInstallId,
-                            appDetailID: appDetailId,
-                            appID: wpApp.id,
-                            webSiteGroupID: createForm.website_group_id || 1,
-                            proxy: `http://127.0.0.1:${port}`,
-                            remark: createForm.tag,
-                        });
-
-                        let panelWebsiteId = null;
-                        if (websiteResp.code === 200) {
-                            panelWebsiteId = websiteResp.data?.id || websiteResp.data;
-                        }
-
-                        // Save to local DB
-                        await API.createSite({
-                            site_name: createForm.site_name,
-                            url: createForm.url || `http://${domain}`,
-                            admin_name: createForm.admin_name,
-                            admin_password: createForm.admin_password,
-                            tag: createForm.tag,
-                            security_id: createForm.security_id,
-                            http_username: createForm.http_username,
-                            http_password: createForm.http_password,
-                            verify_certificate: createForm.verify_certificate,
-                            ssl_version: createForm.ssl_version,
-                            panel_website_id: panelWebsiteId,
-                            panel_app_install_id: appInstallId,
-                            panel_app_detail_id: appDetailId,
-                        });
-                    } else {
-                        // Save locally only
-                        await API.createSite({
-                            site_name: createForm.site_name,
-                            url: createForm.url,
-                            admin_name: createForm.admin_name,
-                            admin_password: createForm.admin_password,
-                            tag: createForm.tag,
-                            security_id: createForm.security_id,
-                            http_username: createForm.http_username,
-                            http_password: createForm.http_password,
-                            verify_certificate: createForm.verify_certificate,
-                            ssl_version: createForm.ssl_version,
-                        });
+                    if (!createForm.site_name.trim()) {
+                        showToast('请输入域名', 'error');
+                        loading.value = false;
+                        return;
                     }
-                    showToast('Site created successfully');
+                    const domain = createForm.site_name.trim();
+                    await createSingleSite(domain);
                 } else {
-                    // Batch create
+                    // 批量创建
                     const domains = createForm.domains.split('\n')
                         .map(d => d.trim())
                         .filter(d => d.length > 0);
 
                     if (!domains.length) {
-                        showToast('Please enter at least one domain', 'error');
+                        showToast('请输入至少一个域名', 'error');
                         loading.value = false;
                         return;
                     }
 
-                    const resp = await API.batchCreateWordPress({
-                        domains,
-                        admin_name: createForm.admin_name,
-                        admin_password: createForm.admin_password,
-                        tag: createForm.tag,
-                        security_id: createForm.security_id,
-                        http_username: createForm.http_username,
-                        http_password: createForm.http_password,
-                        verify_certificate: createForm.verify_certificate,
-                        ssl_version: createForm.ssl_version,
-                        base_port: createForm.base_port,
-                        db_service: createForm.db_service,
-                        website_group_id: createForm.website_group_id || 1,
-                    });
+                    createProgress.show = true;
+                    createProgress.total = domains.length;
+                    createProgress.current = 0;
+                    createProgress.results = [];
 
-                    if (resp.code === 200) {
-                        const { success, error, total } = resp.data;
-                        showToast(`Created ${success}/${total} sites (${error} errors)`);
-                    } else {
-                        showToast(`Batch create failed: ${resp.message}`, 'error');
+                    for (const domain of domains) {
+                        createProgress.current++;
+                        createProgress.message = `正在创建 ${domain} (${createProgress.current}/${createProgress.total})...`;
+                        try {
+                            await createSingleSite(domain);
+                            createProgress.results.push({ domain, status: 'success', message: '创建成功' });
+                        } catch (e) {
+                            createProgress.results.push({ domain, status: 'error', message: e.message || '创建失败' });
+                        }
                     }
+                    const successCount = createProgress.results.filter(r => r.status === 'success').length;
+                    const errorCount = createProgress.results.filter(r => r.status === 'error').length;
+                    createProgress.message = `批量创建完成：${successCount} 成功，${errorCount} 失败`;
+                    showToast(`批量创建完成：${successCount} 成功，${errorCount} 失败`);
                 }
 
                 showCreateModal.value = false;
                 await loadSites();
                 await loadPanelData();
             } catch (e) {
-                showToast(`Error: ${e.message}`, 'error');
+                showToast(`错误: ${e.message}`, 'error');
             } finally {
                 loading.value = false;
             }
         }
 
-        // ---- Edit Site ----
+        async function createSingleSite(domain) {
+            const alias = domain.replace(/\./g, '-');
+
+            if (panelConnected.value) {
+                // 1. 获取 WordPress 应用信息
+                createProgress.message = '正在获取WordPress应用信息...';
+                const appResp = await API.panelSearchApps('wordpress');
+                if (appResp.code !== 200 || !appResp.data?.items?.length) {
+                    throw new Error('在1Panel中未找到WordPress应用');
+                }
+
+                const wpApp = appResp.data.items[0];
+                const versions = wpApp.versions || [];
+                const version = versions[0] || '6.9.4';
+
+                // 2. 获取应用详情
+                createProgress.message = `正在获取WordPress ${version} 详情...`;
+                const detailResp = await API.panelGetAppDetail(wpApp.id, version);
+                if (detailResp.code !== 200) {
+                    throw new Error('获取WordPress应用详情失败');
+                }
+                const appDetailId = detailResp.data.id;
+
+                // 3. 获取数据库服务
+                createProgress.message = '正在获取数据库服务信息...';
+                const dbResp = await API.panelGetAppServices(createForm.db_service);
+                if (dbResp.code !== 200 || !dbResp.data?.length) {
+                    throw new Error('获取数据库服务失败，请确认已安装MariaDB/MySQL');
+                }
+                const dbService = dbResp.data[0];
+
+                // 4. 查找可用端口
+                const usedPorts = new Set(
+                    panelInstalledApps.value
+                        .filter(a => a.httpPort)
+                        .map(a => a.httpPort)
+                );
+                let port = createForm.base_port;
+                while (usedPorts.has(port)) port++;
+
+                // 5. 生成数据库凭据
+                const dbSuffix = Math.random().toString(36).substring(2, 8);
+                const dbPass = Math.random().toString(36).substring(2, 14);
+
+                createProgress.message = `正在安装WordPress到1Panel (端口: ${port})...`;
+
+                // 6. 安装 WordPress 应用
+                const installResp = await API.panelInstallApp({
+                    appDetailId: appDetailId,
+                    name: alias,
+                    params: {
+                        PANEL_DB_TYPE: createForm.db_service,
+                        PANEL_DB_NAME: `wp_${dbSuffix}`,
+                        PANEL_DB_USER: `wp_${dbSuffix}`,
+                        PANEL_DB_USER_PASSWORD: dbPass,
+                        PANEL_APP_PORT_HTTP: port,
+                    },
+                    services: { [createForm.db_service]: dbService.value || dbService.label || createForm.db_service },
+                });
+
+                if (installResp.code !== 200) {
+                    throw new Error(`安装WordPress失败: ${installResp.message || '未知错误'}`);
+                }
+
+                // 等待安装注册
+                await new Promise(r => setTimeout(r, 3000));
+
+                // 7. 查找已安装的应用ID
+                const newInstalled = await API.panelSearchInstalled('wordpress');
+                let appInstallId = null;
+                if (newInstalled.code === 200) {
+                    const newApp = (newInstalled.data.items || []).find(a => a.name === alias);
+                    if (newApp) appInstallId = newApp.id;
+                }
+
+                // 8. 创建网站
+                createProgress.message = `正在创建网站 ${domain}...`;
+                const websiteResp = await API.panelCreateWebsite({
+                    primaryDomain: domain,
+                    alias: alias,
+                    appType: appInstallId ? 'installed' : 'new',
+                    appInstallID: appInstallId,
+                    appDetailID: appDetailId,
+                    appID: wpApp.id,
+                    webSiteGroupID: createForm.website_group_id || 1,
+                    proxy: `http://127.0.0.1:${port}`,
+                    remark: createForm.tag,
+                });
+
+                let panelWebsiteId = null;
+                if (websiteResp.code === 200) {
+                    panelWebsiteId = websiteResp.data?.id || websiteResp.data;
+                }
+
+                // 9. 保存到本地数据库
+                await API.createSite({
+                    site_name: domain,
+                    url: createForm.url || `http://${domain}`,
+                    admin_name: createForm.admin_name,
+                    admin_password: createForm.admin_password,
+                    tag: createForm.tag,
+                    security_id: createForm.security_id,
+                    http_username: createForm.http_username,
+                    http_password: createForm.http_password,
+                    verify_certificate: createForm.verify_certificate,
+                    ssl_version: createForm.ssl_version,
+                    panel_website_id: panelWebsiteId,
+                    panel_app_install_id: appInstallId,
+                    panel_app_detail_id: appDetailId,
+                });
+
+                showToast(`站点 ${domain} 创建成功！`);
+            } else {
+                // 仅本地保存
+                await API.createSite({
+                    site_name: domain,
+                    url: createForm.url || `http://${domain}`,
+                    admin_name: createForm.admin_name,
+                    admin_password: createForm.admin_password,
+                    tag: createForm.tag,
+                    security_id: createForm.security_id,
+                    http_username: createForm.http_username,
+                    http_password: createForm.http_password,
+                    verify_certificate: createForm.verify_certificate,
+                    ssl_version: createForm.ssl_version,
+                });
+                showToast(`站点 ${domain} 已保存（1Panel未连接，未实际安装）`, 'error');
+            }
+        }
+
+        // ---- 编辑站点 ----
         function openEditModal(site) {
             editingSiteId.value = site.id;
             Object.assign(editForm, {
@@ -405,36 +415,32 @@ const app = createApp({
             try {
                 await API.updateSite(editingSiteId.value, editForm);
                 showEditModal.value = false;
-                showToast('Site updated');
+                showToast('站点已更新');
                 await loadSites();
             } catch (e) {
-                showToast('Update failed', 'error');
+                showToast('更新失败', 'error');
             } finally {
                 loading.value = false;
             }
         }
 
-        // ---- Delete Site ----
+        // ---- 删除站点 ----
         function confirmDelete(site) {
             showModal(
-                'Delete Site',
-                `Are you sure you want to delete "${site.site_name}"? This will also delete the WordPress application from 1Panel.`,
+                '删除站点',
+                `确定要删除 "${site.site_name}" 吗？${site.panel_website_id ? '同时从1Panel删除WordPress应用和网站。' : ''}此操作不可撤销。`,
                 async () => {
                     loading.value = true;
                     try {
                         if (site.panel_website_id && panelConnected.value) {
                             await API.panelDeleteWebsite(site.panel_website_id, true);
                         }
-                        if (site.panel_app_install_id && panelConnected.value) {
-                            // Operate: delete the installed app
-                            // Not needed as deleteWebsite with deleteApp should handle it
-                        }
                         await API.deleteSite(site.id);
-                        showToast('Site deleted');
+                        showToast('站点已删除');
                         await loadSites();
                         await loadPanelData();
                     } catch (e) {
-                        showToast('Delete failed', 'error');
+                        showToast('删除失败', 'error');
                     } finally {
                         loading.value = false;
                     }
@@ -443,20 +449,26 @@ const app = createApp({
             );
         }
 
-        // ---- Save Config ----
+        // ---- 导出CSV ----
+        function exportCSV() {
+            API.exportCSV();
+            showToast('CSV文件已导出');
+        }
+
+        // ---- 保存配置 ----
         async function saveGlobalConfig() {
             loading.value = true;
             try {
                 await API.saveConfig(globalConfig);
-                showToast('Configuration saved');
+                showToast('配置已保存');
             } catch (e) {
-                showToast('Failed to save config', 'error');
+                showToast('保存配置失败', 'error');
             } finally {
                 loading.value = false;
             }
         }
 
-        // ---- Init ----
+        // ---- 初始化 ----
         onMounted(async () => {
             if (API.token) {
                 try {
@@ -479,52 +491,52 @@ const app = createApp({
             panelConnected, panelWebsites, panelInstalledApps, panelGroups,
             showCreateModal, createForm,
             showEditModal, editForm, editingSiteId,
-            globalConfig,
+            globalConfig, createProgress,
             handleLogin, handleLogout, refreshSites,
             openCreateModal, submitCreate,
             openEditModal, submitEdit,
-            confirmDelete, saveGlobalConfig,
+            confirmDelete, saveGlobalConfig, exportCSV,
             showToast, showModal,
         };
     },
 
     template: `
-    <!-- Login Page -->
+    <!-- 登录页面 -->
     <div v-if="!isLoggedIn" class="min-h-screen flex items-center justify-center login-bg">
         <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md fade-in">
             <div class="text-center mb-8">
                 <div class="w-16 h-16 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
                     <i class="fab fa-wordpress text-white text-3xl"></i>
                 </div>
-                <h1 class="text-2xl font-bold text-gray-800">WordPress Site Manager</h1>
-                <p class="text-gray-500 mt-2">Sign in to manage your WordPress sites</p>
+                <h1 class="text-2xl font-bold text-gray-800">WordPress 站点管理</h1>
+                <p class="text-gray-500 mt-2">登录以管理您的WordPress站点</p>
             </div>
             <form @submit.prevent="handleLogin">
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">用户名</label>
                     <input v-model="loginForm.username" type="text" required
                         class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-indigo-500"
-                        placeholder="Enter username">
+                        placeholder="请输入用户名">
                 </div>
                 <div class="mb-6">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">密码</label>
                     <input v-model="loginForm.password" type="password" required
                         class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-indigo-500"
-                        placeholder="Enter password">
+                        placeholder="请输入密码">
                 </div>
                 <p v-if="loginError" class="text-red-500 text-sm mb-4">{{ loginError }}</p>
                 <button type="submit" :disabled="loading"
                     class="w-full btn-primary text-white py-3 rounded-lg font-semibold hover:shadow-lg transition">
                     <i v-if="loading" class="fas fa-spinner fa-spin mr-2"></i>
-                    <span v-else>Sign In</span>
+                    <span v-else>登 录</span>
                 </button>
             </form>
         </div>
     </div>
 
-    <!-- Main App -->
+    <!-- 主应用 -->
     <div v-else class="min-h-screen flex">
-        <!-- Sidebar -->
+        <!-- 侧边栏 -->
         <aside class="w-64 sidebar-gradient text-white flex flex-col">
             <div class="p-6 border-b border-indigo-700">
                 <div class="flex items-center gap-3">
@@ -532,33 +544,33 @@ const app = createApp({
                         <i class="fab fa-wordpress text-xl"></i>
                     </div>
                     <div>
-                        <h2 class="font-bold text-lg">WP Manager</h2>
-                        <p class="text-xs text-indigo-300">Site Administration</p>
+                        <h2 class="font-bold text-lg">WP 管理器</h2>
+                        <p class="text-xs text-indigo-300">站点管理平台</p>
                     </div>
                 </div>
             </div>
 
             <nav class="flex-1 p-4 space-y-1">
-                <a @click="currentPage = 'dashboard'" 
+                <a @click="currentPage = 'dashboard'"
                     :class="['flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition', currentPage === 'dashboard' ? 'bg-white bg-opacity-20' : 'hover:bg-white hover:bg-opacity-10']">
                     <i class="fas fa-tachometer-alt w-5 text-center"></i>
-                    <span>Dashboard</span>
+                    <span>仪表盘</span>
                 </a>
                 <a @click="currentPage = 'sites'"
                     :class="['flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition', currentPage === 'sites' ? 'bg-white bg-opacity-20' : 'hover:bg-white hover:bg-opacity-10']">
                     <i class="fas fa-globe w-5 text-center"></i>
-                    <span>Sites</span>
+                    <span>站点列表</span>
                     <span class="ml-auto bg-indigo-500 text-xs px-2 py-0.5 rounded-full">{{ sites.length }}</span>
                 </a>
                 <a @click="currentPage = 'create'"
                     :class="['flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition', currentPage === 'create' ? 'bg-white bg-opacity-20' : 'hover:bg-white hover:bg-opacity-10']">
                     <i class="fas fa-plus-circle w-5 text-center"></i>
-                    <span>Create Site</span>
+                    <span>创建站点</span>
                 </a>
                 <a @click="currentPage = 'settings'"
                     :class="['flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition', currentPage === 'settings' ? 'bg-white bg-opacity-20' : 'hover:bg-white hover:bg-opacity-10']">
                     <i class="fas fa-cog w-5 text-center"></i>
-                    <span>Settings</span>
+                    <span>系统设置</span>
                 </a>
             </nav>
 
@@ -569,44 +581,44 @@ const app = createApp({
                     </div>
                     <div class="flex-1 min-w-0">
                         <p class="text-sm font-medium truncate">{{ currentUser }}</p>
-                        <p class="text-xs text-indigo-300">Administrator</p>
+                        <p class="text-xs text-indigo-300">管理员</p>
                     </div>
-                    <button @click="handleLogout" class="text-indigo-300 hover:text-white">
+                    <button @click="handleLogout" class="text-indigo-300 hover:text-white" title="退出登录">
                         <i class="fas fa-sign-out-alt"></i>
                     </button>
                 </div>
             </div>
         </aside>
 
-        <!-- Main Content -->
+        <!-- 主内容区 -->
         <main class="flex-1 overflow-auto">
-            <!-- Header -->
+            <!-- 顶部栏 -->
             <header class="bg-white border-b px-8 py-4 flex items-center justify-between">
                 <div>
                     <h1 class="text-xl font-bold text-gray-800">
-                        {{ currentPage === 'dashboard' ? 'Dashboard' : currentPage === 'sites' ? 'Site Management' : currentPage === 'create' ? 'Create WordPress Site' : 'Settings' }}
+                        {{ currentPage === 'dashboard' ? '仪表盘' : currentPage === 'sites' ? '站点列表' : currentPage === 'create' ? '创建WordPress站点' : '系统设置' }}
                     </h1>
                     <p class="text-sm text-gray-500">
                         <span :class="panelConnected ? 'text-green-500' : 'text-red-500'">
-                            <i :class="panelConnected ? 'fas fa-circle' : 'fas fa-circle'"></i>
-                            {{ panelConnected ? '1Panel Connected' : '1Panel Disconnected' }}
+                            <i class="fas fa-circle text-xs mr-1"></i>
+                            {{ panelConnected ? '1Panel 已连接' : '1Panel 未连接' }}
                         </span>
                     </p>
                 </div>
                 <div class="flex gap-3">
                     <button @click="refreshSites" class="px-4 py-2 border rounded-lg hover:bg-gray-50 transition text-sm">
-                        <i class="fas fa-sync-alt mr-2" :class="{'fa-spin': loading}"></i>Refresh
+                        <i class="fas fa-sync-alt mr-2" :class="{'fa-spin': loading}"></i>刷新
                     </button>
                 </div>
             </header>
 
-            <!-- Dashboard Page -->
+            <!-- 仪表盘页面 -->
             <div v-if="currentPage === 'dashboard'" class="p-8 fade-in">
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                     <div class="bg-white rounded-xl p-6 card-shadow">
                         <div class="flex items-center justify-between">
                             <div>
-                                <p class="text-sm text-gray-500">Total Sites</p>
+                                <p class="text-sm text-gray-500">站点总数</p>
                                 <p class="text-3xl font-bold text-gray-800 mt-1">{{ sites.length }}</p>
                             </div>
                             <div class="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
@@ -617,7 +629,7 @@ const app = createApp({
                     <div class="bg-white rounded-xl p-6 card-shadow">
                         <div class="flex items-center justify-between">
                             <div>
-                                <p class="text-sm text-gray-500">Active Sites</p>
+                                <p class="text-sm text-gray-500">活跃站点</p>
                                 <p class="text-3xl font-bold text-green-600 mt-1">{{ sites.filter(s => s.status === 'active').length }}</p>
                             </div>
                             <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
@@ -628,7 +640,7 @@ const app = createApp({
                     <div class="bg-white rounded-xl p-6 card-shadow">
                         <div class="flex items-center justify-between">
                             <div>
-                                <p class="text-sm text-gray-500">1Panel Websites</p>
+                                <p class="text-sm text-gray-500">1Panel 网站</p>
                                 <p class="text-3xl font-bold text-purple-600 mt-1">{{ panelWebsites.length }}</p>
                             </div>
                             <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
@@ -639,7 +651,7 @@ const app = createApp({
                     <div class="bg-white rounded-xl p-6 card-shadow">
                         <div class="flex items-center justify-between">
                             <div>
-                                <p class="text-sm text-gray-500">Installed Apps</p>
+                                <p class="text-sm text-gray-500">已安装应用</p>
                                 <p class="text-3xl font-bold text-orange-600 mt-1">{{ panelInstalledApps.length }}</p>
                             </div>
                             <div class="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
@@ -649,19 +661,19 @@ const app = createApp({
                     </div>
                 </div>
 
-                <!-- Panel Websites Table -->
+                <!-- 1Panel 网站表格 -->
                 <div class="bg-white rounded-xl card-shadow mb-8">
                     <div class="px-6 py-4 border-b flex items-center justify-between">
-                        <h3 class="font-semibold text-gray-800">1Panel Websites</h3>
+                        <h3 class="font-semibold text-gray-800">1Panel 网站</h3>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="w-full">
                             <thead>
                                 <tr class="bg-gray-50 text-left text-sm text-gray-600">
-                                    <th class="px-6 py-3">Domain</th>
-                                    <th class="px-6 py-3">Type</th>
-                                    <th class="px-6 py-3">Status</th>
-                                    <th class="px-6 py-3">App</th>
+                                    <th class="px-6 py-3">域名</th>
+                                    <th class="px-6 py-3">类型</th>
+                                    <th class="px-6 py-3">状态</th>
+                                    <th class="px-6 py-3">应用</th>
                                     <th class="px-6 py-3">SSL</th>
                                 </tr>
                             </thead>
@@ -678,14 +690,14 @@ const app = createApp({
                                     <td class="px-6 py-3">
                                         <span :class="w.sslStatus === 'success' ? 'text-green-500' : 'text-red-500'" class="badge"
                                             :style="{background: w.sslStatus === 'success' ? '#dcfce7' : '#fee2e2', color: w.sslStatus === 'success' ? '#166534' : '#991b1b'}">
-                                            {{ w.sslStatus === 'success' ? 'SSL Active' : 'No SSL' }}
+                                            {{ w.sslStatus === 'success' ? 'SSL 已启用' : '未启用SSL' }}
                                         </span>
                                     </td>
                                 </tr>
                                 <tr v-if="!panelWebsites.length">
                                     <td colspan="5" class="px-6 py-8 text-center text-gray-400">
                                         <i class="fas fa-inbox text-4xl mb-2"></i>
-                                        <p>No websites in 1Panel</p>
+                                        <p>1Panel中暂无网站</p>
                                     </td>
                                 </tr>
                             </tbody>
@@ -693,10 +705,10 @@ const app = createApp({
                     </div>
                 </div>
 
-                <!-- Installed Apps -->
+                <!-- 已安装应用 -->
                 <div class="bg-white rounded-xl card-shadow">
                     <div class="px-6 py-4 border-b flex items-center justify-between">
-                        <h3 class="font-semibold text-gray-800">1Panel Installed Applications</h3>
+                        <h3 class="font-semibold text-gray-800">1Panel 已安装应用</h3>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-6">
                         <div v-for="a in panelInstalledApps" :key="a.id"
@@ -707,29 +719,29 @@ const app = createApp({
                                     class="badge">{{ a.status }}</span>
                             </div>
                             <p class="text-sm text-gray-500">v{{ a.version }}</p>
-                            <p class="text-sm text-gray-500" v-if="a.httpPort">Port: {{ a.httpPort }}</p>
+                            <p class="text-sm text-gray-500" v-if="a.httpPort">端口: {{ a.httpPort }}</p>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Sites Page -->
+            <!-- 站点列表页面 -->
             <div v-if="currentPage === 'sites'" class="p-8 fade-in">
                 <div class="bg-white rounded-xl card-shadow">
                     <div class="px-6 py-4 border-b flex items-center justify-between flex-wrap gap-4">
                         <div class="flex items-center gap-4 flex-1">
                             <div class="relative flex-1 max-w-md">
                                 <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
-                                <input v-model="searchQuery" type="text" placeholder="Search sites..."
+                                <input v-model="searchQuery" type="text" placeholder="搜索站点..."
                                     class="w-full pl-10 pr-4 py-2 border rounded-lg focus:border-indigo-500">
                             </div>
                         </div>
                         <div class="flex gap-3">
                             <button @click="exportCSV" class="px-4 py-2 border rounded-lg hover:bg-gray-50 text-sm">
-                                <i class="fas fa-download mr-2"></i>Export CSV
+                                <i class="fas fa-download mr-2"></i>导出CSV
                             </button>
-                            <button @click="openCreateModal('single')" class="btn-primary text-white px-4 py-2 rounded-lg text-sm">
-                                <i class="fas fa-plus mr-2"></i>Add Site
+                            <button @click="currentPage = 'create'" class="btn-primary text-white px-4 py-2 rounded-lg text-sm">
+                                <i class="fas fa-plus mr-2"></i>添加站点
                             </button>
                         </div>
                     </div>
@@ -737,17 +749,17 @@ const app = createApp({
                         <table class="w-full">
                             <thead>
                                 <tr class="bg-gray-50 text-left text-xs text-gray-600 uppercase">
-                                    <th class="px-4 py-3">Site Name</th>
+                                    <th class="px-4 py-3">站点名称</th>
                                     <th class="px-4 py-3">URL</th>
-                                    <th class="px-4 py-3">Admin Name</th>
-                                    <th class="px-4 py-3">Admin Password</th>
-                                    <th class="px-4 py-3">Tag</th>
-                                    <th class="px-4 py-3">Security ID</th>
-                                    <th class="px-4 py-3">HTTP User</th>
-                                    <th class="px-4 py-3">HTTP Pass</th>
-                                    <th class="px-4 py-3">Verify Cert</th>
-                                    <th class="px-4 py-3">SSL Version</th>
-                                    <th class="px-4 py-3">Actions</th>
+                                    <th class="px-4 py-3">管理员</th>
+                                    <th class="px-4 py-3">管理员密码</th>
+                                    <th class="px-4 py-3">标签</th>
+                                    <th class="px-4 py-3">安全ID</th>
+                                    <th class="px-4 py-3">HTTP用户</th>
+                                    <th class="px-4 py-3">HTTP密码</th>
+                                    <th class="px-4 py-3">验证证书</th>
+                                    <th class="px-4 py-3">SSL版本</th>
+                                    <th class="px-4 py-3">操作</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -774,10 +786,10 @@ const app = createApp({
                                     <td class="px-4 py-3 text-sm">{{ s.ssl_version || 'auto' }}</td>
                                     <td class="px-4 py-3">
                                         <div class="flex gap-2">
-                                            <button @click="openEditModal(s)" class="text-indigo-600 hover:text-indigo-800" title="Edit">
+                                            <button @click="openEditModal(s)" class="text-indigo-600 hover:text-indigo-800" title="编辑">
                                                 <i class="fas fa-edit"></i>
                                             </button>
-                                            <button @click="confirmDelete(s)" class="text-red-500 hover:text-red-700" title="Delete">
+                                            <button @click="confirmDelete(s)" class="text-red-500 hover:text-red-700" title="删除">
                                                 <i class="fas fa-trash"></i>
                                             </button>
                                         </div>
@@ -786,8 +798,8 @@ const app = createApp({
                                 <tr v-if="!filteredSites.length">
                                     <td colspan="11" class="px-6 py-12 text-center text-gray-400">
                                         <i class="fas fa-inbox text-4xl mb-3 block"></i>
-                                        <p class="text-lg">No sites found</p>
-                                        <p class="text-sm mt-1">Create your first WordPress site to get started</p>
+                                        <p class="text-lg">暂无站点</p>
+                                        <p class="text-sm mt-1">点击"创建站点"开始安装您的第一个WordPress网站</p>
                                     </td>
                                 </tr>
                             </tbody>
@@ -796,50 +808,60 @@ const app = createApp({
                 </div>
             </div>
 
-            <!-- Create Page -->
+            <!-- 创建站点页面 -->
             <div v-if="currentPage === 'create'" class="p-8 fade-in">
                 <div class="max-w-3xl mx-auto">
                     <div class="bg-white rounded-xl card-shadow p-8">
+                        <!-- 模式切换 -->
                         <div class="flex gap-4 mb-8">
                             <button @click="openCreateModal('single')"
                                 :class="['flex-1 py-3 rounded-lg font-semibold transition', createForm.mode === 'single' ? 'btn-primary text-white' : 'border hover:bg-gray-50']">
-                                <i class="fas fa-plus mr-2"></i>Single Site
+                                <i class="fas fa-plus mr-2"></i>单个创建
                             </button>
                             <button @click="openCreateModal('batch')"
                                 :class="['flex-1 py-3 rounded-lg font-semibold transition', createForm.mode === 'batch' ? 'btn-primary text-white' : 'border hover:bg-gray-50']">
-                                <i class="fas fa-layer-group mr-2"></i>Batch Create
+                                <i class="fas fa-layer-group mr-2"></i>批量创建
                             </button>
                         </div>
 
-                        <!-- Domain Input -->
+                        <!-- 1Panel连接提示 -->
+                        <div v-if="!panelConnected" class="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+                            <p class="text-red-700 text-sm"><i class="fas fa-exclamation-triangle mr-2"></i>1Panel未连接，站点将仅保存到本地，不会实际安装WordPress。请检查1Panel连接配置。</p>
+                        </div>
+                        <div v-else class="mb-6 bg-green-50 border border-green-200 rounded-lg p-4">
+                            <p class="text-green-700 text-sm"><i class="fas fa-check-circle mr-2"></i>1Panel已连接，站点将通过1Panel API实际安装WordPress到服务器。</p>
+                        </div>
+
+                        <!-- 域名输入 -->
                         <div v-if="createForm.mode === 'single'" class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Domain / Site Name</label>
-                            <input v-model="createForm.site_name" type="text" placeholder="e.g., site1.example.com"
+                            <label class="block text-sm font-medium text-gray-700 mb-1">域名 / 站点名称</label>
+                            <input v-model="createForm.site_name" type="text" placeholder="例如: site1.example.com"
                                 class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500">
-                            <p class="text-xs text-gray-500 mt-1">This will be used as the primary domain for the WordPress site</p>
+                            <p class="text-xs text-gray-500 mt-1">将作为WordPress站点的主域名，同时用于1Panel创建网站</p>
                         </div>
                         <div v-else class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Domains (one per line)</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">域名列表（每行一个）</label>
                             <textarea v-model="createForm.domains" rows="6" placeholder="site1.example.com&#10;site2.example.com&#10;site3.example.com"
                                 class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"></textarea>
-                            <p class="text-xs text-gray-500 mt-1">Each domain will create a separate WordPress site</p>
+                            <p class="text-xs text-gray-500 mt-1">每个域名将创建一个独立的WordPress站点</p>
                         </div>
 
                         <!-- URL -->
                         <div v-if="createForm.mode === 'single'" class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">URL (optional, auto-generated if empty)</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">URL（可选，留空则自动生成）</label>
                             <input v-model="createForm.url" type="text" placeholder="http://site1.example.com"
                                 class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500">
                         </div>
 
+                        <!-- 管理员信息 -->
                         <div class="grid grid-cols-2 gap-6 mb-6">
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">WP Admin Name</label>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">WP 管理员用户名</label>
                                 <input v-model="createForm.admin_name" type="text"
                                     class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500">
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">WP Admin Password</label>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">WP 管理员密码</label>
                                 <input v-model="createForm.admin_password" type="text"
                                     class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500">
                             </div>
@@ -847,53 +869,55 @@ const app = createApp({
 
                         <div class="grid grid-cols-2 gap-6 mb-6">
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Tag</label>
-                                <input v-model="createForm.tag" type="text" placeholder="e.g., production"
+                                <label class="block text-sm font-medium text-gray-700 mb-1">标签</label>
+                                <input v-model="createForm.tag" type="text" placeholder="例如: 生产环境"
                                     class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500">
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Security ID</label>
-                                <input v-model="createForm.security_id" type="text" placeholder="Security identifier"
+                                <label class="block text-sm font-medium text-gray-700 mb-1">安全ID</label>
+                                <input v-model="createForm.security_id" type="text" placeholder="安全标识"
                                     class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500">
                             </div>
                         </div>
 
+                        <!-- HTTP认证 -->
                         <div class="bg-gray-50 rounded-lg p-4 mb-6">
                             <h4 class="text-sm font-semibold text-gray-700 mb-3">
-                                <i class="fas fa-shield-alt mr-2"></i>HTTP Authentication
+                                <i class="fas fa-shield-alt mr-2"></i>HTTP 认证
                             </h4>
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">HTTP Username</label>
-                                    <input v-model="createForm.http_username" type="text" placeholder="Optional"
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">HTTP 用户名</label>
+                                    <input v-model="createForm.http_username" type="text" placeholder="可选"
                                         class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500">
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">HTTP Password</label>
-                                    <input v-model="createForm.http_password" type="text" placeholder="Optional"
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">HTTP 密码</label>
+                                    <input v-model="createForm.http_password" type="text" placeholder="可选"
                                         class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500">
                                 </div>
                             </div>
                         </div>
 
+                        <!-- SSL配置 -->
                         <div class="bg-gray-50 rounded-lg p-4 mb-6">
                             <h4 class="text-sm font-semibold text-gray-700 mb-3">
-                                <i class="fas fa-certificate mr-2"></i>SSL Configuration
+                                <i class="fas fa-certificate mr-2"></i>SSL 配置
                             </h4>
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">Verify Certificate</label>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">验证证书</label>
                                     <select v-model="createForm.verify_certificate"
                                         class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500">
-                                        <option :value="true">Yes (1)</option>
-                                        <option :value="false">No (0)</option>
+                                        <option :value="true">是 (1)</option>
+                                        <option :value="false">否 (0)</option>
                                     </select>
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">SSL Version</label>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">SSL 版本</label>
                                     <select v-model="createForm.ssl_version"
                                         class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500">
-                                        <option value="auto">Auto</option>
+                                        <option value="auto">自动</option>
                                         <option value="1.3">TLS 1.3</option>
                                         <option value="1.2">TLS 1.2</option>
                                         <option value="1.1">TLS 1.1</option>
@@ -903,18 +927,19 @@ const app = createApp({
                             </div>
                         </div>
 
+                        <!-- 批量创建的服务器配置 -->
                         <div v-if="createForm.mode === 'batch'" class="bg-gray-50 rounded-lg p-4 mb-6">
                             <h4 class="text-sm font-semibold text-gray-700 mb-3">
-                                <i class="fas fa-server mr-2"></i>Server Configuration
+                                <i class="fas fa-server mr-2"></i>服务器配置
                             </h4>
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">Starting Port</label>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">起始端口</label>
                                     <input v-model.number="createForm.base_port" type="number" min="1024" max="65535"
                                         class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500">
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">Database Service</label>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">数据库服务</label>
                                     <select v-model="createForm.db_service"
                                         class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500">
                                         <option value="mariadb">MariaDB</option>
@@ -924,38 +949,55 @@ const app = createApp({
                             </div>
                         </div>
 
+                        <!-- 创建进度 -->
+                        <div v-if="createProgress.show" class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                            <h4 class="text-sm font-semibold text-blue-800 mb-2">
+                                <i class="fas fa-spinner fa-spin mr-2"></i>{{ createProgress.message }}
+                            </h4>
+                            <div v-if="createProgress.total > 1" class="w-full bg-blue-200 rounded-full h-2 mb-2">
+                                <div class="bg-blue-600 h-2 rounded-full transition-all"
+                                    :style="{width: (createProgress.current / createProgress.total * 100) + '%'}"></div>
+                            </div>
+                            <div v-for="r in createProgress.results" :key="r.domain" class="text-xs mt-1">
+                                <span :class="r.status === 'success' ? 'text-green-600' : 'text-red-600'">
+                                    <i :class="r.status === 'success' ? 'fas fa-check' : 'fas fa-times'" class="mr-1"></i>
+                                    {{ r.domain }} - {{ r.message }}
+                                </span>
+                            </div>
+                        </div>
+
                         <button @click="submitCreate" :disabled="loading"
                             class="w-full btn-primary text-white py-3 rounded-lg font-semibold hover:shadow-lg transition">
                             <i v-if="loading" class="fas fa-spinner fa-spin mr-2"></i>
                             <i v-else class="fas fa-rocket mr-2"></i>
-                            {{ createForm.mode === 'single' ? 'Create WordPress Site' : 'Batch Create WordPress Sites' }}
+                            {{ createForm.mode === 'single' ? '创建WordPress站点' : '批量创建WordPress站点' }}
                         </button>
                     </div>
                 </div>
             </div>
 
-            <!-- Settings Page -->
+            <!-- 设置页面 -->
             <div v-if="currentPage === 'settings'" class="p-8 fade-in">
                 <div class="max-w-3xl mx-auto space-y-6">
-                    <!-- Global Defaults -->
+                    <!-- 全局默认配置 -->
                     <div class="bg-white rounded-xl card-shadow p-6">
                         <h3 class="font-semibold text-gray-800 mb-4">
-                            <i class="fas fa-sliders-h mr-2 text-indigo-500"></i>Default WordPress Configuration
+                            <i class="fas fa-sliders-h mr-2 text-indigo-500"></i>默认WordPress配置
                         </h3>
                         <div class="space-y-4">
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Default Admin Name</label>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">默认管理员用户名</label>
                                 <input v-model="globalConfig.default_admin_name" type="text"
                                     class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Default Admin Password</label>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">默认管理员密码</label>
                                 <input v-model="globalConfig.default_admin_password" type="text"
                                     class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
-                                <p class="text-xs text-gray-500 mt-1">Applied to all newly created WordPress sites</p>
+                                <p class="text-xs text-gray-500 mt-1">应用于所有新创建的WordPress站点</p>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Default Database Service</label>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">默认数据库服务</label>
                                 <select v-model="globalConfig.db_service"
                                     class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
                                     <option value="mariadb">MariaDB</option>
@@ -965,60 +1007,41 @@ const app = createApp({
                         </div>
                     </div>
 
-                    <!-- Default Plugins -->
+                    <!-- 默认插件 -->
                     <div class="bg-white rounded-xl card-shadow p-6">
                         <h3 class="font-semibold text-gray-800 mb-4">
-                            <i class="fas fa-plug mr-2 text-indigo-500"></i>Default Plugins (for reference)
+                            <i class="fas fa-plug mr-2 text-indigo-500"></i>默认插件（参考）
                         </h3>
                         <textarea v-model="globalConfig.default_plugins" rows="4"
-                            placeholder="Enter plugin names, one per line"
+                            placeholder="每行输入一个插件名称"
                             class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500"></textarea>
-                        <p class="text-xs text-gray-500 mt-1">These plugins will be noted for manual installation on new sites</p>
+                        <p class="text-xs text-gray-500 mt-1">这些插件将标注在新站点上，需手动安装</p>
                     </div>
 
-                    <!-- Default Themes -->
+                    <!-- 默认主题 -->
                     <div class="bg-white rounded-xl card-shadow p-6">
                         <h3 class="font-semibold text-gray-800 mb-4">
-                            <i class="fas fa-palette mr-2 text-indigo-500"></i>Default Themes (for reference)
+                            <i class="fas fa-palette mr-2 text-indigo-500"></i>默认主题（参考）
                         </h3>
                         <textarea v-model="globalConfig.default_themes" rows="4"
-                            placeholder="Enter theme names, one per line"
+                            placeholder="每行输入一个主题名称"
                             class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500"></textarea>
-                        <p class="text-xs text-gray-500 mt-1">These themes will be noted for manual installation on new sites</p>
+                        <p class="text-xs text-gray-500 mt-1">这些主题将标注在新站点上，需手动安装</p>
                     </div>
 
                     <button @click="saveGlobalConfig" :disabled="loading"
                         class="w-full btn-primary text-white py-3 rounded-lg font-semibold">
-                        <i class="fas fa-save mr-2"></i>Save Settings
+                        <i class="fas fa-save mr-2"></i>保存设置
                     </button>
                 </div>
             </div>
         </main>
 
-        <!-- Create/Edit Modal -->
-        <div v-if="showCreateModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
-            <div class="bg-white rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto w-full max-w-2xl mx-4 fade-in">
-                <div class="p-6 border-b flex items-center justify-between">
-                    <h2 class="text-lg font-bold">{{ createForm.mode === 'single' ? 'Add WordPress Site' : 'Batch Create Sites' }}</h2>
-                    <button @click="showCreateModal = false" class="text-gray-400 hover:text-gray-600">
-                        <i class="fas fa-times text-xl"></i>
-                    </button>
-                </div>
-                <div class="p-6">
-                    <p class="text-gray-500">Please use the Create Site page to configure and create WordPress sites.</p>
-                    <button @click="showCreateModal = false; currentPage = 'create'"
-                        class="mt-4 btn-primary text-white px-6 py-2 rounded-lg">
-                        Go to Create Page
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Edit Modal -->
+        <!-- 编辑弹窗 -->
         <div v-if="showEditModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
             <div class="bg-white rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto w-full max-w-2xl mx-4 fade-in">
                 <div class="p-6 border-b flex items-center justify-between">
-                    <h2 class="text-lg font-bold">Edit Site</h2>
+                    <h2 class="text-lg font-bold">编辑站点</h2>
                     <button @click="showEditModal = false" class="text-gray-400 hover:text-gray-600">
                         <i class="fas fa-times text-xl"></i>
                     </button>
@@ -1026,7 +1049,7 @@ const app = createApp({
                 <div class="p-6 space-y-4">
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Site Name</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">站点名称</label>
                             <input v-model="editForm.site_name" type="text"
                                 class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
                         </div>
@@ -1038,54 +1061,54 @@ const app = createApp({
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Admin Name</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">管理员</label>
                             <input v-model="editForm.admin_name" type="text"
                                 class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Admin Password</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">管理员密码</label>
                             <input v-model="editForm.admin_password" type="text"
                                 class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
                         </div>
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Tag</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">标签</label>
                             <input v-model="editForm.tag" type="text"
                                 class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Security ID</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">安全ID</label>
                             <input v-model="editForm.security_id" type="text"
                                 class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
                         </div>
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">HTTP Username</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">HTTP 用户名</label>
                             <input v-model="editForm.http_username" type="text"
                                 class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">HTTP Password</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">HTTP 密码</label>
                             <input v-model="editForm.http_password" type="text"
                                 class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
                         </div>
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Verify Certificate</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">验证证书</label>
                             <select v-model="editForm.verify_certificate"
                                 class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
-                                <option :value="true">Yes (1)</option>
-                                <option :value="false">No (0)</option>
+                                <option :value="true">是 (1)</option>
+                                <option :value="false">否 (0)</option>
                             </select>
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">SSL Version</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">SSL 版本</label>
                             <select v-model="editForm.ssl_version"
                                 class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500">
-                                <option value="auto">Auto</option>
+                                <option value="auto">自动</option>
                                 <option value="1.3">TLS 1.3</option>
                                 <option value="1.2">TLS 1.2</option>
                                 <option value="1.1">TLS 1.1</option>
@@ -1095,16 +1118,16 @@ const app = createApp({
                     </div>
                 </div>
                 <div class="p-6 border-t flex gap-3 justify-end">
-                    <button @click="showEditModal = false" class="px-6 py-2 border rounded-lg hover:bg-gray-50">Cancel</button>
+                    <button @click="showEditModal = false" class="px-6 py-2 border rounded-lg hover:bg-gray-50">取消</button>
                     <button @click="submitEdit" :disabled="loading" class="btn-primary text-white px-6 py-2 rounded-lg">
                         <i v-if="loading" class="fas fa-spinner fa-spin mr-2"></i>
-                        Save Changes
+                        保存更改
                     </button>
                 </div>
             </div>
         </div>
 
-        <!-- Confirm Modal -->
+        <!-- 确认弹窗 -->
         <div v-if="modal.show" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
             <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 fade-in">
                 <div class="p-6">
@@ -1112,13 +1135,13 @@ const app = createApp({
                     <p class="text-gray-600">{{ modal.content }}</p>
                 </div>
                 <div class="p-6 border-t flex gap-3 justify-end">
-                    <button @click="modal.show = false" class="px-6 py-2 border rounded-lg hover:bg-gray-50">Cancel</button>
-                    <button @click="modal.onConfirm()" class="bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600">Delete</button>
+                    <button @click="modal.show = false" class="px-6 py-2 border rounded-lg hover:bg-gray-50">取消</button>
+                    <button @click="modal.onConfirm()" class="bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600">删除</button>
                 </div>
             </div>
         </div>
 
-        <!-- Toast -->
+        <!-- 提示 -->
         <div v-if="toast.show" class="toast fade-in">
             <div :class="['rounded-lg shadow-lg px-6 py-4 flex items-center gap-3',
                 toast.type === 'success' ? 'bg-green-500 text-white' : toast.type === 'error' ? 'bg-red-500 text-white' : 'bg-blue-500 text-white']">
