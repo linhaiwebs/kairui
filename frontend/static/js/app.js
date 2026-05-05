@@ -567,6 +567,31 @@ const app = createApp({
             );
         }
 
+        // ---- 修复1Panel网站 ----
+        async function fixWebsite(site) {
+            showModal(
+                '修复1Panel网站',
+                `站点 "${site.site_name}" 已有WordPress应用但缺少1Panel网站(OpenResty)。\n点击确定将创建1Panel部署网站并关联到现有WordPress应用。`,
+                async () => {
+                    loading.value = true;
+                    try {
+                        const resp = await API.call('POST', `/api/sites/${site.id}/fix-website`);
+                        if (resp.code === 200) {
+                            showToast('1Panel网站已修复创建');
+                            await loadSites();
+                        } else {
+                            showToast(resp.message || '修复失败', 'error');
+                        }
+                    } catch (e) {
+                        showToast('修复请求失败', 'error');
+                    } finally {
+                        loading.value = false;
+                    }
+                    modal.show = false;
+                }
+            );
+        }
+
         function exportCSV() {
             API.exportCSV();
             showToast('CSV文件已导出');
@@ -612,7 +637,7 @@ const app = createApp({
             handleLogin, handleLogout, refreshSites,
             openCreateModal, submitCreate,
             openEditModal, submitEdit,
-            confirmDelete, saveGlobalConfig, exportCSV,
+            confirmDelete, fixWebsite, saveGlobalConfig, exportCSV,
             loadPlugins, handlePluginUpload, handleDeletePlugin, handleTogglePlugin, togglePluginSelection,
             showToast, showModal,
         };
@@ -774,6 +799,7 @@ const app = createApp({
                                 <span v-else-if="wpInstallStatuses[s.id]?.status === 'installing'" class="badge bg-yellow-100 text-yellow-800" :title="wpInstallStatuses[s.id]?.message"><i class="fas fa-spinner fa-spin mr-1"></i>安装中</span>
                                 <span v-else-if="wpInstallStatuses[s.id]?.status === 'installed'" class="badge bg-green-100 text-green-800" :title="wpInstallStatuses[s.id]?.message"><i class="fas fa-check-circle mr-1"></i>已完成</span>
                                 <span v-else-if="wpInstallStatuses[s.id]?.status === 'failed'" class="badge bg-red-100 text-red-800" :title="wpInstallStatuses[s.id]?.message"><i class="fas fa-times-circle mr-1"></i>失败</span>
+                                <span v-else-if="s.panel_app_install_id && !s.panel_website_id" class="badge bg-orange-100 text-orange-800" title="WordPress应用已安装，但1Panel网站缺失，点击扳手修复"><i class="fas fa-exclamation-triangle mr-1"></i>缺网站</span>
                                 <span v-else-if="s.panel_website_id" class="badge bg-green-100 text-green-800" title="已通过1Panel一键部署"><i class="fas fa-rocket mr-1"></i>已部署</span>
                                 <span v-else class="text-gray-400">-</span>
                                 <div v-if="wpInstallStatuses[s.id]?.message" class="text-xs text-gray-500 mt-1 max-w-[180px] truncate">{{ wpInstallStatuses[s.id].message }}</div>
@@ -782,7 +808,7 @@ const app = createApp({
                             <td class="px-4 py-3 text-sm"><span class="font-mono text-xs" v-if="s.http_password">••••••</span><span v-else>-</span></td>
                             <td class="px-4 py-3 text-sm"><i :class="s.verify_certificate ? 'fas fa-check-circle text-green-500' : 'fas fa-times-circle text-red-500'"></i> {{ s.verify_certificate ? '1' : '0' }}</td>
                             <td class="px-4 py-3 text-sm">{{ s.ssl_version || 'auto' }}</td>
-                            <td class="px-4 py-3"><div class="flex gap-2"><button @click="openEditModal(s)" class="text-indigo-600 hover:text-indigo-800" title="编辑"><i class="fas fa-edit"></i></button><button @click="confirmDelete(s)" class="text-red-500 hover:text-red-700" title="删除"><i class="fas fa-trash"></i></button></div></td>
+                            <td class="px-4 py-3"><div class="flex gap-2"><button @click="openEditModal(s)" class="text-indigo-600 hover:text-indigo-800" title="编辑"><i class="fas fa-edit"></i></button><button v-if="s.panel_app_install_id && !s.panel_website_id" @click="fixWebsite(s)" class="text-orange-500 hover:text-orange-700" title="修复1Panel网站"><i class="fas fa-wrench"></i></button><button @click="confirmDelete(s)" class="text-red-500 hover:text-red-700" title="删除"><i class="fas fa-trash"></i></button></div></td>
                         </tr>
                         <tr v-if="!filteredSites.length"><td colspan="13" class="px-6 py-12 text-center text-gray-400"><i class="fas fa-inbox text-4xl mb-3 block"></i><p class="text-lg">暂无站点</p><p class="text-sm mt-1">点击"创建站点"开始安装您的第一个WordPress网站</p></td></tr>
                     </tbody></table></div>

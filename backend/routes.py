@@ -395,6 +395,111 @@ def register_routes(app):
             logger.error(f"Failed to delete site {site_id}: {e}")
             return jsonify({"code": 500, "message": f"删除站点失败: {str(e)[:100]}"}), 500
 
+    @app.route("/api/sites/<site_id>/fix-website", methods=["POST"])
+    @jwt_required()
+    def fix_site_website(site_id):
+        """Fix a site that has a WP app but no 1Panel website (OpenResty deployment).
+        
+        This creates the missing 1Panel deployment website and links it to the
+        existing WP application, then updates the local DB.
+        """
+        try:
+            site = get_site(site_id)
+            if not site:
+                return jsonify({"code": 404, "message": "站点不存在"}), 404
+
+            # Already has a website
+            if site.get("panel_website_id"):
+                return jsonify({"code": 400, "message": "站点已有1Panel网站，无需修复"})
+
+            app_install_id = site.get("panel_app_install_id")
+            if not app_install_id:
+                return jsonify({"code": 400, "message": "站点缺少1Panel应用ID，无法修复"})
+
+            alias = site.get("nginx_alias") or site["site_name"].replace(".", "-")
+            domain = site["site_name"]
+            port = site.get("port", 8081)
+
+            # First, check if a website with this alias/domain already exists in 1Panel
+            existing_website_id = None
+            try:
+                ws = panel_client.search_websites(name=domain)
+                if ws.get("code") == 200:
+                    items = ws.get("data", {}).get("items") or []
+                    for w in items:
+                        if w.get("alias") == alias or w.get("primaryDomain") == domain:
+                            existing_website_id = w.get("id")
+                            logger.info(f"Fix-website: Found existing website id={existing_website_id} for {domain}")
+                            break
+            except Exception as e:
+                logger.warning(f"Fix-website: search_websites failed: {e}")
+
+            if existing_website_id:
+                # Website already exists in 1Panel, just update our DB
+                update_site_fields(site_id, {"panel_website_id": existing_website_id})
+                return jsonify({
+                    "code": 200,
+                    "message": "1Panel网站已存在，已自动关联",
+                    "data": {"panel_website_id": existing_website_id, "alias": alias},
+                })
+
+            # Ensure website group exists
+            group_id = panel_client.ensure_website_group()
+
+            # Create the deployment website
+            logger.info(f"Fix-website: Creating deployment website for {domain} (app_install_id={app_install_id})")
+            result = panel_client.create_website(
+                primary_domain=domain,
+                alias=alias,
+                app_type="installed",
+                app_install_id=app_install_id,
+                website_group_id=group_id,
+                enable_ipv6=True,
+            )
+            logger.info(f"Fix-website: create_website response: code={result.get('code')}, message={result.get('message','')[:200]}")
+
+            # If alias conflict, try with a unique alias
+            if result.get("code") != 200 and "标识已存在" in str(result.get("message", "")):
+                for suffix in range(2, 5):
+                    unique_alias = f"{alias}-{suffix}"
+                    logger.info(f"Fix-website: Retrying with alias={unique_alias}")
+                    result = panel_client.create_website(
+                        primary_domain=domain,
+                        alias=unique_alias,
+                        app_type="installed",
+                        app_install_id=app_install_id,
+                        website_group_id=group_id,
+                        enable_ipv6=True,
+                    )
+                    if result.get("code") == 200:
+                        alias = unique_alias
+                        break
+
+            if result.get("code") != 200:
+                return jsonify({"code": 500, "message": f"创建1Panel网站失败: {result.get('message', '未知错误')[:100]}"})
+
+            # Find the website ID
+            website_id = None
+            ws = panel_client.search_websites(name=domain)
+            if ws.get("code") == 200:
+                items = ws.get("data", {}).get("items") or []
+                for w in items:
+                    if w.get("alias") == alias or w.get("primaryDomain") == domain:
+                        website_id = w.get("id")
+                        break
+
+            # Update local DB
+            update_site_fields(site_id, {"panel_website_id": website_id, "nginx_alias": alias})
+
+            return jsonify({
+                "code": 200,
+                "message": "1Panel网站已创建并关联",
+                "data": {"panel_website_id": website_id, "alias": alias},
+            })
+        except Exception as e:
+            logger.error(f"Fix-website failed for {site_id}: {e}")
+            return jsonify({"code": 500, "message": f"修复失败: {str(e)[:100]}"}), 500
+
     # ---- CSV Export ----
 
     @app.route("/api/sites/export/csv", methods=["GET"])
@@ -870,34 +975,62 @@ def register_routes(app):
                         # === Step 3: Create deployment website (OpenResty) ===
                         update_bg_task(sid, status="deploying",
                                        message="1Panel正在部署网站，使用OpenResty...")
-                        try:
-                            website_result = panel_client.create_website(
-                                primary_domain=s_domain,
-                                alias=s_alias,
-                                app_type="installed",
-                                app_install_id=app_install_id,
-                                website_group_id=s_group_id,
-                                enable_ipv6=True,
-                            )
-                            if website_result.get("code") == 200:
-                                # Find the website ID
+                        website_result = None
+                        for _attempt in range(3):
+                            try:
+                                logger.info(f"Step3: Creating deployment website for {s_domain} (attempt {_attempt+1}/3)")
+                                website_result = panel_client.create_website(
+                                    primary_domain=s_domain,
+                                    alias=s_alias,
+                                    app_type="installed",
+                                    app_install_id=app_install_id,
+                                    website_group_id=s_group_id,
+                                    enable_ipv6=True,
+                                )
+                                logger.info(f"Step3: create_website response: code={website_result.get('code')}, message={website_result.get('message','')[:200]}")
+                                if website_result.get("code") == 200:
+                                    break
+                                # If alias conflict, try with unique suffix
+                                if "标识已存在" in str(website_result.get("message", "")):
+                                    logger.warning(f"Step3: Alias conflict, trying unique alias for {s_alias}")
+                                    unique_alias = f"{s_alias}-{_attempt+1}"
+                                    website_result = panel_client.create_website(
+                                        primary_domain=s_domain,
+                                        alias=unique_alias,
+                                        app_type="installed",
+                                        app_install_id=app_install_id,
+                                        website_group_id=s_group_id,
+                                        enable_ipv6=True,
+                                    )
+                                    logger.info(f"Step3: Retry with alias={unique_alias}: code={website_result.get('code')}, message={website_result.get('message','')[:200]}")
+                                    if website_result.get("code") == 200:
+                                        break
+                            except Exception as e:
+                                logger.error(f"Step3: Create deployment website exception (attempt {_attempt+1}): {e}")
+                                website_result = {"code": 500, "message": str(e)[:200]}
+                            if _attempt < 2:
+                                time.sleep(5)
+
+                        if website_result and website_result.get("code") == 200:
+                            # Find the website ID
+                            try:
                                 ws = panel_client.search_websites(name=s_domain)
                                 if ws.get("code") == 200:
                                     items = ws.get("data", {}).get("items") or []
                                     for w in items:
-                                        if w.get("alias") == s_alias:
+                                        if w.get("alias") == s_alias or w.get("primaryDomain") == s_domain:
                                             panel_website_id = w.get("id")
+                                            logger.info(f"Step3: Found website id={panel_website_id} for {s_domain}")
                                             break
-                                update_bg_task(sid, status="deploying",
-                                               message="1Panel已部署网站(OpenResty)，正在等待WordPress就绪...")
-                            else:
-                                logger.warning(f"Create deployment website failed: {website_result.get('message', '')}")
-                                update_bg_task(sid, status="installing",
-                                               message="网站部署未成功，正在尝试直接初始化WordPress...")
-                        except Exception as e:
-                            logger.warning(f"Create deployment website exception: {e}")
+                            except Exception as e:
+                                logger.warning(f"Step3: search_websites failed: {e}")
+                            update_bg_task(sid, status="deploying",
+                                           message="1Panel已部署网站(OpenResty)，正在等待WordPress就绪...")
+                        else:
+                            error_msg = website_result.get('message', '未知错误') if website_result else '无响应'
+                            logger.error(f"Step3: Create deployment website FAILED after 3 attempts: {error_msg}")
                             update_bg_task(sid, status="installing",
-                                           message="网站部署异常，正在尝试直接初始化WordPress...")
+                                           message=f"网站部署未成功({error_msg[:50]})，正在尝试直接初始化WordPress...")
 
                         # Update local DB with panel IDs
                         try:
