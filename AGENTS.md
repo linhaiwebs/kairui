@@ -79,6 +79,8 @@ docker compose down         # Stop
 - GET /api/cloudflare/dns-records/<zone_id> — list DNS records
 - GET /api/cloudflare/status — check CF connection
 - GET /api/config | PUT /api/config
+- GET /api/panel/status — check 1Panel connection
+- POST /api/panel/sync — reconcile local DB with 1Panel state (import_orphans: bool)
 
 ## 1Panel API Authentication
 - Method: MD5('1panel' + apiKey + timestamp)
@@ -119,3 +121,15 @@ docker compose down         # Stop
 ## Dependencies
 Python: flask, flask-cors, flask-jwt-extended, requests, gunicorn, gevent
 Frontend: Vue 3 (CDN), Tailwind CSS (CDN), Font Awesome (CDN)
+
+## 1Panel App Recognition (Key Finding)
+When our system creates WordPress sites via `POST /websites` with `appType="new"`, 1Panel creates
+BOTH the WordPress app AND the website in one step. The app is immediately linked to the website.
+1Panel's UI "已安装应用" (installed apps) dropdown during website creation only shows apps that
+are NOT already linked to a website — so our apps won't appear there. This is EXPECTED behavior.
+
+If a WordPress app exists without a linked website (orphaned), it WILL appear in the dropdown.
+The `/api/panel/sync` endpoint detects orphaned apps and can optionally import them.
+
+Site list shows `panel_status` column: Running (green) / deleted (red) / unlinked (yellow).
+Fix-website button (🔧) appears for sites where the app exists but the website link is broken.

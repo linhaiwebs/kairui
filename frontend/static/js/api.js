@@ -71,6 +71,10 @@ const API = {
     async deleteSite(id) {
         return this.request('DELETE', `/api/sites/${id}`);
     },
+
+    async fixWebsite(siteId) {
+        return this.request('POST', `/api/sites/${siteId}/fix-website`);
+    },
     
     async exportCSV() {
         const headers = { 'Authorization': `Bearer ${this.token}` };
@@ -149,6 +153,10 @@ const API = {
     
     async panelStatus() {
         return this.request('GET', '/api/panel/status');
+    },
+
+    async panelSync(importOrphans = false) {
+        return this.request('POST', '/api/panel/sync', { import_orphans: importOrphans });
     },
     
     // Batch create

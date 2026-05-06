@@ -127,6 +127,22 @@ const app = createApp({
             try { await Promise.all([loadSites(), loadPanelData()]); showToast('数据已刷新'); } finally { loading.value = false; }
         }
 
+        async function syncWithPanel() {
+            loading.value = true;
+            try {
+                const resp = await API.panelSync(true);
+                if (resp.code === 200) {
+                    const d = resp.data;
+                    let msg = `同步完成: 更新${d.updated}个, 清理${d.cleared}个`;
+                    if (d.imported) msg += `, 导入${d.imported}个`;
+                    if (d.orphaned_wp_apps > 0) msg += `, 发现${d.orphaned_wp_apps}个未关联网站的WordPress应用`;
+                    if (d.errors && d.errors.length) msg += `, ${d.errors.length}个错误`;
+                    showToast(msg);
+                    await loadSites();
+                } else { showToast(resp.message || '同步失败', 'error'); }
+            } catch (e) { showToast('同步失败', 'error'); } finally { loading.value = false; }
+        }
+
         // ---- Plugins ----
         async function loadPlugins() {
             try { const resp = await API.getPlugins(); if (resp.code === 200) plugins.value = resp.data || []; } catch (e) {}
@@ -310,10 +326,10 @@ const app = createApp({
             cfConnected, cfToken, cfZones, cfSelectedZone, cfProxied, cfServerIp, cfCreating, cfDnsResult,
             showEditModal, editForm, editingSiteId, globalConfig,
             plugins, uploadProgress, formatSize,
-            handleLogin, handleLogout, refreshSites,
+            handleLogin, handleLogout, refreshSites, syncWithPanel,
             openWizard, closeWizard, wizardCreateSite,
             wizardInstallThemeAndPlugins, wizardSkipStep2, wizardNextStep2, wizardFinish,
-            openEditModal, submitEdit, confirmDelete, saveGlobalConfig, exportCSV,
+            openEditModal, submitEdit, confirmDelete, fixSiteWebsite, saveGlobalConfig, exportCSV,
             loadPlugins, handlePluginUpload, handleDeletePlugin, handleTogglePlugin,
             loadThemes, handleThemeUpload, handleDeleteTheme,
             cfVerify, loadCfZones, cfCreateDns,
@@ -358,6 +374,7 @@ const app = createApp({
         <main class="flex-1 overflow-auto">
             <header class="bg-white border-b px-8 py-4 flex items-center justify-between">
                 <div><h1 class="text-xl font-bold text-gray-800">{{ currentPage === 'dashboard' ? '仪表盘' : currentPage === 'sites' ? '站点列表' : currentPage === 'plugins' ? '插件管理' : currentPage === 'themes' ? '主题管理' : '系统设置' }}</h1><p class="text-sm text-gray-500"><span :class="panelConnected ? 'text-green-500' : 'text-red-500'"><i class="fas fa-circle text-xs mr-1"></i>{{ panelConnected ? '1Panel 已连接' : '1Panel 未连接' }}</span></p></div>
+                <button @click="syncWithPanel" class="px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition text-sm" title="从1Panel同步数据"><i class="fas fa-exchange-alt mr-2"></i>同步1Panel</button>
                 <button @click="refreshSites" class="px-4 py-2 border rounded-lg hover:bg-gray-50 transition text-sm"><i class="fas fa-sync-alt mr-2" :class="{'fa-spin': loading}"></i>刷新</button>
             </header>
 
@@ -390,15 +407,16 @@ const app = createApp({
                     <div v-if="!filteredSites.length" class="p-12 text-center text-gray-400"><i class="fas fa-inbox text-4xl mb-4"></i><p>暂无站点，点击"创建站点"开始</p></div>
                     <div v-else class="overflow-x-auto">
                         <table class="w-full text-sm">
-                            <thead class="bg-gray-50"><tr><th class="px-6 py-3 text-left font-medium text-gray-600">站点</th><th class="px-6 py-3 text-left font-medium text-gray-600">URL</th><th class="px-6 py-3 text-left font-medium text-gray-600">标签</th><th class="px-6 py-3 text-left font-medium text-gray-600">端口</th><th class="px-6 py-3 text-left font-medium text-gray-600">DNS</th><th class="px-6 py-3 text-right font-medium text-gray-600">操作</th></tr></thead>
+                            <thead class="bg-gray-50"><tr><th class="px-6 py-3 text-left font-medium text-gray-600">站点</th><th class="px-6 py-3 text-left font-medium text-gray-600">URL</th><th class="px-6 py-3 text-left font-medium text-gray-600">标签</th><th class="px-6 py-3 text-left font-medium text-gray-600">端口</th><th class="px-6 py-3 text-left font-medium text-gray-600">1Panel</th><th class="px-6 py-3 text-left font-medium text-gray-600">DNS</th><th class="px-6 py-3 text-right font-medium text-gray-600">操作</th></tr></thead>
                             <tbody class="divide-y">
                                 <tr v-for="site in filteredSites" :key="site.id" class="hover:bg-gray-50">
                                     <td class="px-6 py-4"><div class="font-medium text-gray-800">{{ site.site_name }}</div><div class="text-xs text-gray-500">{{ site.admin_name || '-' }}</div></td>
                                     <td class="px-6 py-4"><a :href="site.url" target="_blank" class="text-indigo-600 hover:text-indigo-800">{{ site.url }}</a></td>
                                     <td class="px-6 py-4"><span v-if="site.tag" class="bg-indigo-100 text-indigo-700 text-xs px-2 py-1 rounded-full">{{ site.tag }}</span><span v-else class="text-gray-400">-</span></td>
                                     <td class="px-6 py-4 text-gray-600">{{ site.port || '-' }}</td>
+                                    <td class="px-6 py-4"><span v-if="site.panel_website_id" :class="[site.panel_status === 'Running' ? 'bg-green-100 text-green-700' : site.panel_status === 'deleted' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700']" class="text-xs px-2 py-1 rounded-full"><i :class="[site.panel_status === 'Running' ? 'fas fa-check-circle' : site.panel_status === 'deleted' ? 'fas fa-times-circle' : 'fas fa-exclamation-circle']" class="mr-1"></i>{{ site.panel_status === 'Running' ? '正常' : site.panel_status === 'deleted' ? '已删除' : site.panel_status || '未知' }}</span><span v-else class="text-gray-400 text-xs">未关联</span></td>
                                     <td class="px-6 py-4"><span v-if="site.cf_dns_record_id" class="bg-orange-100 text-orange-700 text-xs px-2 py-1 rounded-full"><i class="fab fa-cloudflare mr-1"></i>CF</span><span v-else class="text-gray-400">-</span></td>
-                                    <td class="px-6 py-4 text-right"><div class="flex items-center justify-end gap-2"><button @click="openEditModal(site)" class="text-indigo-500 hover:text-indigo-700" title="编辑"><i class="fas fa-edit"></i></button><button @click="confirmDelete(site)" class="text-red-400 hover:text-red-600" title="删除"><i class="fas fa-trash"></i></button></div></td>
+                                    <td class="px-6 py-4 text-right"><div class="flex items-center justify-end gap-2"><button @click="openEditModal(site)" class="text-indigo-500 hover:text-indigo-700" title="编辑"><i class="fas fa-edit"></i></button><button v-if="site.panel_app_install_id && (!site.panel_website_id || site.panel_status === 'deleted')" @click="fixSiteWebsite(site)" class="text-orange-500 hover:text-orange-700" title="修复1Panel网站"><i class="fas fa-wrench"></i></button><button @click="confirmDelete(site)" class="text-red-400 hover:text-red-600" title="删除"><i class="fas fa-trash"></i></button></div></td>
                                 </tr>
                             </tbody>
                         </table>

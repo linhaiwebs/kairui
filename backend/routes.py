@@ -472,6 +472,12 @@ def register_routes(app):
                             ps = panel_sites[pwid]
                             site["panel_status"] = ps.get("status", "")
                             site["panel_protocol"] = ps.get("protocol", "")
+                            site["panel_alias"] = ps.get("alias", "")
+                        elif pwid:
+                            # Panel website no longer exists
+                            site["panel_status"] = "deleted"
+                        else:
+                            site["panel_status"] = site.get("panel_status") or "unlinked"
             except Exception as e:
                 logger.warning(f"Failed to enrich sites from panel: {e}")
             return jsonify({"code": 200, "data": sites})
@@ -497,6 +503,34 @@ def register_routes(app):
             site = get_site(site_id)
             if not site:
                 return jsonify({"code": 404, "message": "Site not found"}), 404
+            # Enrich with 1Panel data
+            try:
+                pwid = site.get("panel_website_id")
+                if pwid:
+                    ws_resp = panel_client.search_websites(name=site.get("site_name", ""))
+                    if ws_resp.get("code") == 200:
+                        for w in (ws_resp.get("data") or {}).get("items") or []:
+                            if w.get("id") == pwid:
+                                site["panel_status"] = w.get("status")
+                                site["panel_protocol"] = w.get("protocol")
+                                site["panel_alias"] = w.get("alias")
+                                site["panel_domains"] = w.get("domains", [])
+                                site["panel_site_path"] = w.get("sitePath", "")
+                                break
+                paid = site.get("panel_app_install_id")
+                if paid:
+                    app_resp = panel_client.search_installed_apps(name="", app_type="website")
+                    if app_resp.get("code") == 200:
+                        for a in (app_resp.get("data") or {}).get("items") or []:
+                            if a.get("id") == paid:
+                                site["panel_app_status"] = a.get("status")
+                                site["panel_app_version"] = a.get("version")
+                                site["panel_app_name"] = a.get("name")
+                                site["panel_container"] = a.get("container")
+                                site["panel_http_port"] = a.get("httpPort")
+                                break
+            except Exception as e:
+                logger.warning(f"Failed to enrich site detail from panel: {e}")
             return jsonify({"code": 200, "data": site})
         except Exception as e:
             logger.error(f"Failed to get site {site_id}: {e}")
@@ -1415,6 +1449,128 @@ def register_routes(app):
             return jsonify({"code": 200, "data": {"connected": False, "message": resp.get("message", "")}})
         except Exception as e:
             return jsonify({"code": 200, "data": {"connected": False, "message": str(e)}})
+
+    @app.route("/api/panel/sync", methods=["POST"])
+    @jwt_required()
+    def panel_sync():
+        """Sync local sites with 1Panel actual state.
+
+        For each local site:
+        - Verify the 1Panel website still exists; if not, clear panel IDs
+        - Verify the 1Panel app install still exists; if not, clear panel IDs
+        - If 1Panel has websites/apps not in our DB, optionally import them
+
+        Also reconciles:
+        - Orphaned WordPress apps (installed but no website in 1Panel)
+        - Sites where the 1Panel website was deleted externally
+        """
+        results = {"updated": 0, "cleared": 0, "imported": 0, "errors": []}
+        try:
+            # Get all 1Panel data
+            ws_resp = panel_client.search_websites()
+            panel_websites = {}
+            if ws_resp.get("code") == 200:
+                for w in (ws_resp.get("data") or {}).get("items") or []:
+                    panel_websites[w.get("id")] = w
+
+            app_resp = panel_client.search_installed_apps(name="", app_type="website")
+            panel_apps = {}
+            wp_apps = []
+            if app_resp.get("code") == 200:
+                for a in (app_resp.get("data") or {}).get("items") or []:
+                    panel_apps[a.get("id")] = a
+                    if a.get("appKey") == "wordpress":
+                        wp_apps.append(a)
+
+            # Check each local site
+            sites = list_sites()
+            for site in sites:
+                pwid = site.get("panel_website_id")
+                paid = site.get("panel_app_install_id")
+                updates = {}
+
+                # Check if 1Panel website still exists
+                if pwid:
+                    if pwid in panel_websites:
+                        pw = panel_websites[pwid]
+                        if pw.get("status") != site.get("panel_status"):
+                            updates["panel_status"] = pw.get("status")
+                    else:
+                        # Website gone from 1Panel
+                        updates["panel_website_id"] = None
+                        updates["panel_app_install_id"] = None
+                        results["cleared"] += 1
+                        logger.info(f"Sync: cleared stale panel IDs for site {site.get('id')} ({site.get('site_name')})")
+
+                # Check if 1Panel app still exists
+                if paid and paid not in panel_apps and "panel_app_install_id" not in updates:
+                    updates["panel_app_install_id"] = None
+                    if "panel_website_id" not in updates:
+                        updates["panel_website_id"] = None
+                    results["cleared"] += 1
+                    logger.info(f"Sync: cleared stale panel app ID for site {site.get('id')}")
+
+                # If site has no panel IDs but has a matching 1Panel website, link it
+                if not pwid and not paid:
+                    alias = site.get("nginx_alias") or site.get("site_name", "").replace(".", "-")
+                    for pw in panel_websites.values():
+                        if pw.get("alias") == alias or pw.get("primaryDomain") == site.get("site_name"):
+                            updates["panel_website_id"] = pw.get("id")
+                            updates["panel_app_install_id"] = pw.get("appInstallId")
+                            results["updated"] += 1
+                            logger.info(f"Sync: linked site {site.get('id')} to 1Panel website {pw.get('id')}")
+                            break
+
+                if updates:
+                    try:
+                        update_site_fields(site.get("id"), updates)
+                    except Exception as e:
+                        results["errors"].append(f"Site {site.get('id')}: {e}")
+
+            # Check for WordPress apps in 1Panel that have NO website (orphaned)
+            # These are the apps that WOULD show up in 1Panel's "已安装应用" dropdown
+            linked_app_ids = set(w.get("appInstallId") for w in panel_websites.values() if w.get("appInstallId"))
+            orphaned_wp_apps = [a for a in wp_apps if a.get("id") not in linked_app_ids]
+            results["orphaned_wp_apps"] = len(orphaned_wp_apps)
+            results["orphaned_wp_app_details"] = [
+                {"id": a.get("id"), "name": a.get("name"), "status": a.get("status"), "httpPort": a.get("httpPort")}
+                for a in orphaned_wp_apps
+            ]
+
+            # Import orphaned WordPress apps as new sites (if requested)
+            import_orphans = (request.get_json(silent=True) or {}).get("import_orphans", False)
+            if import_orphans and orphaned_wp_apps:
+                for app in orphaned_wp_apps:
+                    # Check if already in our DB
+                    existing = False
+                    for site in sites:
+                        if site.get("panel_app_install_id") == app.get("id"):
+                            existing = True
+                            break
+                    if not existing:
+                        try:
+                            domain = app.get("name", "").replace("-", ".")
+                            port = app.get("httpPort", 8081)
+                            new_site = create_site({
+                                "site_name": domain,
+                                "url": f"http://{domain}",
+                                "port": port,
+                                "admin_name": "admin",
+                                "admin_password": "",
+                                "panel_app_install_id": app.get("id"),
+                                "panel_website_id": None,
+                                "nginx_alias": app.get("name"),
+                                "tag": "imported",
+                            })
+                            results["imported"] += 1
+                            logger.info(f"Sync: imported orphaned WP app {app.get('id')} as site {new_site.get('id')}")
+                        except Exception as e:
+                            results["errors"].append(f"Import {app.get('name')}: {e}")
+
+            return jsonify({"code": 200, "data": results})
+        except Exception as e:
+            logger.error(f"Sync failed: {e}")
+            return jsonify({"code": 500, "message": f"同步失败: {str(e)[:100]}"}), 500
 
     @app.route("/api/panel/test-wp-install", methods=["POST"])
     @jwt_required()
