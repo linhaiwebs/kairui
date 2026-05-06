@@ -19,7 +19,7 @@ FROM python:3.12-slim
 LABEL maintainer="WP Site Manager"
 LABEL description="WordPress Site Manager - 1Panel集成管理平台"
 
-# Install runtime deps only (no Docker CLI needed - plugin install uses HTTP API)
+# Install runtime deps only
 # Use mirror to avoid Debian repo 502 errors
 RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null; \
     sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null; \
@@ -38,13 +38,16 @@ COPY frontend/ ./frontend/
 COPY requirements.txt .
 
 # Create necessary directories
-RUN mkdir -p /app/backend/plugins /app/logs
+# data/ is for the persistent DB volume, plugins/ for uploaded plugin files
+RUN mkdir -p /app/backend/data /app/backend/plugins /app/logs
 
 # Environment defaults
 ENV WP_HOST=0.0.0.0
 ENV WP_PORT=8011
 ENV WP_WORKERS=4
 ENV FLASK_ENV=production
+# Data directory — in Docker, this is a persistent volume
+ENV WP_DATA_DIR=/app/backend/data
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

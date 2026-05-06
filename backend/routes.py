@@ -1164,10 +1164,15 @@ def register_routes(app):
                         logger.error(f"BG deploy error for {s_domain}: {e}")
 
                 # Get group ID before starting bg thread
-                try:
-                    group_id = panel_client.ensure_website_group()
-                except Exception:
-                    group_id = 1
+                # Use website_group_id from frontend request, or auto-detect
+                website_group_id = data.get("website_group_id")
+                if website_group_id:
+                    group_id = website_group_id
+                else:
+                    try:
+                        group_id = panel_client.ensure_website_group()
+                    except Exception:
+                        group_id = 1
 
                 bg_thread = threading.Thread(
                     target=_bg_deploy,
@@ -1341,7 +1346,7 @@ def register_routes(app):
             logger.error(f"Failed to upload plugin: {e}")
             return jsonify({"code": 500, "message": f"上传插件失败: {str(e)[:100]}"}), 500
 
-    @app.route("/api/plugins/<plugin_id>", methods=["DELETE"])
+    @app.route("/api/plugins/<int:plugin_id>", methods=["DELETE"])
     @jwt_required()
     def remove_plugin(plugin_id):
         try:
@@ -1351,7 +1356,7 @@ def register_routes(app):
             logger.error(f"Failed to delete plugin {plugin_id}: {e}")
             return jsonify({"code": 500, "message": f"删除插件失败: {str(e)[:100]}"}), 500
 
-    @app.route("/api/plugins/<plugin_id>/toggle", methods=["POST"])
+    @app.route("/api/plugins/<int:plugin_id>/toggle", methods=["POST"])
     @jwt_required()
     def toggle_plugin(plugin_id):
         """Toggle plugin enabled/disabled."""

@@ -17,6 +17,7 @@ services:
       - WP_PORT=8011
       - WP_WORKERS=4
       - FLASK_ENV=production
+      - WP_DATA_DIR=/app/backend/data
       # 1Panel API configuration (override in .env or here)
       - PANEL_HOST=${PANEL_HOST:-167.172.142.95}
       - PANEL_PORT=${PANEL_PORT:-3500}
@@ -28,10 +29,9 @@ services:
       - SECRET_KEY=${SECRET_KEY:-wp-manager-secret-key-change-in-production}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-jwt-secret-key-change-in-production}
     volumes:
-      # Docker socket - required for docker exec (plugin install, DB creation)
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      # Persist database and plugins
-      - wp-data:/app/backend
+      # Persist only database and plugins (NOT the entire backend/ — code lives in image)
+      - wp-db:/app/backend/data
+      - wp-plugins:/app/backend/plugins
       - wp-logs:/app/logs
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8011/"]
@@ -43,7 +43,9 @@ services:
       - wp-network
 
 volumes:
-  wp-data:
+  wp-db:
+    driver: local
+  wp-plugins:
     driver: local
   wp-logs:
     driver: local

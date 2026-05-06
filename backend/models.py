@@ -1,11 +1,14 @@
 import json
 import os
+import re
 import sqlite3
 from datetime import datetime
 
 from flask import current_app
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wp_manager.db")
+# In Docker: data dir is a persistent volume; locally: same dir as this file
+_DATA_DIR = os.environ.get("WP_DATA_DIR", os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(_DATA_DIR, "wp_manager.db")
 
 
 def get_db():
@@ -17,6 +20,9 @@ def get_db():
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
+
+    # ---- Auto-migrate old TEXT-id tables to INTEGER-id ----
+    _migrate_text_ids_to_int(conn)
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS sites (
@@ -103,6 +109,94 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+
+def _migrate_text_ids_to_int(conn):
+    """Auto-migrate old tables with TEXT ids to INTEGER AUTOINCREMENT.
+    
+    Detects old schema (id TEXT PRIMARY KEY) and recreates tables with
+    INTEGER PRIMARY KEY AUTOINCREMENT. Preserves existing data.
+    """
+    tables_to_migrate = {
+        "sites": """
+            CREATE TABLE sites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                site_name TEXT NOT NULL, url TEXT NOT NULL,
+                admin_name TEXT DEFAULT '', admin_password TEXT DEFAULT '',
+                tag TEXT DEFAULT '', security_id TEXT DEFAULT '',
+                http_username TEXT DEFAULT '', http_password TEXT DEFAULT '',
+                verify_certificate INTEGER DEFAULT 1, ssl_version TEXT DEFAULT 'auto',
+                panel_website_id INTEGER, panel_app_install_id INTEGER,
+                panel_app_detail_id INTEGER, port INTEGER,
+                nginx_alias TEXT DEFAULT '', status TEXT DEFAULT 'active',
+                created_at TEXT, updated_at TEXT
+            )
+        """,
+        "plugins": """
+            CREATE TABLE plugins (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL, filename TEXT NOT NULL,
+                file_path TEXT NOT NULL, file_size INTEGER DEFAULT 0,
+                description TEXT DEFAULT '', enabled INTEGER DEFAULT 1,
+                created_at TEXT, updated_at TEXT
+            )
+        """,
+        "bg_tasks": """
+            CREATE TABLE bg_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                site_id INTEGER NOT NULL,
+                task_type TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                message TEXT DEFAULT '',
+                result TEXT DEFAULT '',
+                created_at TEXT, updated_at TEXT
+            )
+        """,
+    }
+
+    for table, new_schema in tables_to_migrate.items():
+        try:
+            row = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            ).fetchone()
+            if not row:
+                continue
+            schema = row["sql"] or ""
+            # Check if the table has TEXT PRIMARY KEY (old format)
+            if "TEXT PRIMARY KEY" in schema:
+                # Get column names
+                col_info = conn.execute(f'PRAGMA table_info("{table}")').fetchall()
+                cols = [c["name"] for c in col_info]
+
+                # Read existing data
+                rows = conn.execute(f'SELECT * FROM "{table}"').fetchall()
+
+                # Drop old table and create new one
+                conn.execute(f'DROP TABLE "{table}"')
+                conn.execute(new_schema)
+
+                # Re-insert data without the old TEXT id (auto-assign new integer IDs)
+                if rows:
+                    non_id_cols = [c for c in cols if c != "id"]
+                    col_names = ", ".join(non_id_cols)
+                    placeholders = ", ".join(["?"] * len(non_id_cols))
+                    for row in rows:
+                        vals = [row[c] for c in non_id_cols]
+                        conn.execute(
+                            f'INSERT INTO "{table}" ({col_names}) VALUES ({placeholders})',
+                            vals,
+                        )
+
+                # Reset sequence
+                conn.execute("DELETE FROM sqlite_sequence WHERE name = ?", (table,))
+                if rows:
+                    conn.execute(
+                        "INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)",
+                        (table, len(rows)),
+                    )
+                conn.commit()
+        except Exception:
+            pass  # Non-critical — CREATE TABLE IF NOT EXISTS will handle it
 
 
 def _reset_sequence_if_empty(conn, table):

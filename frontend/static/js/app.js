@@ -583,7 +583,7 @@ const app = createApp({
                 async () => {
                     loading.value = true;
                     try {
-                        const resp = await API.call('POST', `/api/sites/${site.id}/fix-website`);
+                        const resp = await API.request('POST', `/api/sites/${site.id}/fix-website`);
                         if (resp.code === 200) {
                             showToast('1Panel网站已修复创建');
                             await loadSites();
