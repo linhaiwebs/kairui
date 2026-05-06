@@ -38,8 +38,8 @@ COPY frontend/ ./frontend/
 COPY requirements.txt .
 
 # Create necessary directories
-# data/ is for the persistent DB volume, plugins/ for uploaded plugin files
-RUN mkdir -p /app/backend/data /app/backend/plugins /app/logs
+# data/ is for the persistent DB volume, plugins/ for uploaded plugin files, themes/ for theme files
+RUN mkdir -p /app/backend/data /app/backend/plugins /app/backend/themes /app/logs
 
 # Environment defaults
 ENV WP_HOST=0.0.0.0

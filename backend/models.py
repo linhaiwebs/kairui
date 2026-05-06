@@ -24,6 +24,9 @@ def init_db():
     # ---- Auto-migrate old TEXT-id tables to INTEGER-id ----
     _migrate_text_ids_to_int(conn)
 
+    # ---- Add missing columns for existing DBs ----
+    _migrate_add_columns(conn)
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS sites (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,6 +46,8 @@ def init_db():
             port INTEGER,
             nginx_alias TEXT DEFAULT '',
             status TEXT DEFAULT 'active',
+            cf_zone_id TEXT DEFAULT '',
+            cf_dns_record_id TEXT DEFAULT '',
             created_at TEXT,
             updated_at TEXT
         )
@@ -93,13 +98,29 @@ def init_db():
         )
     """)
 
-    # Insert default global config
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS themes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            file_size INTEGER DEFAULT 0,
+            description TEXT DEFAULT '',
+            enabled INTEGER DEFAULT 1,
+            created_at TEXT,
+            updated_at TEXT
+        )
+    """)
+
+    # Add cf_api_token to global_config defaults
     defaults = {
         "default_admin_name": "admin",
         "default_admin_password": "",
         "default_plugins": "[]",
         "default_themes": "[]",
         "db_service": "mariadb",
+        "cf_api_token": "",
+        "panel_server_ip": "",
     }
     for key, value in defaults.items():
         cursor.execute(
@@ -109,6 +130,31 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+
+def _migrate_add_columns(conn):
+    """Add missing columns to existing tables (for upgrades from older versions)."""
+    # Add cf_zone_id and cf_dns_record_id to sites
+    try:
+        cols = [row[1] for row in conn.execute("PRAGMA table_info(sites)").fetchall()]
+        if "cf_zone_id" not in cols:
+            conn.execute("ALTER TABLE sites ADD COLUMN cf_zone_id TEXT DEFAULT ''")
+        if "cf_dns_record_id" not in cols:
+            conn.execute("ALTER TABLE sites ADD COLUMN cf_dns_record_id TEXT DEFAULT ''")
+    except Exception:
+        pass
+
+    # Add cf_api_token and panel_server_ip to global_config
+    try:
+        for key, value in [("cf_api_token", ""), ("panel_server_ip", "")]:
+            exists = conn.execute("SELECT 1 FROM global_config WHERE config_key = ?", (key,)).fetchone()
+            if not exists:
+                conn.execute(
+                    "INSERT INTO global_config (config_key, config_value, updated_at) VALUES (?, ?, ?)",
+                    (key, value, datetime.utcnow().isoformat()),
+                )
+    except Exception:
+        pass
 
 
 def _migrate_text_ids_to_int(conn):
@@ -346,7 +392,7 @@ def update_site(site_id, data):
             "site_name", "url", "admin_name", "admin_password", "tag", "security_id",
             "http_username", "http_password", "verify_certificate", "ssl_version",
             "panel_website_id", "panel_app_install_id", "panel_app_detail_id",
-            "port", "nginx_alias", "status",
+            "port", "nginx_alias", "status", "cf_zone_id", "cf_dns_record_id",
         ]:
             if key in data:
                 sets.append(f"{key} = ?")
@@ -391,7 +437,7 @@ def update_site_fields(site_id, fields):
             "site_name", "url", "admin_name", "admin_password", "tag", "security_id",
             "http_username", "http_password", "verify_certificate", "ssl_version",
             "panel_website_id", "panel_app_install_id", "panel_app_detail_id",
-            "port", "nginx_alias", "status",
+            "port", "nginx_alias", "status", "cf_zone_id", "cf_dns_record_id",
         }
         sets = []
         vals = []

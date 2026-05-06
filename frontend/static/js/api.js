@@ -183,4 +183,52 @@ const API = {
     async getWPInstallStatus(siteId) {
         return this.request('GET', `/api/wordpress/install-status/${siteId}`);
     },
+
+    // Themes
+    async getThemes() {
+        return this.request('GET', '/api/themes');
+    },
+
+    async uploadTheme(formData) {
+        const headers = { 'Authorization': `Bearer ${this.token}` };
+        try {
+            const resp = await fetch('/api/themes/upload', { method: 'POST', headers, body: formData });
+            return resp.json();
+        } catch (e) {
+            return { code: 503, message: `上传失败: ${e.message}` };
+        }
+    },
+
+    async deleteTheme(id) {
+        return this.request('DELETE', `/api/themes/${id}`);
+    },
+
+    async installTheme(siteId, themeIds) {
+        return this.request('POST', `/api/sites/${siteId}/install-theme`, { theme_ids: themeIds });
+    },
+
+    async installPlugins(siteId, pluginIds) {
+        return this.request('POST', `/api/sites/${siteId}/install-plugins`, { plugin_ids: pluginIds });
+    },
+
+    // Cloudflare
+    async cfVerifyToken(apiToken) {
+        return this.request('POST', '/api/cloudflare/verify', { api_token: apiToken });
+    },
+
+    async cfListZones() {
+        return this.request('GET', '/api/cloudflare/zones');
+    },
+
+    async cfListDnsRecords(zoneId) {
+        return this.request('GET', `/api/cloudflare/dns-records/${zoneId}`);
+    },
+
+    async cfCreateDns(siteId, data) {
+        return this.request('POST', `/api/sites/${siteId}/dns`, data);
+    },
+
+    async cfStatus() {
+        return this.request('GET', '/api/cloudflare/status');
+    },
 };

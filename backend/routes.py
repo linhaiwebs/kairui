@@ -11,6 +11,7 @@ import requests as http_requests
 
 from flask import jsonify, request
 from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required, verify_jwt_in_request
+from werkzeug.utils import secure_filename
 
 from config import config
 from models import (
@@ -21,6 +22,7 @@ from models import (
     delete_site,
     get_bg_task,
     get_bg_task_by_site,
+    get_db,
     get_enabled_plugins,
     get_global_config,
     get_plugin,
@@ -160,6 +162,136 @@ def install_plugins_to_site(site_url, admin_user, admin_password, plugin_ids):
     return results
 
 
+def install_themes_to_site(site_url, admin_user, admin_password, theme_ids):
+    """Install themes to a WordPress site via wp-admin HTTP API.
+    
+    Steps:
+    1. Login to wp-admin via HTTP
+    2. Get upload nonce from theme-install page
+    3. Upload each theme zip via wp-admin/update.php
+    4. Activate the last theme via wp-admin/themes.php
+    """
+    import re as _re
+    
+    results = []
+    
+    try:
+        session = http_requests.Session()
+        login_resp = session.post(
+            f"{site_url}/wp-login.php",
+            data={
+                "log": admin_user,
+                "pwd": admin_password,
+                "wp-submit": "Log In",
+                "redirect_to": f"{site_url}/wp-admin/",
+            },
+            timeout=30,
+            allow_redirects=True,
+        )
+        if login_resp.status_code != 200 or "wp-admin" not in login_resp.url:
+            return [{"theme": t, "status": "error", "message": "WordPress登录失败"} for t in theme_ids]
+
+        last_theme_stylesheet = None
+        
+        for tid in theme_ids:
+            conn = get_db()
+            try:
+                theme = conn.execute("SELECT * FROM themes WHERE id = ?", (tid,)).fetchone()
+            finally:
+                conn.close()
+            if not theme or not theme["file_path"] or not os.path.isfile(theme["file_path"]):
+                results.append({"theme": tid, "status": "error", "message": "主题文件不存在"})
+                continue
+
+            theme_name = theme["name"]
+            theme_filename = theme["filename"]
+
+            try:
+                # Get upload nonce from theme-install page
+                upload_page = session.get(
+                    f"{site_url}/wp-admin/theme-install.php?upload",
+                    timeout=15,
+                )
+                nonce_match = _re.search(r'_wpnonce["\']\s*value=["\']([^"\']+)', upload_page.text)
+                if not nonce_match:
+                    results.append({"theme": theme_name, "status": "error", "message": "无法获取上传nonce"})
+                    continue
+                nonce = nonce_match.group(1)
+
+                # Upload theme zip
+                with open(theme["file_path"], "rb") as f:
+                    upload_resp = session.post(
+                        f"{site_url}/wp-admin/update.php?action=upload-theme",
+                        files={"themezip": (theme_filename, f, "application/zip")},
+                        data={"_wpnonce": nonce},
+                        timeout=120,
+                    )
+
+                if upload_resp.status_code != 200:
+                    results.append({"theme": theme_name, "status": "error", "message": f"上传失败: HTTP {upload_resp.status_code}"})
+                    continue
+
+                # Find activation link
+                act_match = _re.search(
+                    r'action=activate[^"]*stylesheet=([^"&]+)[^"]*_wpnonce=([a-f0-9]+)',
+                    upload_resp.text,
+                )
+                if act_match:
+                    stylesheet = act_match.group(1)
+                    act_nonce = act_match.group(2)
+                    last_theme_stylesheet = stylesheet
+                    
+                    # Activate the theme
+                    act_resp = session.get(
+                        f"{site_url}/wp-admin/themes.php?action=activate&stylesheet={stylesheet}&_wpnonce={act_nonce}",
+                        timeout=30,
+                        allow_redirects=True,
+                    )
+                    if act_resp.status_code == 200:
+                        results.append({"theme": theme_name, "status": "success", "message": "主题已安装并启用"})
+                    else:
+                        results.append({"theme": theme_name, "status": "success", "message": "主题已安装，启用需确认"})
+                elif "已安装" in upload_resp.text or "already" in upload_resp.text.lower() or "Installed" in upload_resp.text:
+                    # Theme already exists, try to extract stylesheet from page
+                    existing_match = _re.search(r'stylesheet=([^"&]+)', upload_resp.text)
+                    if existing_match:
+                        last_theme_stylesheet = existing_match.group(1)
+                    results.append({"theme": theme_name, "status": "success", "message": "主题已存在"})
+                else:
+                    results.append({"theme": theme_name, "status": "error", "message": "上传后未找到激活链接"})
+
+            except http_requests.Timeout:
+                results.append({"theme": theme_name, "status": "error", "message": "请求超时"})
+            except Exception as e:
+                results.append({"theme": theme_name, "status": "error", "message": str(e)[:100]})
+
+        # Activate the last theme if not yet activated
+        if last_theme_stylesheet and results:
+            last_result = results[-1]
+            if last_result.get("status") == "success" and "启用" not in last_result.get("message", ""):
+                try:
+                    themes_page = session.get(f"{site_url}/wp-admin/themes.php", timeout=15)
+                    act_nonce = _re.search(
+                        rf'stylesheet={_re.escape(last_theme_stylesheet)}[^"]*_wpnonce=([a-f0-9]+)',
+                        themes_page.text,
+                    )
+                    if act_nonce:
+                        session.get(
+                            f"{site_url}/wp-admin/themes.php?action=activate&stylesheet={last_theme_stylesheet}&_wpnonce={act_nonce.group(1)}",
+                            timeout=30,
+                            allow_redirects=True,
+                        )
+                        last_result["message"] = "主题已安装并启用"
+                except Exception:
+                    pass
+
+    except Exception as e:
+        logger.error(f"Theme install session error: {e}")
+        results = [{"theme": t, "status": "error", "message": f"会话错误: {str(e)[:80]}"} for t in theme_ids]
+
+    return results
+
+
 def auto_install_wordpress(container_name, site_url, site_title, admin_user, admin_password, admin_email, port=None):
     """Auto-complete WordPress installation via HTTP POST to wp-admin/install.php.
     
@@ -268,6 +400,37 @@ def auto_install_wordpress(container_name, site_url, site_title, admin_user, adm
     except Exception as e:
         logger.error(f"WP install exception for {site_url}: {e}")
         return {"success": False, "message": f"Install error: {str(e)[:100]}"}
+
+
+def _get_cf_token():
+    """Get Cloudflare API token from global_config (EAV format)."""
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT config_value FROM global_config WHERE config_key = 'cf_api_token'").fetchone()
+        return row["config_value"] if row and row["config_value"] else None
+    finally:
+        conn.close()
+
+def _get_config_value(key, default=None):
+    """Get a config value from global_config (EAV format)."""
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT config_value FROM global_config WHERE config_key = ?", (key,)).fetchone()
+        return row["config_value"] if row and row["config_value"] else default
+    finally:
+        conn.close()
+
+def _set_config_value(key, value):
+    """Set a config value in global_config (EAV format)."""
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT INTO global_config (config_key, config_value, updated_at) VALUES (?, ?, ?) ON CONFLICT(config_key) DO UPDATE SET config_value = ?, updated_at = ?",
+            (key, value, datetime.utcnow().isoformat(), value, datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def register_routes(app):
@@ -1376,3 +1539,239 @@ def register_routes(app):
         except Exception as e:
             logger.error(f"Failed to toggle plugin {plugin_id}: {e}")
             return jsonify({"code": 500, "message": f"切换插件状态失败: {str(e)[:100]}"}), 500
+
+    # ---- Themes ----
+    @app.route("/api/themes/upload", methods=["POST"])
+    @jwt_required()
+    def upload_theme():
+        """Upload a WordPress theme .zip file."""
+        try:
+            if "file" not in request.files:
+                return jsonify({"code": 400, "message": "未找到上传文件"}), 400
+            f = request.files["file"]
+            if not f.filename.endswith(".zip"):
+                return jsonify({"code": 400, "message": "仅支持 .zip 格式的主题文件"}), 400
+
+            theme_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "themes")
+            os.makedirs(theme_dir, exist_ok=True)
+
+            filename = secure_filename(f.filename)
+            file_path = os.path.join(theme_dir, filename)
+            f.save(file_path)
+            file_size = os.path.getsize(file_path)
+
+            # Store in DB
+            conn = get_db()
+            try:
+                name = request.form.get("name", filename.replace(".zip", ""))
+                conn.execute(
+                    "INSERT INTO themes (name, filename, file_path, file_size, description) VALUES (?, ?, ?, ?, ?)",
+                    (name, filename, file_path, file_size, request.form.get("description", "")),
+                )
+                conn.commit()
+                theme_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            finally:
+                conn.close()
+
+            return jsonify({"code": 200, "data": {"id": theme_id, "name": name, "filename": filename, "file_size": file_size}})
+        except Exception as e:
+            logger.error(f"Failed to upload theme: {e}")
+            return jsonify({"code": 500, "message": f"上传主题失败: {str(e)[:100]}"}), 500
+
+    @app.route("/api/themes", methods=["GET"])
+    @jwt_required()
+    def list_themes():
+        """List all uploaded themes."""
+        try:
+            conn = get_db()
+            try:
+                rows = conn.execute("SELECT * FROM themes ORDER BY id DESC").fetchall()
+            finally:
+                conn.close()
+            return jsonify({"code": 200, "data": [dict(r) for r in rows]})
+        except Exception as e:
+            return jsonify({"code": 500, "message": str(e)[:100]}), 500
+
+    @app.route("/api/themes/<int:theme_id>", methods=["DELETE"])
+    @jwt_required()
+    def delete_theme(theme_id):
+        """Delete an uploaded theme."""
+        try:
+            conn = get_db()
+            try:
+                row = conn.execute("SELECT file_path FROM themes WHERE id = ?", (theme_id,)).fetchone()
+                if row and row["file_path"] and os.path.isfile(row["file_path"]):
+                    os.remove(row["file_path"])
+                conn.execute("DELETE FROM themes WHERE id = ?", (theme_id,))
+                conn.commit()
+                _compact_ids(conn, "themes")
+                conn.commit()
+            finally:
+                conn.close()
+            return jsonify({"code": 200, "message": "主题已删除"})
+        except Exception as e:
+            return jsonify({"code": 500, "message": str(e)[:100]}), 500
+
+    @app.route("/api/sites/<int:site_id>/install-theme", methods=["POST"])
+    @jwt_required()
+    def install_theme_to_site(site_id):
+        """Install and activate a theme on a WordPress site."""
+        try:
+            site = get_site(site_id)
+            if not site:
+                return jsonify({"code": 404, "message": "站点不存在"}), 404
+
+            data = request.get_json(silent=True) or {}
+            theme_ids = data.get("theme_ids", [])
+            if not theme_ids:
+                return jsonify({"code": 400, "message": "未选择主题"}), 400
+
+            site_url = site["url"].rstrip("/")
+            admin_user = site.get("admin_name", "admin")
+            admin_password = site.get("admin_password", "")
+
+            results = install_themes_to_site(site_url, admin_user, admin_password, theme_ids)
+            return jsonify({"code": 200, "data": {"results": results}})
+        except Exception as e:
+            logger.error(f"Failed to install theme: {e}")
+            return jsonify({"code": 500, "message": f"安装主题失败: {str(e)[:100]}"}), 500
+
+    @app.route("/api/sites/<int:site_id>/install-plugins", methods=["POST"])
+    @jwt_required()
+    def install_plugins_to_site_endpoint(site_id):
+        """Install and activate plugins on an existing WordPress site."""
+        try:
+            site = get_site(site_id)
+            if not site:
+                return jsonify({"code": 404, "message": "站点不存在"}), 404
+
+            data = request.get_json(silent=True) or {}
+            plugin_ids = data.get("plugin_ids", [])
+            if not plugin_ids:
+                return jsonify({"code": 400, "message": "未选择插件"}), 400
+
+            site_url = site["url"].rstrip("/")
+            admin_user = site.get("admin_name", "admin")
+            admin_password = site.get("admin_password", "")
+
+            results = install_plugins_to_site(site_url, admin_user, admin_password, plugin_ids)
+            return jsonify({"code": 200, "data": {"results": results}})
+        except Exception as e:
+            logger.error(f"Failed to install plugins: {e}")
+            return jsonify({"code": 500, "message": f"安装插件失败: {str(e)[:100]}"}), 500
+
+    # ---- Cloudflare ----
+    @app.route("/api/cloudflare/verify", methods=["POST"])
+    @jwt_required()
+    def cf_verify_token():
+        """Verify a Cloudflare API token."""
+        try:
+            data = request.get_json(silent=True) or {}
+            token = data.get("api_token", "")
+            if not token:
+                return jsonify({"code": 400, "message": "请提供API Token"}), 400
+
+            from cloudflare_client import CloudflareClient
+            cf = CloudflareClient(token)
+            resp = cf.verify_token()
+            if resp.get("success"):
+                _set_config_value("cf_api_token", token)
+                return jsonify({"code": 200, "data": resp.get("result", {})})
+            return jsonify({"code": 400, "message": "Token验证失败: " + str(resp.get("errors", []))}), 400
+        except Exception as e:
+            logger.error(f"CF verify failed: {e}")
+            return jsonify({"code": 500, "message": f"验证失败: {str(e)[:100]}"}), 500
+
+    @app.route("/api/cloudflare/zones", methods=["GET"])
+    @jwt_required()
+    def cf_list_zones():
+        """List Cloudflare zones."""
+        try:
+            token = _get_cf_token()
+            if not token:
+                return jsonify({"code": 400, "message": "请先授权Cloudflare账户"}), 400
+
+            from cloudflare_client import CloudflareClient
+            cf = CloudflareClient(token)
+            resp = cf.list_zones()
+            if resp.get("success"):
+                return jsonify({"code": 200, "data": resp.get("result", [])})
+            return jsonify({"code": 500, "message": str(resp.get("errors", []))}), 500
+        except Exception as e:
+            return jsonify({"code": 500, "message": str(e)[:100]}), 500
+
+    @app.route("/api/cloudflare/dns-records/<zone_id>", methods=["GET"])
+    @jwt_required()
+    def cf_list_dns(zone_id):
+        """List DNS records for a zone."""
+        try:
+            token = _get_cf_token()
+            if not token:
+                return jsonify({"code": 400, "message": "请先授权Cloudflare账户"}), 400
+
+            from cloudflare_client import CloudflareClient
+            cf = CloudflareClient(token)
+            resp = cf.list_dns_records(zone_id)
+            if resp.get("success"):
+                return jsonify({"code": 200, "data": resp.get("result", [])})
+            return jsonify({"code": 500, "message": str(resp.get("errors", []))}), 500
+        except Exception as e:
+            return jsonify({"code": 500, "message": str(e)[:100]}), 500
+
+    @app.route("/api/sites/<int:site_id>/dns", methods=["POST"])
+    @jwt_required()
+    def cf_create_dns(site_id):
+        """Create a DNS A record for a site via Cloudflare."""
+        try:
+            site = get_site(site_id)
+            if not site:
+                return jsonify({"code": 404, "message": "站点不存在"}), 404
+
+            data = request.get_json(silent=True) or {}
+            zone_id = data.get("zone_id")
+            proxied = data.get("proxied", False)
+
+            token = _get_cf_token()
+            if not token:
+                return jsonify({"code": 400, "message": "请先授权Cloudflare账户"}), 400
+
+            server_ip = data.get("server_ip") or _get_config_value("panel_server_ip") or config.PANEL_HOST
+
+            from cloudflare_client import CloudflareClient
+            cf = CloudflareClient(token)
+
+            domain = site["site_name"]
+            if not zone_id:
+                zone = cf.find_zone_by_name(domain)
+                if not zone:
+                    return jsonify({"code": 404, "message": f"未在Cloudflare中找到域名 {domain} 的区域，请确认域名已添加到Cloudflare"}), 404
+                zone_id = zone["id"]
+
+            resp = cf.create_dns_record(zone_id, "A", domain, server_ip, proxied=proxied)
+            if resp.get("success"):
+                record = resp.get("result", {})
+                update_site_fields(site_id, {
+                    "cf_zone_id": zone_id,
+                    "cf_dns_record_id": record.get("id", ""),
+                })
+                return jsonify({"code": 200, "data": record})
+            return jsonify({"code": 500, "message": "DNS记录创建失败: " + str(resp.get("errors", []))}), 500
+        except Exception as e:
+            logger.error(f"CF DNS create failed: {e}")
+            return jsonify({"code": 500, "message": f"DNS创建失败: {str(e)[:100]}"}), 500
+
+    @app.route("/api/cloudflare/status", methods=["GET"])
+    @jwt_required()
+    def cf_status():
+        """Check Cloudflare connection status."""
+        try:
+            token = _get_cf_token()
+            if not token:
+                return jsonify({"code": 200, "data": {"connected": False}})
+            from cloudflare_client import CloudflareClient
+            cf = CloudflareClient(token)
+            resp = cf.verify_token()
+            return jsonify({"code": 200, "data": {"connected": resp.get("success", False)}})
+        except Exception:
+            return jsonify({"code": 200, "data": {"connected": False}})
+
