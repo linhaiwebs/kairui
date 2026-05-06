@@ -64,11 +64,20 @@ docker compose down         # Stop
 - GET /api/sites | POST /api/sites
 - GET /api/sites/<int:id> | PUT /api/sites/<int:id> | DELETE /api/sites/<int:id>
 - POST /api/sites/<int:id>/fix-website
+- POST /api/sites/<int:id>/install-theme (theme_ids: [])
+- POST /api/sites/<int:id>/install-plugins (plugin_ids: [])
+- POST /api/sites/<int:id>/dns (zone_id, proxied, server_ip) — Cloudflare DNS
 - GET /api/sites/export/csv
 - POST /api/wordpress/batch-create (accepts website_group_id, plugin_ids)
 - GET /api/wordpress/install-status/<int:site_id>
 - GET /api/plugins | POST /api/plugins
 - DELETE /api/plugins/<int:id> | POST /api/plugins/<int:id>/toggle
+- GET /api/themes | POST /api/themes/upload
+- DELETE /api/themes/<int:id>
+- POST /api/cloudflare/verify (api_token) — verifies & saves CF token
+- GET /api/cloudflare/zones — list CF zones
+- GET /api/cloudflare/dns-records/<zone_id> — list DNS records
+- GET /api/cloudflare/status — check CF connection
 - GET /api/config | PUT /api/config
 
 ## 1Panel API Authentication
@@ -86,6 +95,26 @@ docker compose down         # Stop
 - Port conflict avoidance (1Panel apps + host ports)
 - Plugin auto-install via wp-admin HTTP upload + activate
 - website_group_id parameter accepted (defaults to auto-detected group)
+
+## 3-Step Creation Wizard (as of 2026-05-06)
+- Step 1: Site settings (domain, admin, HTTP auth, server config) + creation with progress
+  - Shows real-time WP install progress via polling
+  - Auto-advances to Step 2 when WP install completes
+- Step 2: Theme & Plugin selection/install
+  - Upload themes/plugins directly in wizard
+  - Checkbox selection for themes and plugins
+  - Install results displayed with status
+- Step 3: Cloudflare DNS configuration
+  - CF API token verification (saved to global_config EAV)
+  - Zone auto-detection or manual selection
+  - DNS A record creation with proxy option
+  - Server IP auto-detected from 1Panel host
+
+## Database Schema Extensions
+- sites: cf_zone_id, cf_dns_record_id (for Cloudflare DNS tracking)
+- themes: id, name, filename, file_path, file_size, description, enabled, timestamps
+- global_config: cf_api_token, panel_server_ip (EAV key-value pairs)
+- _migrate_add_columns() auto-adds new columns to existing DBs
 
 ## Dependencies
 Python: flask, flask-cors, flask-jwt-extended, requests, gunicorn, gevent
