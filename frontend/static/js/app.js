@@ -306,6 +306,21 @@ const app = createApp({
                 }
             );
         }
+
+        // ---- Fix 1Panel Website ----
+        async function fixSiteWebsite(site) {
+            loading.value = true;
+            try {
+                const resp = await API.fixWebsite(site.id);
+                if (resp.code === 200) {
+                    showToast(resp.message || '1Panel网站已修复');
+                    await loadSites();
+                } else {
+                    showToast(resp.message || '修复失败', 'error');
+                }
+            } catch (e) { showToast('修复失败', 'error'); } finally { loading.value = false; }
+        }
+
         function exportCSV() { API.exportCSV(); showToast('CSV文件已导出'); }
         async function saveGlobalConfig() {
             loading.value = true;
