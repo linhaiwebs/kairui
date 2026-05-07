@@ -45,6 +45,8 @@ def init_db():
             panel_app_detail_id INTEGER,
             port INTEGER,
             nginx_alias TEXT DEFAULT '',
+            db_name TEXT DEFAULT '',
+            db_service TEXT DEFAULT '',
             status TEXT DEFAULT 'active',
             cf_zone_id TEXT DEFAULT '',
             cf_dns_record_id TEXT DEFAULT '',
@@ -141,6 +143,10 @@ def _migrate_add_columns(conn):
             conn.execute("ALTER TABLE sites ADD COLUMN cf_zone_id TEXT DEFAULT ''")
         if "cf_dns_record_id" not in cols:
             conn.execute("ALTER TABLE sites ADD COLUMN cf_dns_record_id TEXT DEFAULT ''")
+        if "db_name" not in cols:
+            conn.execute("ALTER TABLE sites ADD COLUMN db_name TEXT DEFAULT ''")
+        if "db_service" not in cols:
+            conn.execute("ALTER TABLE sites ADD COLUMN db_service TEXT DEFAULT ''")
     except Exception:
         pass
 
@@ -329,13 +335,13 @@ def create_site(data):
     now = datetime.utcnow().isoformat()
     try:
         conn.execute(
-            """INSERT INTO sites 
+            """INSERT INTO sites
                (site_name, url, admin_name, admin_password, tag, security_id,
                 http_username, http_password, verify_certificate, ssl_version,
                 panel_website_id, panel_app_install_id, panel_app_detail_id,
-                port, nginx_alias,
+                port, nginx_alias, db_name, db_service,
                 status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("site_name", ""),
                 data.get("url", ""),
@@ -352,6 +358,8 @@ def create_site(data):
                 data.get("panel_app_detail_id"),
                 data.get("port"),
                 data.get("nginx_alias", ""),
+                data.get("db_name", ""),
+                data.get("db_service", ""),
                 data.get("status", "active"),
                 now,
                 now,
@@ -392,7 +400,8 @@ def update_site(site_id, data):
             "site_name", "url", "admin_name", "admin_password", "tag", "security_id",
             "http_username", "http_password", "verify_certificate", "ssl_version",
             "panel_website_id", "panel_app_install_id", "panel_app_detail_id",
-            "port", "nginx_alias", "status", "cf_zone_id", "cf_dns_record_id",
+            "port", "nginx_alias", "db_name", "db_service",
+            "status", "cf_zone_id", "cf_dns_record_id",
         ]:
             if key in data:
                 sets.append(f"{key} = ?")
@@ -437,7 +446,8 @@ def update_site_fields(site_id, fields):
             "site_name", "url", "admin_name", "admin_password", "tag", "security_id",
             "http_username", "http_password", "verify_certificate", "ssl_version",
             "panel_website_id", "panel_app_install_id", "panel_app_detail_id",
-            "port", "nginx_alias", "status", "cf_zone_id", "cf_dns_record_id",
+            "port", "nginx_alias", "db_name", "db_service",
+            "status", "cf_zone_id", "cf_dns_record_id",
         }
         sets = []
         vals = []

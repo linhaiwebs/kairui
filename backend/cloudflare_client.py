@@ -44,11 +44,27 @@ class CloudflareClient:
             return {"success": False, "errors": [{"message": str(e)}]}
 
     def verify_token(self):
-        """Verify the API token or Global API Key is valid."""
+        """Verify the API token or Global API Key is valid.
+
+        Uses /zones endpoint for verification because:
+        - /user/tokens/verify requires User:Read permission that many scoped tokens lack
+        - /zones only needs Zone:Read, which is typically granted
+        """
         if self.api_token:
-            return self._request("GET", "/user/tokens/verify")
+            resp = self._request("GET", "/zones?per_page=1")
+            if resp.get("success"):
+                return {"success": True, "result": {"status": "active", "type": "api_token"}}
+            # If token lacks zone access, try user-level verification as fallback
+            if resp.get("errors") and any(
+                "authentication" in str(e.get("message", "")).lower()
+                for e in resp.get("errors", [])
+            ):
+                user_resp = self._request("GET", "/user")
+                if user_resp.get("success"):
+                    return {"success": True, "result": {"status": "active", "type": "api_token"}}
+                return user_resp
+            return resp
         elif self.api_email and self.api_key:
-            # Global API Key: verify by listing zones
             resp = self._request("GET", "/zones?per_page=1")
             if resp.get("success"):
                 return {"success": True, "result": {"status": "active", "type": "global_api_key"}}

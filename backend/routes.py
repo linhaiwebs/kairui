@@ -528,7 +528,7 @@ def register_routes(app):
                                 break
                 paid = site.get("panel_app_install_id")
                 if paid:
-                    app_resp = panel_client.search_installed_apps(name="", app_type="website")
+                    app_resp = panel_client.search_installed_apps(name="")
                     if app_resp.get("code") == 200:
                         for a in (app_resp.get("data") or {}).get("items") or []:
                             if a.get("id") == paid:
@@ -596,6 +596,25 @@ def register_routes(app):
                         logger.info(f"Deleted 1Panel app install {site['panel_app_install_id']}")
                     except Exception as e:
                         logger.warning(f"Failed to delete 1Panel app: {e}")
+
+            # Clean up the independently-created database
+            db_name = site.get("db_name")
+            db_service = site.get("db_service") or "mariadb"
+            if db_name:
+                try:
+                    db_resp = panel_client.search_databases(name=db_name)
+                    if db_resp.get("code") == 200:
+                        db_items = (db_resp.get("data") or {}).get("items") or []
+                        for d in db_items:
+                            if d.get("name") == db_name:
+                                panel_client.delete_database(
+                                    d.get("id"), db_type=db_service,
+                                    delete_user=True, force_delete=True,
+                                )
+                                logger.info(f"Deleted 1Panel database {db_name}")
+                                break
+                except Exception as e:
+                    logger.warning(f"Failed to delete database {db_name}: {e}")
 
             delete_site(site_id)
             return jsonify({"code": 200, "message": "站点已删除"})
@@ -875,9 +894,11 @@ def register_routes(app):
                 app_install_id=data.get("appInstallID"),
                 app_detail_id=data.get("appDetailID"),
                 app_id=data.get("appID"),
+                app_install_params=data.get("appInstallParams"),
+                services=data.get("services"),
                 website_group_id=data.get("webSiteGroupID", 1),
                 remark=data.get("remark", ""),
-                other_domains=data.get("otherDomains", ""),
+                enable_ipv6=data.get("enableIPV6", True),
                 proxy=data.get("proxy", ""),
             ))
         except Exception as e:
@@ -1082,6 +1103,8 @@ def register_routes(app):
                     "verify_certificate": verify_cert,
                     "ssl_version": ssl_version,
                     "port": port,
+                    "db_name": db_name,
+                    "db_service": db_service,
                 })
                 site_id_for_bg = site["id"] if site else 0
 
@@ -1091,22 +1114,49 @@ def register_routes(app):
 
                 # ---- Background thread: full deployment pipeline ----
                 def _bg_deploy(task_id, sid, s_alias, s_domain, s_port, s_db_name, s_db_user, s_db_pass,
-                                s_app_detail_id, s_db_service, s_admin, s_password, s_plugin_ids,
+                                s_app_detail_id, s_app_id, s_db_service, s_admin, s_password, s_plugin_ids,
                                 s_group_id):
                     """Full deployment pipeline in background with real-time status updates."""
                     # Push Flask application context for this thread
                     with app.app_context():
                         _bg_deploy_inner(task_id, sid, s_alias, s_domain, s_port, s_db_name, s_db_user, s_db_pass,
-                                         s_app_detail_id, s_db_service, s_admin, s_password, s_plugin_ids,
+                                         s_app_detail_id, s_app_id, s_db_service, s_admin, s_password, s_plugin_ids,
                                          s_group_id)
 
                 def _bg_deploy_inner(task_id, sid, s_alias, s_domain, s_port, s_db_name, s_db_user, s_db_pass,
-                                     s_app_detail_id, s_db_service, s_admin, s_password, s_plugin_ids,
+                                     s_app_detail_id, s_app_id, s_db_service, s_admin, s_password, s_plugin_ids,
                                      s_group_id):
                     """Inner deployment logic (runs inside Flask app context)."""
                     container_name = None
                     app_install_id = None
                     panel_website_id = None
+
+                    def _rollback_deploy(db_name, app_install_id_to_delete=None):
+                        """清理部署失败时已创建的资源（数据库和应用）。"""
+                        if app_install_id_to_delete:
+                            try:
+                                panel_client.operate_installed(
+                                    app_install_id_to_delete, "delete",
+                                    force_delete=True, delete_backup=True, delete_db=False,
+                                )
+                                logger.info(f"Rollback: deleted app install {app_install_id_to_delete}")
+                            except Exception as re:
+                                logger.warning(f"Rollback: failed to delete app: {re}")
+                        if db_name:
+                            try:
+                                db_resp = panel_client.search_databases(name=db_name)
+                                if db_resp.get("code") == 200:
+                                    db_items = (db_resp.get("data") or {}).get("items") or []
+                                    for d in db_items:
+                                        if d.get("name") == db_name:
+                                            panel_client.delete_database(
+                                                d.get("id"), db_type=s_db_service,
+                                                delete_user=True, force_delete=True,
+                                            )
+                                            logger.info(f"Rollback: deleted database {db_name}")
+                                            break
+                            except Exception as re:
+                                logger.warning(f"Rollback: failed to delete DB: {re}")
 
                     try:
                         # === Step 1: Create database ===
@@ -1148,7 +1198,7 @@ def register_routes(app):
                                     alias=s_alias,
                                     app_type="new",
                                     app_detail_id=s_app_detail_id,
-                                    app_id=2,  # WordPress app ID
+                                    app_id=s_app_id,
                                     app_install_params=install_params,
                                     services={s_db_service: s_db_service},
                                     website_group_id=s_group_id,
@@ -1166,7 +1216,7 @@ def register_routes(app):
                                         alias=unique_alias,
                                         app_type="new",
                                         app_detail_id=s_app_detail_id,
-                                        app_id=2,
+                                        app_id=s_app_id,
                                         app_install_params=install_params,
                                         services={s_db_service: s_db_service},
                                         website_group_id=s_group_id,
@@ -1233,11 +1283,13 @@ def register_routes(app):
                                 )
                             except Exception as e:
                                 update_bg_task(task_id, status="failed", message=f"安装WordPress应用失败: {str(e)[:80]}")
+                                _rollback_deploy(s_db_name)
                                 return
 
                             if install_resp.get("code") != 200:
                                 update_bg_task(task_id, status="failed",
                                                message=f"安装WordPress应用失败: {install_resp.get('message', '未知错误')[:80]}")
+                                _rollback_deploy(s_db_name)
                                 return
 
                             time.sleep(5)
@@ -1286,6 +1338,13 @@ def register_routes(app):
                                                 break
                                 except Exception:
                                     pass
+                            else:
+                                # Fallback two-step also failed — clean up app and DB
+                                error_msg = website_result.get('message', '未知错误') if website_result else '无响应'
+                                update_bg_task(task_id, status="failed",
+                                               message=f"创建网站失败: {error_msg[:80]}")
+                                _rollback_deploy(s_db_name, app_install_id)
+                                return
 
                         # Update local DB with panel IDs
                         try:
@@ -1367,6 +1426,7 @@ def register_routes(app):
 
                     except Exception as e:
                         update_bg_task(task_id, status="failed", message=f"部署异常: {str(e)[:100]}")
+                        _rollback_deploy(s_db_name, app_install_id)
                         logger.error(f"BG deploy error for {s_domain}: {e}")
 
                 # Get group ID before starting bg thread
@@ -1383,7 +1443,7 @@ def register_routes(app):
                 bg_thread = threading.Thread(
                     target=_bg_deploy,
                     args=(bg_task_id, site_id_for_bg, alias, domain, port, db_name, db_user, db_pass,
-                          app_detail_id, db_service, default_admin, default_password,
+                          app_detail_id, app_id, db_service, default_admin, default_password,
                           plugin_ids, group_id),
                     daemon=True,
                 )
@@ -1482,7 +1542,9 @@ def register_routes(app):
                 for w in (ws_resp.get("data") or {}).get("items") or []:
                     panel_websites[w.get("id")] = w
 
-            app_resp = panel_client.search_installed_apps(name="", app_type="website")
+            # Get ALL installed apps (don't filter by type — WordPress installed apps
+            # may have different appType values depending on how they were installed)
+            app_resp = panel_client.search_installed_apps(name="")
             panel_apps = {}
             wp_apps = []
             if app_resp.get("code") == 200:
@@ -1500,11 +1562,7 @@ def register_routes(app):
 
                 # Check if 1Panel website still exists
                 if pwid:
-                    if pwid in panel_websites:
-                        pw = panel_websites[pwid]
-                        if pw.get("status") != site.get("panel_status"):
-                            updates["panel_status"] = pw.get("status")
-                    else:
+                    if pwid not in panel_websites:
                         # Website gone from 1Panel
                         updates["panel_website_id"] = None
                         updates["panel_app_install_id"] = None
@@ -1575,6 +1633,39 @@ def register_routes(app):
                             logger.info(f"Sync: imported orphaned WP app {app.get('id')} as site {new_site.get('id')}")
                         except Exception as e:
                             results["errors"].append(f"Import {app.get('name')}: {e}")
+
+            # Detect orphaned databases (wp_* databases not linked to any local site)
+            try:
+                db_resp = panel_client.search_databases(name="wp_")
+                orphaned_dbs = []
+                if db_resp.get("code") == 200:
+                    db_items = (db_resp.get("data") or {}).get("items") or []
+                    known_db_names = set(site.get("db_name") for site in sites if site.get("db_name"))
+                    for d in db_items:
+                        d_name = d.get("name", "")
+                        if d_name.startswith("wp_") and d_name not in known_db_names:
+                            orphaned_dbs.append({"id": d.get("id"), "name": d_name, "type": d.get("type", "")})
+                results["orphaned_databases"] = len(orphaned_dbs)
+                results["orphaned_db_details"] = orphaned_dbs
+
+                # Clean up orphaned databases if requested
+                if import_orphans and orphaned_dbs:
+                    cleaned_dbs = 0
+                    for d in orphaned_dbs:
+                        try:
+                            db_type = d.get("type") or "mariadb"
+                            panel_client.delete_database(
+                                d.get("id"), db_type=db_type,
+                                delete_user=True, force_delete=True,
+                            )
+                            cleaned_dbs += 1
+                            logger.info(f"Sync: cleaned up orphaned database {d.get('name')}")
+                        except Exception as de:
+                            results["errors"].append(f"Cleanup DB {d.get('name')}: {de}")
+                    if cleaned_dbs:
+                        results["cleaned_databases"] = cleaned_dbs
+            except Exception as de:
+                logger.warning(f"Sync: orphaned DB detection failed: {de}")
 
             return jsonify({"code": 200, "data": results})
         except Exception as e:

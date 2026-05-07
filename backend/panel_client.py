@@ -251,14 +251,12 @@ class OnePanelClient:
             enable_ipv6: Enable IPv6 listening (default: True)
             proxy: Proxy URL (optional)
         """
-        domains = [{"domain": primary_domain, "port": 80}]
         body = {
             "type": "deployment",
             "primaryDomain": primary_domain,
             "alias": alias,
-            "WebsiteGroupID": website_group_id,
+            "webSiteGroupID": website_group_id,
             "IPV6": enable_ipv6,
-            "domains": domains,
             "appType": app_type,
             "remark": remark,
         }
@@ -271,6 +269,7 @@ class OnePanelClient:
                 "params": app_install_params or {},
                 "advanced": True,
                 "allowPort": True,
+                "pullImage": True,
             }
             if services:
                 app_install_body["services"] = services
