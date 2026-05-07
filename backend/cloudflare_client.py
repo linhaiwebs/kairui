@@ -6,18 +6,33 @@ logger = logging.getLogger(__name__)
 
 
 class CloudflareClient:
-    """Minimal Cloudflare API v4 client for DNS A record management."""
+    """Minimal Cloudflare API v4 client for DNS A record management.
+
+    Supports two authentication methods:
+    1. API Token: Bearer token (recommended)
+    2. Global API Key: email + key (legacy)
+    """
 
     BASE_URL = "https://api.cloudflare.com/client/v4"
 
-    def __init__(self, api_token=None):
-        self.api_token = api_token
+    def __init__(self, api_token=None, api_email=None, api_key=None):
+        self.api_token = api_token.strip() if api_token else None
+        self.api_email = api_email.strip() if api_email else None
+        self.api_key = api_key.strip() if api_key else None
 
     def _headers(self):
-        return {
-            "Authorization": f"Bearer {self.api_token}",
-            "Content-Type": "application/json",
-        }
+        if self.api_token:
+            return {
+                "Authorization": f"Bearer {self.api_token}",
+                "Content-Type": "application/json",
+            }
+        elif self.api_email and self.api_key:
+            return {
+                "X-Auth-Email": self.api_email,
+                "X-Auth-Key": self.api_key,
+                "Content-Type": "application/json",
+            }
+        return {"Content-Type": "application/json"}
 
     def _request(self, method, path, json_data=None):
         url = f"{self.BASE_URL}{path}"
@@ -29,8 +44,16 @@ class CloudflareClient:
             return {"success": False, "errors": [{"message": str(e)}]}
 
     def verify_token(self):
-        """Verify the API token is valid."""
-        return self._request("GET", "/user/tokens/verify")
+        """Verify the API token or Global API Key is valid."""
+        if self.api_token:
+            return self._request("GET", "/user/tokens/verify")
+        elif self.api_email and self.api_key:
+            # Global API Key: verify by listing zones
+            resp = self._request("GET", "/zones?per_page=1")
+            if resp.get("success"):
+                return {"success": True, "result": {"status": "active", "type": "global_api_key"}}
+            return resp
+        return {"success": False, "errors": [{"message": "No credentials provided"}]}
 
     def list_zones(self, page=1, per_page=50):
         """List all zones (domains) the token has access to."""

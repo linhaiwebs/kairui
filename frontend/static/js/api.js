@@ -224,6 +224,10 @@ const API = {
         return this.request('POST', '/api/cloudflare/verify', { api_token: apiToken });
     },
 
+    async cfVerifyGlobalKey(email, key) {
+        return this.request('POST', '/api/cloudflare/verify', { api_email: email, api_key: key });
+    },
+
     async cfListZones() {
         return this.request('GET', '/api/cloudflare/zones');
     },

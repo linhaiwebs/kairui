@@ -51,6 +51,9 @@ const app = createApp({
         // Step 3
         const cfConnected = ref(false);
         const cfToken = ref('');
+        const cfEmail = ref('');
+        const cfKey = ref('');
+        const cfAuthMode = ref('token'); // 'token' or 'global'
         const cfZones = ref([]);
         const cfSelectedZone = ref('');
         const cfProxied = ref(false);
@@ -181,12 +184,18 @@ const app = createApp({
             try { const resp = await API.cfStatus(); cfConnected.value = resp.data?.connected || false; } catch (e) { cfConnected.value = false; }
         }
         async function cfVerify() {
-            if (!cfToken.value.trim()) { showToast('请输入Cloudflare API Token', 'error'); return; }
             loading.value = true;
             try {
-                const resp = await API.cfVerifyToken(cfToken.value.trim());
+                let resp;
+                if (cfAuthMode.value === 'token') {
+                    if (!cfToken.value.trim()) { showToast('请输入Cloudflare API Token', 'error'); loading.value = false; return; }
+                    resp = await API.cfVerifyToken(cfToken.value.trim());
+                } else {
+                    if (!cfEmail.value.trim() || !cfKey.value.trim()) { showToast('请输入邮箱和Global API Key', 'error'); loading.value = false; return; }
+                    resp = await API.cfVerifyGlobalKey(cfEmail.value.trim(), cfKey.value.trim());
+                }
                 if (resp.code === 200) { cfConnected.value = true; showToast('Cloudflare授权成功'); await loadCfZones(); }
-                else { showToast(resp.message || 'Token验证失败', 'error'); }
+                else { showToast(resp.message || '验证失败', 'error'); }
             } catch (e) { showToast('验证失败', 'error'); } finally { loading.value = false; }
         }
         async function loadCfZones() {
@@ -338,7 +347,7 @@ const app = createApp({
             wizardStep, wizardOpen, wizardMode, wizardSiteId,
             createForm, createProgress, wpInstallStatuses,
             themes, selectedThemeIds, selectedPluginIds, step2Installing, step2Results,
-            cfConnected, cfToken, cfZones, cfSelectedZone, cfProxied, cfServerIp, cfCreating, cfDnsResult,
+            cfConnected, cfToken, cfEmail, cfKey, cfAuthMode, cfZones, cfSelectedZone, cfProxied, cfServerIp, cfCreating, cfDnsResult,
             showEditModal, editForm, editingSiteId, globalConfig,
             plugins, uploadProgress, formatSize,
             handleLogin, handleLogout, refreshSites, syncWithPanel,
@@ -490,7 +499,22 @@ const app = createApp({
                         <h3 class="font-semibold text-gray-800 mb-4"><i class="fab fa-cloudflare mr-2 text-orange-500"></i>Cloudflare 配置</h3>
                         <div class="space-y-4">
                             <div class="flex items-center gap-3 mb-2"><span :class="cfConnected ? 'text-green-500' : 'text-red-500'"><i class="fas fa-circle text-xs mr-1"></i>{{ cfConnected ? '已连接' : '未连接' }}</span></div>
-                            <div><label class="block text-sm font-medium text-gray-700 mb-1">API Token</label><div class="flex gap-2"><input v-model="cfToken" type="password" placeholder="输入Cloudflare API Token" class="flex-1 px-4 py-2 border rounded-lg focus:border-indigo-500"><button @click="cfVerify" :disabled="loading" class="btn-primary text-white px-4 py-2 rounded-lg"><i class="fas fa-check mr-2"></i>验证</button></div><p class="text-xs text-gray-500 mt-1">在Cloudflare控制台 → My Profile → API Tokens → 创建Token（需Zone:DNS:Edit权限）</p></div>
+                            <div class="flex gap-2 mb-3">
+                                <button @click="cfAuthMode='token'" :class="cfAuthMode==='token' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'" class="px-3 py-1.5 rounded-lg text-sm font-medium">API Token</button>
+                                <button @click="cfAuthMode='global'" :class="cfAuthMode==='global' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'" class="px-3 py-1.5 rounded-lg text-sm font-medium">Global API Key</button>
+                            </div>
+                            <div v-if="cfAuthMode==='token'">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">API Token</label>
+                                <div class="flex gap-2"><input v-model="cfToken" type="password" placeholder="输入Cloudflare API Token" class="flex-1 px-4 py-2 border rounded-lg focus:border-indigo-500"><button @click="cfVerify" :disabled="loading" class="btn-primary text-white px-4 py-2 rounded-lg"><i class="fas fa-check mr-2"></i>验证</button></div>
+                                <p class="text-xs text-gray-500 mt-1">Cloudflare控制台 → My Profile → API Tokens → 创建Token（需Zone:DNS:Edit权限）</p>
+                            </div>
+                            <div v-if="cfAuthMode==='global'">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">邮箱</label>
+                                <input v-model="cfEmail" type="email" placeholder="Cloudflare账户邮箱" class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500 mb-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Global API Key</label>
+                                <div class="flex gap-2"><input v-model="cfKey" type="password" placeholder="输入Global API Key" class="flex-1 px-4 py-2 border rounded-lg focus:border-indigo-500"><button @click="cfVerify" :disabled="loading" class="btn-primary text-white px-4 py-2 rounded-lg"><i class="fas fa-check mr-2"></i>验证</button></div>
+                                <p class="text-xs text-gray-500 mt-1">Cloudflare控制台 → My Profile → API Tokens → Global API Key</p>
+                            </div>
                         </div>
                     </div>
                     <button @click="saveGlobalConfig" :disabled="loading" class="w-full btn-primary text-white py-3 rounded-lg font-semibold"><i class="fas fa-save mr-2"></i>保存设置</button>
@@ -549,8 +573,16 @@ const app = createApp({
                 <div v-if="wizardStep === 3" class="p-6 space-y-4">
                     <div v-if="!cfConnected" class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-2">
                         <p class="text-yellow-700 text-sm mb-3"><i class="fas fa-exclamation-triangle mr-2"></i>Cloudflare未授权。授权后可自动配置DNS解析。</p>
-                        <div class="flex gap-2"><input v-model="cfToken" type="password" placeholder="输入Cloudflare API Token" class="flex-1 px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"><button @click="cfVerify" :disabled="loading" class="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-orange-600"><i class="fas fa-check mr-1"></i>验证</button></div>
-                        <p class="text-xs text-gray-500 mt-2">在Cloudflare控制台 → My Profile → API Tokens → 创建Token（需Zone:DNS:Edit权限）</p>
+                        <div class="flex gap-2 mb-2">
+                            <button @click="cfAuthMode='token'" :class="cfAuthMode==='token' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'" class="px-3 py-1.5 rounded-lg text-sm font-medium">API Token</button>
+                            <button @click="cfAuthMode='global'" :class="cfAuthMode==='global' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'" class="px-3 py-1.5 rounded-lg text-sm font-medium">Global API Key</button>
+                        </div>
+                        <div v-if="cfAuthMode==='token'" class="flex gap-2"><input v-model="cfToken" type="password" placeholder="输入Cloudflare API Token" class="flex-1 px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"><button @click="cfVerify" :disabled="loading" class="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-orange-600"><i class="fas fa-check mr-1"></i>验证</button></div>
+                        <div v-if="cfAuthMode==='global'" class="space-y-2">
+                            <input v-model="cfEmail" type="email" placeholder="Cloudflare账户邮箱" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500">
+                            <div class="flex gap-2"><input v-model="cfKey" type="password" placeholder="输入Global API Key" class="flex-1 px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"><button @click="cfVerify" :disabled="loading" class="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-orange-600"><i class="fas fa-check mr-1"></i>验证</button></div>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2">Cloudflare控制台 → My Profile → API Tokens</p>
                     </div>
                     <div v-else class="space-y-4">
                         <div class="bg-green-50 border border-green-200 rounded-lg p-4"><p class="text-green-700 text-sm"><i class="fab fa-cloudflare mr-2"></i>Cloudflare已连接，可以为站点自动创建DNS A记录。</p></div>

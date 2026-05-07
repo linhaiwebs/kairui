@@ -402,14 +402,23 @@ def auto_install_wordpress(container_name, site_url, site_title, admin_user, adm
         return {"success": False, "message": f"Install error: {str(e)[:100]}"}
 
 
-def _get_cf_token():
-    """Get Cloudflare API token from global_config (EAV format)."""
+def _get_cf_credentials():
+    """Get Cloudflare credentials from global_config (EAV format).
+    Returns dict with api_token, api_email, api_key (any may be None)."""
     conn = get_db()
     try:
-        row = conn.execute("SELECT config_value FROM global_config WHERE config_key = 'cf_api_token'").fetchone()
-        return row["config_value"] if row and row["config_value"] else None
+        creds = {}
+        for key, field in [("cf_api_token", "api_token"), ("cf_api_email", "api_email"), ("cf_api_key", "api_key")]:
+            row = conn.execute("SELECT config_value FROM global_config WHERE config_key = ?", (key,)).fetchone()
+            val = row["config_value"].strip() if row and row["config_value"] and row["config_value"].strip() else None
+            creds[field] = val
+        return creds
     finally:
         conn.close()
+
+def _get_cf_token():
+    """Get Cloudflare API token from global_config (EAV format)."""
+    return _get_cf_credentials().get("api_token")
 
 def _get_config_value(key, default=None):
     """Get a config value from global_config (EAV format)."""
@@ -1817,23 +1826,53 @@ def register_routes(app):
             return jsonify({"code": 500, "message": f"安装插件失败: {str(e)[:100]}"}), 500
 
     # ---- Cloudflare ----
+    def _get_cf_client():
+        """Create a CloudflareClient from stored credentials."""
+        from cloudflare_client import CloudflareClient
+        creds = _get_cf_credentials()
+        return CloudflareClient(
+            api_token=creds.get("api_token"),
+            api_email=creds.get("api_email"),
+            api_key=creds.get("api_key"),
+        )
+
+    def _has_cf_credentials():
+        """Check if any Cloudflare credentials are stored."""
+        creds = _get_cf_credentials()
+        return bool(creds.get("api_token") or (creds.get("api_email") and creds.get("api_key")))
+
     @app.route("/api/cloudflare/verify", methods=["POST"])
     @jwt_required()
     def cf_verify_token():
-        """Verify a Cloudflare API token."""
+        """Verify Cloudflare credentials (API Token or Global API Key)."""
         try:
             data = request.get_json(silent=True) or {}
-            token = data.get("api_token", "")
-            if not token:
-                return jsonify({"code": 400, "message": "请提供API Token"}), 400
+            api_token = (data.get("api_token") or "").strip()
+            api_email = (data.get("api_email") or "").strip()
+            api_key = (data.get("api_key") or "").strip()
+
+            if not api_token and not (api_email and api_key):
+                return jsonify({"code": 400, "message": "请提供API Token 或 邮箱+Global API Key"}), 400
 
             from cloudflare_client import CloudflareClient
-            cf = CloudflareClient(token)
+            cf = CloudflareClient(api_token=api_token or None, api_email=api_email or None, api_key=api_key or None)
             resp = cf.verify_token()
+
             if resp.get("success"):
-                _set_config_value("cf_api_token", token)
+                # Save whichever credentials were provided
+                _set_config_value("cf_api_token", api_token)
+                _set_config_value("cf_api_email", api_email)
+                _set_config_value("cf_api_key", api_key)
                 return jsonify({"code": 200, "data": resp.get("result", {})})
-            return jsonify({"code": 400, "message": "Token验证失败: " + str(resp.get("errors", []))}), 400
+
+            # Parse error for user-friendly message
+            errors = resp.get("errors", [])
+            err_msg = str(errors)
+            if any("6003" in str(e.get("code", "")) or "6111" in str(e.get("code", "")) for e in errors):
+                err_msg = "认证格式无效，请检查：1) API Token格式是否正确（不应含空格或特殊字符）；2) 如使用Global API Key，请同时填写邮箱和Key"
+            elif any("1000" in str(e.get("code", "")) for e in errors):
+                err_msg = "API Token无效，请确认Token是否正确且未过期"
+            return jsonify({"code": 400, "message": f"验证失败: {err_msg}"}), 400
         except Exception as e:
             logger.error(f"CF verify failed: {e}")
             return jsonify({"code": 500, "message": f"验证失败: {str(e)[:100]}"}), 500
@@ -1843,12 +1882,9 @@ def register_routes(app):
     def cf_list_zones():
         """List Cloudflare zones."""
         try:
-            token = _get_cf_token()
-            if not token:
+            if not _has_cf_credentials():
                 return jsonify({"code": 400, "message": "请先授权Cloudflare账户"}), 400
-
-            from cloudflare_client import CloudflareClient
-            cf = CloudflareClient(token)
+            cf = _get_cf_client()
             resp = cf.list_zones()
             if resp.get("success"):
                 return jsonify({"code": 200, "data": resp.get("result", [])})
@@ -1861,12 +1897,9 @@ def register_routes(app):
     def cf_list_dns(zone_id):
         """List DNS records for a zone."""
         try:
-            token = _get_cf_token()
-            if not token:
+            if not _has_cf_credentials():
                 return jsonify({"code": 400, "message": "请先授权Cloudflare账户"}), 400
-
-            from cloudflare_client import CloudflareClient
-            cf = CloudflareClient(token)
+            cf = _get_cf_client()
             resp = cf.list_dns_records(zone_id)
             if resp.get("success"):
                 return jsonify({"code": 200, "data": resp.get("result", [])})
@@ -1887,14 +1920,12 @@ def register_routes(app):
             zone_id = data.get("zone_id")
             proxied = data.get("proxied", False)
 
-            token = _get_cf_token()
-            if not token:
+            if not _has_cf_credentials():
                 return jsonify({"code": 400, "message": "请先授权Cloudflare账户"}), 400
 
             server_ip = data.get("server_ip") or _get_config_value("panel_server_ip") or config.PANEL_HOST
 
-            from cloudflare_client import CloudflareClient
-            cf = CloudflareClient(token)
+            cf = _get_cf_client()
 
             domain = site["site_name"]
             if not zone_id:
@@ -1921,11 +1952,9 @@ def register_routes(app):
     def cf_status():
         """Check Cloudflare connection status."""
         try:
-            token = _get_cf_token()
-            if not token:
+            if not _has_cf_credentials():
                 return jsonify({"code": 200, "data": {"connected": False}})
-            from cloudflare_client import CloudflareClient
-            cf = CloudflareClient(token)
+            cf = _get_cf_client()
             resp = cf.verify_token()
             return jsonify({"code": 200, "data": {"connected": resp.get("success", False)}})
         except Exception:
