@@ -341,7 +341,7 @@ def create_site(data):
                 panel_website_id, panel_app_install_id, panel_app_detail_id,
                 port, nginx_alias, db_name, db_service,
                 status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("site_name", ""),
                 data.get("url", ""),
