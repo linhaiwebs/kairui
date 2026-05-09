@@ -244,33 +244,56 @@ const app = createApp({
         }
         function closeWizard() { wizardOpen.value = false; loadSites(); loadPanelData(); }
 
-        // Step 1: Create site
+        // Step 1: Create site(s)
         async function wizardCreateSite() {
             loading.value = true;
             try {
-                const domain = createForm.site_name.trim();
-                if (!domain) { showToast('请输入域名', 'error'); loading.value = false; return; }
+                const isBatch = wizardMode.value === 'batch';
+                let domains = [];
+                if (isBatch) {
+                    domains = createForm.domains.split('\n').map(d => d.trim()).filter(d => d);
+                    if (!domains.length) { showToast('请至少输入一个域名', 'error'); loading.value = false; return; }
+                } else {
+                    const domain = createForm.site_name.trim();
+                    if (!domain) { showToast('请输入域名', 'error'); loading.value = false; return; }
+                    domains = [domain];
+                }
                 createProgress.show = true;
-                createProgress.message = `正在通过1Panel一键部署WordPress站点 ${domain}...`;
+                createProgress.results = [];
+                createProgress.message = `正在通过1Panel部署 ${domains.length} 个WordPress站点...`;
                 const resp = await API.batchCreateWordPress({
-                    domains: [domain], admin_name: createForm.admin_name, admin_password: createForm.admin_password,
+                    domains: domains, admin_name: createForm.admin_name, admin_password: createForm.admin_password,
                     tag: createForm.tag, security_id: createForm.security_id, http_username: createForm.http_username,
                     http_password: createForm.http_password, verify_certificate: createForm.verify_certificate,
                     ssl_version: createForm.ssl_version, base_port: createForm.base_port, db_service: createForm.db_service,
-                    website_group_id: createForm.website_group_id || 1, plugin_ids: [],
+                    website_group_id: createForm.website_group_id || 1,
                 });
                 if (resp.code !== 200) { createProgress.message = `创建失败: ${resp.message}`; showToast(`创建失败: ${resp.message}`, 'error'); loading.value = false; return; }
-                const result = resp.data.results[0];
-                if (result && result.status === 'error') { createProgress.message = `创建失败: ${result.message}`; showToast(result.message, 'error'); loading.value = false; return; }
-                wizardSiteId.value = result.site_id;
-                if (result.site_id && result.wp_install_status === 'installing') { startWPPolling(result.site_id, domain); createProgress.message = `WordPress正在安装中...`; }
-                for (let i = 0; i < 48; i++) { await new Promise(r => setTimeout(r, 5000)); const s = wpInstallStatuses[result.site_id]; if (s && (s.status === 'installed' || s.status === 'failed')) break; }
-                const fs = wpInstallStatuses[result.site_id];
-                if (fs && fs.status === 'installed') { createProgress.message = `✅ 站点 ${domain} 部署完成！`; showToast(`站点 ${domain} 部署完成！`); }
-                else if (fs && fs.status === 'failed') { createProgress.message = `⚠️ 站点已创建，但WordPress安装未完成: ${fs.message}`; }
-                else { createProgress.message = `⏳ 站点部署已提交，1Panel正在处理...`; }
-                await loadSites();
-                setTimeout(() => { wizardStep.value = 2; }, 1000);
+                const results = resp.data.results || [];
+                if (isBatch) {
+                    // Batch mode: show summary
+                    const ok = results.filter(r => r.status !== 'error').length;
+                    const err = results.filter(r => r.status === 'error').length;
+                    createProgress.results = results;
+                    createProgress.message = `批量创建完成: ${ok} 成功, ${err} 失败`;
+                    showToast(`批量创建完成: ${ok}/${results.length} 成功`);
+                    await loadSites();
+                    loading.value = false;
+                    return; // Batch done, wizard stays open for user to review
+                } else {
+                    // Single mode: poll WP install status
+                    const result = results[0];
+                    if (result && result.status === 'error') { createProgress.message = `创建失败: ${result.message}`; showToast(result.message, 'error'); loading.value = false; return; }
+                    wizardSiteId.value = result.site_id;
+                    if (result.site_id && result.wp_install_status === 'installing') { startWPPolling(result.site_id, domains[0]); createProgress.message = `WordPress正在安装中...`; }
+                    for (let i = 0; i < 48; i++) { await new Promise(r => setTimeout(r, 5000)); const s = wpInstallStatuses[result.site_id]; if (s && (s.status === 'installed' || s.status === 'failed')) break; }
+                    const fs = wpInstallStatuses[result.site_id];
+                    if (fs && fs.status === 'installed') { createProgress.message = `✅ 站点 ${domains[0]} 部署完成！`; showToast(`站点 ${domains[0]} 部署完成！`); }
+                    else if (fs && fs.status === 'failed') { createProgress.message = `⚠️ 站点已创建，但WordPress安装未完成: ${fs.message}`; }
+                    else { createProgress.message = `⏳ 站点部署已提交，1Panel正在处理...`; }
+                    await loadSites();
+                    setTimeout(() => { wizardStep.value = 2; }, 1000);
+                }
             } catch (e) { createProgress.message = `创建失败: ${e.message}`; showToast(`错误: ${e.message}`, 'error'); } finally { loading.value = false; }
         }
 
@@ -574,12 +597,19 @@ const app = createApp({
                 <div v-if="wizardStep === 1" class="p-6 space-y-4">
                     <div v-if="!panelConnected" class="bg-red-50 border border-red-200 rounded-lg p-4"><p class="text-red-700 text-sm"><i class="fas fa-exclamation-triangle mr-2"></i>1Panel未连接，站点将仅保存到本地。</p></div>
                     <div v-else class="bg-green-50 border border-green-200 rounded-lg p-4"><p class="text-green-700 text-sm"><i class="fas fa-check-circle mr-2"></i>1Panel已连接，将通过API实际安装WordPress。</p></div>
-                    <div><label class="block text-sm font-medium text-gray-700 mb-1">域名 / 站点名称</label><input v-model="createForm.site_name" type="text" placeholder="例如: site1.example.com" class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"><p class="text-xs text-gray-500 mt-1">将作为WordPress站点的主域名</p></div>
+                    <!-- Single mode: one domain -->
+                    <div v-if="wizardMode === 'single'"><label class="block text-sm font-medium text-gray-700 mb-1">域名 / 站点名称</label><input v-model="createForm.site_name" type="text" placeholder="例如: site1.example.com" class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"><p class="text-xs text-gray-500 mt-1">将作为WordPress站点的主域名</p></div>
+                    <!-- Batch mode: multiple domains -->
+                    <div v-if="wizardMode === 'batch'"><label class="block text-sm font-medium text-gray-700 mb-1">域名列表（每行一个）</label><textarea v-model="createForm.domains" rows="6" placeholder="site1.example.com&#10;site2.example.com&#10;site3.example.com" class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"></textarea><p class="text-xs text-gray-500 mt-1">每行输入一个域名，将批量创建多个WordPress站点</p></div>
                     <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-medium text-gray-700 mb-1">WP 管理员用户名</label><input v-model="createForm.admin_name" type="text" class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">WP 管理员密码</label><input v-model="createForm.admin_password" type="text" class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"></div></div>
                     <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-medium text-gray-700 mb-1">标签</label><input v-model="createForm.tag" type="text" placeholder="例如: 生产环境" class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">安全ID</label><input v-model="createForm.security_id" type="text" class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"></div></div>
                     <div class="bg-gray-50 rounded-lg p-4"><h4 class="text-sm font-semibold text-gray-700 mb-3"><i class="fas fa-shield-alt mr-2"></i>HTTP 认证（可选）</h4><div class="grid grid-cols-2 gap-4"><div><label class="block text-xs font-medium text-gray-600 mb-1">HTTP 用户名</label><input v-model="createForm.http_username" type="text" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"></div><div><label class="block text-xs font-medium text-gray-600 mb-1">HTTP 密码</label><input v-model="createForm.http_password" type="text" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"></div></div></div>
-                    <div class="bg-gray-50 rounded-lg p-4"><h4 class="text-sm font-semibold text-gray-700 mb-3"><i class="fas fa-server mr-2"></i>服务器配置</h4><div class="grid grid-cols-2 gap-4"><div><label class="block text-xs font-medium text-gray-600 mb-1">起始端口</label><input v-model.number="createForm.base_port" type="number" min="1024" max="65535" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"></div><div><label class="block text-xs font-medium text-gray-600 mb-1">数据库服务</label><select v-model="createForm.db_service" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"><option value="mariadb">MariaDB</option><option value="mysql">MySQL</option></select></div></div></div>
-                    <div v-if="createProgress.show" class="bg-blue-50 border border-blue-200 rounded-lg p-4"><div class="flex items-center gap-2 mb-2"><i class="fas fa-spinner fa-spin text-blue-600"></i><span class="text-sm font-semibold text-blue-800">{{ createProgress.message }}</span></div><div v-if="wpInstallStatuses[wizardSiteId]" class="text-xs text-blue-600 mt-1">{{ wpInstallStatuses[wizardSiteId].message }}</div></div>
+                    <div class="bg-gray-50 rounded-lg p-4"><h4 class="text-sm font-semibold text-gray-700 mb-3"><i class="fas fa-server mr-2"></i>服务器配置</h4><div class="grid grid-cols-3 gap-4"><div><label class="block text-xs font-medium text-gray-600 mb-1">起始端口</label><input v-model.number="createForm.base_port" type="number" min="1024" max="65535" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"></div><div><label class="block text-xs font-medium text-gray-600 mb-1">数据库服务</label><select v-model="createForm.db_service" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"><option value="mariadb">MariaDB</option><option value="mysql">MySQL</option></select></div><div><label class="block text-xs font-medium text-gray-600 mb-1">网站分组</label><select v-model.number="createForm.website_group_id" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-indigo-500"><option value="1">默认分组</option><option v-for="g in panelGroups" :key="g.id" :value="g.id">{{ g.name }}</option></select></div></div></div>
+                    <div v-if="createProgress.show" class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <div class="flex items-center gap-2 mb-2"><i v-if="!createProgress.results.length" class="fas fa-spinner fa-spin text-blue-600"></i><i v-else class="fas fa-check-circle text-blue-600"></i><span class="text-sm font-semibold text-blue-800">{{ createProgress.message }}</span></div>
+                        <div v-if="createProgress.results.length" class="space-y-1 mt-2 max-h-40 overflow-y-auto"><div v-for="(r, i) in createProgress.results" :key="i" class="flex items-center gap-2 text-xs"><i :class="r.status === 'error' ? 'fas fa-times-circle text-red-500' : 'fas fa-check-circle text-green-500'"></i><span class="font-medium">{{ r.domain || '站点' }}</span><span class="text-gray-500">— {{ r.message || (r.status === 'error' ? '失败' : '成功') }}</span></div></div>
+                        <div v-if="!createProgress.results.length && wpInstallStatuses[wizardSiteId]" class="text-xs text-blue-600 mt-1">{{ wpInstallStatuses[wizardSiteId].message }}</div>
+                    </div>
                 </div>
 
                 <!-- Step 2 -->
@@ -636,7 +666,8 @@ const app = createApp({
                     <div class="flex gap-3">
                         <template v-if="wizardStep === 1">
                             <button @click="closeWizard" class="px-6 py-2 border rounded-lg hover:bg-gray-50">取消</button>
-                            <button @click="wizardCreateSite" :disabled="loading || createProgress.show" class="btn-primary text-white px-6 py-2 rounded-lg"><i v-if="loading" class="fas fa-spinner fa-spin mr-2"></i><i v-else class="fas fa-rocket mr-2"></i>创建站点</button>
+                            <button v-if="wizardMode === 'batch' && createProgress.results.length" @click="closeWizard" class="btn-primary text-white px-6 py-2 rounded-lg"><i class="fas fa-check mr-2"></i>完成</button>
+                            <button v-else @click="wizardCreateSite" :disabled="loading || (createProgress.show && !createProgress.results.length)" class="btn-primary text-white px-6 py-2 rounded-lg"><i v-if="loading" class="fas fa-spinner fa-spin mr-2"></i><i v-else class="fas fa-rocket mr-2"></i>{{ wizardMode === 'batch' ? '批量创建' : '创建站点' }}</button>
                         </template>
                         <template v-if="wizardStep === 2">
                             <button @click="wizardSkipStep2" class="px-6 py-2 border rounded-lg hover:bg-gray-50">跳过</button>
