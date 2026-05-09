@@ -1364,12 +1364,26 @@ def register_routes(app):
                                 except Exception:
                                     pass
                             else:
-                                # Fallback two-step also failed — clean up app and DB
+                                # Step 2b failed — fall back to manual nginx proxy config
                                 error_msg = website_result.get('message', '未知错误') if website_result else '无响应'
-                                update_bg_task(task_id, status="failed",
-                                               message=f"创建网站失败: {error_msg[:80]}")
-                                _rollback_deploy(s_db_name, app_install_id)
-                                return
+                                logger.warning(f"Step2b: create_website failed ({error_msg}), falling back to nginx proxy")
+                                update_bg_task(task_id, status="deploying",
+                                               message="1Panel网站API不可用，正在手动配置nginx反向代理...")
+                                try:
+                                    nginx_resp = panel_client.create_nginx_proxy_config(
+                                        alias=s_alias, domain=s_domain, port=s_port,
+                                    )
+                                    if nginx_resp.get("code") == 200:
+                                        logger.info(f"Step2c: nginx proxy config created for {s_domain}")
+                                    else:
+                                        logger.warning(f"Step2c: nginx proxy config partial: {nginx_resp.get('message','')[:100]}")
+                                    # Continue with the flow — app is installed and nginx proxy is configured
+                                except Exception as e:
+                                    logger.error(f"Step2c: nginx proxy creation failed: {e}")
+                                    update_bg_task(task_id, status="failed",
+                                                   message=f"创建nginx反向代理失败: {str(e)[:80]}")
+                                    _rollback_deploy(s_db_name, app_install_id)
+                                    return
 
                         # Update local DB with panel IDs
                         try:
