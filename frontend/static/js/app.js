@@ -60,6 +60,8 @@ const app = createApp({
         const cfServerIp = ref('');
         const cfCreating = ref(false);
         const cfDnsResult = ref(null);
+        const cfAccounts = ref([]);
+        const cfSelectedAccountId = ref('');
 
         // Edit
         const showEditModal = ref(false);
@@ -105,7 +107,7 @@ const app = createApp({
         // ---- Data ----
         async function loadInitialData() {
             loading.value = true;
-            try { await Promise.all([loadSites(), checkPanelStatus(), loadPanelData(), loadConfig(), loadPlugins(), loadThemes(), checkCfStatus()]); }
+            try { await Promise.all([loadSites(), checkPanelStatus(), loadPanelData(), loadConfig(), loadPlugins(), loadThemes(), loadCfAccounts(), checkCfStatus()]); }
             finally { loading.value = false; }
         }
         async function loadSites() {
@@ -180,8 +182,12 @@ const app = createApp({
         }
 
         // ---- Cloudflare ----
+        async function loadCfAccounts() {
+            try { const resp = await API.cfListAccounts(); if (resp.code === 200) cfAccounts.value = resp.data || []; } catch (e) {}
+        }
         async function checkCfStatus() {
-            try { const resp = await API.cfStatus(); cfConnected.value = resp.data?.connected || false; } catch (e) { cfConnected.value = false; }
+            const accountId = cfSelectedAccountId.value;
+            try { const resp = await API.cfStatus(accountId || undefined); cfConnected.value = resp.data?.connected || false; } catch (e) { cfConnected.value = false; }
         }
         async function cfVerify() {
             loading.value = true;
@@ -194,12 +200,13 @@ const app = createApp({
                     if (!cfEmail.value.trim() || !cfKey.value.trim()) { showToast('请输入邮箱和Global API Key', 'error'); loading.value = false; return; }
                     resp = await API.cfVerifyGlobalKey(cfEmail.value.trim(), cfKey.value.trim());
                 }
-                if (resp.code === 200) { cfConnected.value = true; showToast('Cloudflare授权成功'); await loadCfZones(); }
+                if (resp.code === 200) { cfConnected.value = true; showToast('Cloudflare授权成功'); await loadCfAccounts(); await loadCfZones(); }
                 else { showToast(resp.message || '验证失败', 'error'); }
             } catch (e) { showToast('验证失败', 'error'); } finally { loading.value = false; }
         }
         async function loadCfZones() {
-            try { const resp = await API.cfListZones(); if (resp.code === 200) cfZones.value = resp.data || []; } catch (e) {}
+            const accountId = cfSelectedAccountId.value;
+            try { const resp = await API.cfListZones(accountId || undefined); if (resp.code === 200) cfZones.value = resp.data || []; } catch (e) {}
         }
         async function cfCreateDns() {
             if (!wizardSiteId.value) { showToast('请先完成站点创建', 'error'); return; }
@@ -207,10 +214,20 @@ const app = createApp({
             try {
                 const data = { zone_id: cfSelectedZone.value, proxied: cfProxied.value };
                 if (cfServerIp.value) data.server_ip = cfServerIp.value;
+                if (cfSelectedAccountId.value) data.account_id = cfSelectedAccountId.value;
                 const resp = await API.cfCreateDns(wizardSiteId.value, data);
                 if (resp.code === 200) { cfDnsResult.value = resp.data; showToast('DNS A记录创建成功！'); await loadSites(); }
                 else { showToast(resp.message || 'DNS创建失败', 'error'); }
             } catch (e) { showToast('DNS创建失败', 'error'); } finally { cfCreating.value = false; }
+        }
+        async function handleDeleteCfAccount(id) {
+            if (!confirm('确定删除此Cloudflare账号？')) return;
+            const resp = await API.cfDeleteAccount(id);
+            if (resp.code === 200) { showToast('账号已删除'); await loadCfAccounts(); } else { showToast(resp.message || '删除失败', 'error'); }
+        }
+        async function handleSetDefaultCfAccount(id) {
+            const resp = await API.cfSetDefaultAccount(id);
+            if (resp.code === 200) { showToast('已设为默认账号'); await loadCfAccounts(); } else { showToast(resp.message || '设置失败', 'error'); }
         }
 
         // ---- 3-Step Wizard ----
@@ -222,7 +239,7 @@ const app = createApp({
             createForm.domains = ''; createForm.base_port = 8081;
             createProgress.show = false; createProgress.results = [];
             selectedThemeIds.value = []; selectedPluginIds.value = []; step2Results.value = [];
-            cfDnsResult.value = null;
+            cfDnsResult.value = null; cfSelectedAccountId.value = '';
             wizardOpen.value = true;
         }
         function closeWizard() { wizardOpen.value = false; loadSites(); loadPanelData(); }
@@ -348,6 +365,7 @@ const app = createApp({
             createForm, createProgress, wpInstallStatuses,
             themes, selectedThemeIds, selectedPluginIds, step2Installing, step2Results,
             cfConnected, cfToken, cfEmail, cfKey, cfAuthMode, cfZones, cfSelectedZone, cfProxied, cfServerIp, cfCreating, cfDnsResult,
+            cfAccounts, cfSelectedAccountId,
             showEditModal, editForm, editingSiteId, globalConfig,
             plugins, uploadProgress, formatSize,
             handleLogin, handleLogout, refreshSites, syncWithPanel,
@@ -356,7 +374,7 @@ const app = createApp({
             openEditModal, submitEdit, confirmDelete, fixSiteWebsite, saveGlobalConfig, exportCSV,
             loadPlugins, handlePluginUpload, handleDeletePlugin, handleTogglePlugin,
             loadThemes, handleThemeUpload, handleDeleteTheme,
-            cfVerify, loadCfZones, cfCreateDns,
+            cfVerify, loadCfZones, cfCreateDns, loadCfAccounts, handleDeleteCfAccount, handleSetDefaultCfAccount,
             showToast, showModal,
         };
     },
@@ -498,6 +516,22 @@ const app = createApp({
                     <div class="bg-white rounded-xl card-shadow p-6">
                         <h3 class="font-semibold text-gray-800 mb-4"><i class="fab fa-cloudflare mr-2 text-orange-500"></i>Cloudflare 配置</h3>
                         <div class="space-y-4">
+                            <!-- Saved accounts list -->
+                            <div v-if="cfAccounts.length" class="bg-gray-50 rounded-lg p-3">
+                                <h4 class="text-sm font-semibold text-gray-700 mb-2">已保存的账号</h4>
+                                <div v-for="acc in cfAccounts" :key="acc.id" class="flex items-center justify-between py-2 border-b border-gray-200 last:border-b-0">
+                                    <div class="flex items-center gap-2">
+                                        <i class="fas fa-cloud text-orange-500"></i>
+                                        <span class="text-sm font-medium">{{ acc.name }}</span>
+                                        <span v-if="acc.is_default" class="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">默认</span>
+                                        <span class="text-xs text-gray-400 pl-2">{{ acc.auth_type === 'global' ? acc.api_email : 'API Token' }}</span>
+                                    </div>
+                                    <div class="flex gap-1">
+                                        <button v-if="!acc.is_default" @click="handleSetDefaultCfAccount(acc.id)" class="text-xs text-gray-400 hover:text-orange-500 px-2 py-1" title="设为默认"><i class="fas fa-star"></i></button>
+                                        <button @click="handleDeleteCfAccount(acc.id)" class="text-xs text-gray-400 hover:text-red-500 px-2 py-1" title="删除"><i class="fas fa-trash"></i></button>
+                                    </div>
+                                </div>
+                            </div>
                             <div class="flex items-center gap-3 mb-2"><span :class="cfConnected ? 'text-green-500' : 'text-red-500'"><i class="fas fa-circle text-xs mr-1"></i>{{ cfConnected ? '已连接' : '未连接' }}</span></div>
                             <div class="flex gap-2 mb-3">
                                 <button @click="cfAuthMode='token'" :class="cfAuthMode==='token' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'" class="px-3 py-1.5 rounded-lg text-sm font-medium">API Token</button>
@@ -505,14 +539,14 @@ const app = createApp({
                             </div>
                             <div v-if="cfAuthMode==='token'">
                                 <label class="block text-sm font-medium text-gray-700 mb-1">API Token</label>
-                                <div class="flex gap-2"><input v-model="cfToken" type="password" placeholder="输入Cloudflare API Token" class="flex-1 px-4 py-2 border rounded-lg focus:border-indigo-500"><button @click="cfVerify" :disabled="loading" class="btn-primary text-white px-4 py-2 rounded-lg"><i class="fas fa-check mr-2"></i>验证</button></div>
+                                <div class="flex gap-2"><input v-model="cfToken" type="password" placeholder="输入Cloudflare API Token" class="flex-1 px-4 py-2 border rounded-lg focus:border-indigo-500"><button @click="cfVerify" :disabled="loading" class="btn-primary text-white px-4 py-2 rounded-lg"><i class="fas fa-check mr-2"></i>验证并保存</button></div>
                                 <p class="text-xs text-gray-500 mt-1">Cloudflare控制台 → My Profile → API Tokens → 创建Token（需Zone:DNS:Edit权限）</p>
                             </div>
                             <div v-if="cfAuthMode==='global'">
                                 <label class="block text-sm font-medium text-gray-700 mb-1">邮箱</label>
                                 <input v-model="cfEmail" type="email" placeholder="Cloudflare账户邮箱" class="w-full px-4 py-2 border rounded-lg focus:border-indigo-500 mb-2">
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Global API Key</label>
-                                <div class="flex gap-2"><input v-model="cfKey" type="password" placeholder="输入Global API Key" class="flex-1 px-4 py-2 border rounded-lg focus:border-indigo-500"><button @click="cfVerify" :disabled="loading" class="btn-primary text-white px-4 py-2 rounded-lg"><i class="fas fa-check mr-2"></i>验证</button></div>
+                                <div class="flex gap-2"><input v-model="cfKey" type="password" placeholder="输入Global API Key" class="flex-1 px-4 py-2 border rounded-lg focus:border-indigo-500"><button @click="cfVerify" :disabled="loading" class="btn-primary text-white px-4 py-2 rounded-lg"><i class="fas fa-check mr-2"></i>验证并保存</button></div>
                                 <p class="text-xs text-gray-500 mt-1">Cloudflare控制台 → My Profile → API Tokens → Global API Key</p>
                             </div>
                         </div>
@@ -586,6 +620,7 @@ const app = createApp({
                     </div>
                     <div v-else class="space-y-4">
                         <div class="bg-green-50 border border-green-200 rounded-lg p-4"><p class="text-green-700 text-sm"><i class="fab fa-cloudflare mr-2"></i>Cloudflare已连接，可以为站点自动创建DNS A记录。</p></div>
+                        <div v-if="cfAccounts.length > 1"><label class="block text-sm font-medium text-gray-700 mb-1">选择Cloudflare账号</label><select v-model="cfSelectedAccountId" @change="loadCfZones" class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"><option value="">默认账号</option><option v-for="acc in cfAccounts" :key="acc.id" :value="acc.id">{{ acc.name }} <span class="text-xs text-gray-400">({{ acc.auth_type === 'global' ? acc.api_email : 'API Token' }})</span></option></select></div>
                         <div><label class="block text-sm font-medium text-gray-700 mb-1">选择域名区域</label><select v-model="cfSelectedZone" class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"><option value="">自动匹配</option><option v-for="z in cfZones" :key="z.id" :value="z.id">{{ z.name }}</option></select><p class="text-xs text-gray-500 mt-1">选择"自动匹配"将根据站点域名自动查找对应区域</p></div>
                         <div><label class="block text-sm font-medium text-gray-700 mb-1">服务器IP（可选）</label><input v-model="cfServerIp" type="text" placeholder="留空则使用1Panel主机IP" class="w-full px-4 py-3 border rounded-lg focus:border-indigo-500"></div>
                         <div class="flex items-center gap-3"><label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" v-model="cfProxied" class="w-4 h-4 text-indigo-600 rounded"><span class="text-sm text-gray-700">启用Cloudflare代理（橙色云朵）</span></label></div>

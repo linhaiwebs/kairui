@@ -16,20 +16,26 @@ from werkzeug.utils import secure_filename
 from config import config
 from models import (
     create_bg_task,
+    create_cf_account,
     create_plugin,
     create_site,
+    delete_cf_account,
     delete_plugin,
     delete_site,
     get_bg_task,
     get_bg_task_by_site,
+    get_cf_account,
     get_db,
+    get_default_cf_account,
     get_enabled_plugins,
     get_global_config,
     get_plugin,
     get_site,
     init_db,
+    list_cf_accounts,
     list_plugins,
     list_sites,
+    set_default_cf_account,
     update_bg_task,
     update_global_config,
     update_site,
@@ -402,9 +408,28 @@ def auto_install_wordpress(container_name, site_url, site_title, admin_user, adm
         return {"success": False, "message": f"Install error: {str(e)[:100]}"}
 
 
-def _get_cf_credentials():
-    """Get Cloudflare credentials from global_config (EAV format).
-    Returns dict with api_token, api_email, api_key (any may be None)."""
+def _get_cf_credentials(account_id=None):
+    """Get Cloudflare credentials. Supports multi-account via account_id.
+
+    If account_id is given, uses that specific account.
+    Otherwise uses the default account.
+    Falls back to old global_config EAV format for backward compatibility.
+    """
+    if account_id:
+        acct = get_cf_account(account_id)
+        if acct:
+            return {"api_token": acct["api_token"] or None,
+                    "api_email": acct["api_email"] or None,
+                    "api_key": acct["api_key"] or None}
+
+    # Try new accounts table first
+    acct = get_default_cf_account()
+    if acct and (acct.get("api_token") or acct.get("api_email")):
+        return {"api_token": acct["api_token"] or None,
+                "api_email": acct["api_email"] or None,
+                "api_key": acct["api_key"] or None}
+
+    # Fallback to old global_config format
     conn = get_db()
     try:
         creds = {}
@@ -416,9 +441,9 @@ def _get_cf_credentials():
     finally:
         conn.close()
 
-def _get_cf_token():
-    """Get Cloudflare API token from global_config (EAV format)."""
-    return _get_cf_credentials().get("api_token")
+def _get_cf_token(account_id=None):
+    """Get Cloudflare API token."""
+    return _get_cf_credentials(account_id).get("api_token")
 
 def _get_config_value(key, default=None):
     """Get a config value from global_config (EAV format)."""
@@ -1917,10 +1942,10 @@ def register_routes(app):
             return jsonify({"code": 500, "message": f"安装插件失败: {str(e)[:100]}"}), 500
 
     # ---- Cloudflare ----
-    def _get_cf_client():
-        """Create a CloudflareClient from stored credentials."""
+    def _get_cf_client(account_id=None):
+        """Create a CloudflareClient from stored credentials (supports multi-account)."""
         from cloudflare_client import CloudflareClient
-        creds = _get_cf_credentials()
+        creds = _get_cf_credentials(account_id)
         return CloudflareClient(
             api_token=creds.get("api_token"),
             api_email=creds.get("api_email"),
@@ -1929,13 +1954,98 @@ def register_routes(app):
 
     def _has_cf_credentials():
         """Check if any Cloudflare credentials are stored."""
+        # Check accounts table first
+        accts = list_cf_accounts(hide_secrets=True)
+        if accts:
+            return True
+        # Fallback to old format
         creds = _get_cf_credentials()
         return bool(creds.get("api_token") or (creds.get("api_email") and creds.get("api_key")))
+
+    # ---- Cloudflare Account Management ----
+
+    @app.route("/api/cloudflare/accounts", methods=["GET"])
+    @jwt_required()
+    def cf_list_accounts():
+        """List all saved Cloudflare accounts (credentials masked)."""
+        try:
+            accounts = list_cf_accounts(hide_secrets=True)
+            return jsonify({"code": 200, "data": accounts})
+        except Exception as e:
+            return jsonify({"code": 500, "message": str(e)[:100]}), 500
+
+    @app.route("/api/cloudflare/accounts", methods=["POST"])
+    @jwt_required()
+    def cf_create_account():
+        """Add a new Cloudflare account after verifying credentials."""
+        try:
+            data = request.get_json(silent=True) or {}
+            api_token = (data.get("api_token") or "").strip()
+            api_email = (data.get("api_email") or "").strip()
+            api_key = (data.get("api_key") or "").strip()
+            name = (data.get("name") or "").strip()
+
+            if not api_token and not (api_email and api_key):
+                return jsonify({"code": 400, "message": "请提供API Token 或 邮箱+Global API Key"}), 400
+
+            from cloudflare_client import CloudflareClient
+            cf = CloudflareClient(api_token=api_token or None, api_email=api_email or None, api_key=api_key or None)
+            resp = cf.verify_token()
+
+            if not resp.get("success"):
+                errors = resp.get("errors", [])
+                err_msg = str(errors)
+                if any("6003" in str(e.get("code", "")) or "6111" in str(e.get("code", "")) for e in errors):
+                    err_msg = "认证格式无效"
+                elif any("1000" in str(e.get("code", "")) for e in errors):
+                    err_msg = "API Token无效"
+                return jsonify({"code": 400, "message": f"验证失败: {err_msg}"}), 400
+
+            # Auto-generate name if empty
+            if not name:
+                if api_token:
+                    name = f"账号-{api_token[:6]}"
+                else:
+                    name = api_email
+
+            auth_type = "token" if api_token else "global"
+            acct = create_cf_account({
+                "name": name,
+                "api_token": api_token,
+                "api_email": api_email,
+                "api_key": api_key,
+                "auth_type": auth_type,
+            })
+
+            return jsonify({"code": 200, "data": acct, "message": "账号已保存"})
+        except Exception as e:
+            logger.error(f"CF create account failed: {e}")
+            return jsonify({"code": 500, "message": str(e)[:100]}), 500
+
+    @app.route("/api/cloudflare/accounts/<int:account_id>", methods=["DELETE"])
+    @jwt_required()
+    def cf_delete_account(account_id):
+        """Delete a Cloudflare account."""
+        try:
+            delete_cf_account(account_id)
+            return jsonify({"code": 200, "message": "账号已删除"})
+        except Exception as e:
+            return jsonify({"code": 500, "message": str(e)[:100]}), 500
+
+    @app.route("/api/cloudflare/accounts/<int:account_id>/default", methods=["PUT"])
+    @jwt_required()
+    def cf_set_default_account(account_id):
+        """Set a Cloudflare account as the default."""
+        try:
+            set_default_cf_account(account_id)
+            return jsonify({"code": 200, "message": "已设为默认账号"})
+        except Exception as e:
+            return jsonify({"code": 500, "message": str(e)[:100]}), 500
 
     @app.route("/api/cloudflare/verify", methods=["POST"])
     @jwt_required()
     def cf_verify_token():
-        """Verify Cloudflare credentials (API Token or Global API Key)."""
+        """Verify Cloudflare credentials and save as account."""
         try:
             data = request.get_json(silent=True) or {}
             api_token = (data.get("api_token") or "").strip()
@@ -1950,10 +2060,23 @@ def register_routes(app):
             resp = cf.verify_token()
 
             if resp.get("success"):
-                # Save whichever credentials were provided
+                # Save to old global_config for backward compatibility
                 _set_config_value("cf_api_token", api_token)
                 _set_config_value("cf_api_email", api_email)
                 _set_config_value("cf_api_key", api_key)
+
+                # Also save as account (deduplicate by token/email)
+                auth_type = "token" if api_token else "global"
+                name = data.get("name", "").strip()
+                if not name:
+                    name = f"账号-{api_token[:6]}" if api_token else api_email
+                create_cf_account({
+                    "name": name,
+                    "api_token": api_token,
+                    "api_email": api_email,
+                    "api_key": api_key,
+                    "auth_type": auth_type,
+                })
                 return jsonify({"code": 200, "data": resp.get("result", {})})
 
             # Parse error for user-friendly message
@@ -1971,11 +2094,12 @@ def register_routes(app):
     @app.route("/api/cloudflare/zones", methods=["GET"])
     @jwt_required()
     def cf_list_zones():
-        """List Cloudflare zones."""
+        """List Cloudflare zones. Query: ?account_id=<id> to use specific account."""
         try:
             if not _has_cf_credentials():
                 return jsonify({"code": 400, "message": "请先授权Cloudflare账户"}), 400
-            cf = _get_cf_client()
+            account_id = request.args.get("account_id", type=int)
+            cf = _get_cf_client(account_id)
             resp = cf.list_zones()
             if resp.get("success"):
                 return jsonify({"code": 200, "data": resp.get("result", [])})
@@ -1986,11 +2110,12 @@ def register_routes(app):
     @app.route("/api/cloudflare/dns-records/<zone_id>", methods=["GET"])
     @jwt_required()
     def cf_list_dns(zone_id):
-        """List DNS records for a zone."""
+        """List DNS records for a zone. Query: ?account_id=<id> to use specific account."""
         try:
             if not _has_cf_credentials():
                 return jsonify({"code": 400, "message": "请先授权Cloudflare账户"}), 400
-            cf = _get_cf_client()
+            account_id = request.args.get("account_id", type=int)
+            cf = _get_cf_client(account_id)
             resp = cf.list_dns_records(zone_id)
             if resp.get("success"):
                 return jsonify({"code": 200, "data": resp.get("result", [])})
@@ -2001,7 +2126,7 @@ def register_routes(app):
     @app.route("/api/sites/<int:site_id>/dns", methods=["POST"])
     @jwt_required()
     def cf_create_dns(site_id):
-        """Create a DNS A record for a site via Cloudflare."""
+        """Create a DNS A record for a site via Cloudflare. Body: zone_id, proxied, server_ip, account_id."""
         try:
             site = get_site(site_id)
             if not site:
@@ -2010,13 +2135,14 @@ def register_routes(app):
             data = request.get_json(silent=True) or {}
             zone_id = data.get("zone_id")
             proxied = data.get("proxied", False)
+            account_id = data.get("account_id")
 
             if not _has_cf_credentials():
                 return jsonify({"code": 400, "message": "请先授权Cloudflare账户"}), 400
 
             server_ip = data.get("server_ip") or _get_config_value("panel_server_ip") or config.PANEL_HOST
 
-            cf = _get_cf_client()
+            cf = _get_cf_client(account_id)
 
             domain = site["site_name"]
             if not zone_id:
@@ -2041,11 +2167,12 @@ def register_routes(app):
     @app.route("/api/cloudflare/status", methods=["GET"])
     @jwt_required()
     def cf_status():
-        """Check Cloudflare connection status."""
+        """Check Cloudflare connection status. Query: ?account_id=<id>."""
         try:
             if not _has_cf_credentials():
                 return jsonify({"code": 200, "data": {"connected": False}})
-            cf = _get_cf_client()
+            account_id = request.args.get("account_id", type=int)
+            cf = _get_cf_client(account_id)
             resp = cf.verify_token()
             return jsonify({"code": 200, "data": {"connected": resp.get("success", False)}})
         except Exception:

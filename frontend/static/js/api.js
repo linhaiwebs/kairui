@@ -219,6 +219,23 @@ const API = {
         return this.request('POST', `/api/sites/${siteId}/install-plugins`, { plugin_ids: pluginIds });
     },
 
+    // Cloudflare Accounts
+    async cfListAccounts() {
+        return this.request('GET', '/api/cloudflare/accounts');
+    },
+
+    async cfCreateAccount(data) {
+        return this.request('POST', '/api/cloudflare/accounts', data);
+    },
+
+    async cfDeleteAccount(id) {
+        return this.request('DELETE', `/api/cloudflare/accounts/${id}`);
+    },
+
+    async cfSetDefaultAccount(id) {
+        return this.request('PUT', `/api/cloudflare/accounts/${id}/default`);
+    },
+
     // Cloudflare
     async cfVerifyToken(apiToken) {
         return this.request('POST', '/api/cloudflare/verify', { api_token: apiToken });
@@ -228,19 +245,25 @@ const API = {
         return this.request('POST', '/api/cloudflare/verify', { api_email: email, api_key: key });
     },
 
-    async cfListZones() {
-        return this.request('GET', '/api/cloudflare/zones');
+    async cfListZones(accountId) {
+        let url = '/api/cloudflare/zones';
+        if (accountId) url += `?account_id=${accountId}`;
+        return this.request('GET', url);
     },
 
-    async cfListDnsRecords(zoneId) {
-        return this.request('GET', `/api/cloudflare/dns-records/${zoneId}`);
+    async cfListDnsRecords(zoneId, accountId) {
+        let url = `/api/cloudflare/dns-records/${zoneId}`;
+        if (accountId) url += `?account_id=${accountId}`;
+        return this.request('GET', url);
     },
 
     async cfCreateDns(siteId, data) {
         return this.request('POST', `/api/sites/${siteId}/dns`, data);
     },
 
-    async cfStatus() {
-        return this.request('GET', '/api/cloudflare/status');
+    async cfStatus(accountId) {
+        let url = '/api/cloudflare/status';
+        if (accountId) url += `?account_id=${accountId}`;
+        return this.request('GET', url);
     },
 };

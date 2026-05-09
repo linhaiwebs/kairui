@@ -114,6 +114,20 @@ def init_db():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS cloudflare_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL DEFAULT '',
+            api_token TEXT DEFAULT '',
+            api_email TEXT DEFAULT '',
+            api_key TEXT DEFAULT '',
+            auth_type TEXT DEFAULT 'token',
+            is_default INTEGER DEFAULT 0,
+            created_at TEXT,
+            updated_at TEXT
+        )
+    """)
+
     # Add cf_api_token to global_config defaults
     defaults = {
         "default_admin_name": "admin",
@@ -158,6 +172,72 @@ def _migrate_add_columns(conn):
                 conn.execute(
                     "INSERT INTO global_config (config_key, config_value, updated_at) VALUES (?, ?, ?)",
                     (key, value, datetime.utcnow().isoformat()),
+                )
+    except Exception:
+        pass
+
+    # ---- Cloudflare Accounts migration ----
+    # 1) Create table if missing (for existing DBs)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cloudflare_accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL DEFAULT '',
+                api_token TEXT DEFAULT '',
+                api_email TEXT DEFAULT '',
+                api_key TEXT DEFAULT '',
+                auth_type TEXT DEFAULT 'token',
+                is_default INTEGER DEFAULT 0,
+                created_at TEXT,
+                updated_at TEXT
+            )
+        """)
+    except Exception:
+        pass
+
+    # 2) Add missing columns for older accounts table (e.g. is_default)
+    try:
+        acct_cols = [row[1] for row in conn.execute("PRAGMA table_info(cloudflare_accounts)").fetchall()]
+        if "is_default" not in acct_cols:
+            conn.execute("ALTER TABLE cloudflare_accounts ADD COLUMN is_default INTEGER DEFAULT 0")
+    except Exception:
+        pass
+
+    # 3) Migrate old global_config credentials to cloudflare_accounts
+    try:
+        old_token = conn.execute(
+            "SELECT config_value FROM global_config WHERE config_key = 'cf_api_token'"
+        ).fetchone()
+        old_email = conn.execute(
+            "SELECT config_value FROM global_config WHERE config_key = 'cf_api_email'"
+        ).fetchone()
+        old_key = conn.execute(
+            "SELECT config_value FROM global_config WHERE config_key = 'cf_api_key'"
+        ).fetchone()
+
+        has_old_creds = (
+            (old_token and old_token["config_value"] and old_token["config_value"].strip())
+            or (old_email and old_email["config_value"] and old_email["config_value"].strip())
+            or (old_key and old_key["config_value"] and old_key["config_value"].strip())
+        )
+
+        if has_old_creds:
+            existing = conn.execute("SELECT COUNT(*) as cnt FROM cloudflare_accounts").fetchone()
+            if existing["cnt"] == 0:
+                auth_type = "token" if (old_token and old_token["config_value"] and old_token["config_value"].strip()) else "global"
+                conn.execute(
+                    """INSERT INTO cloudflare_accounts
+                       (name, api_token, api_email, api_key, auth_type, is_default, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, 1, ?, ?)""",
+                    (
+                        "默认账号",
+                        old_token["config_value"].strip() if old_token and old_token["config_value"] else "",
+                        old_email["config_value"].strip() if old_email and old_email["config_value"] else "",
+                        old_key["config_value"].strip() if old_key and old_key["config_value"] else "",
+                        auth_type,
+                        datetime.utcnow().isoformat(),
+                        datetime.utcnow().isoformat(),
+                    ),
                 )
     except Exception:
         pass
@@ -607,5 +687,119 @@ def get_bg_task_by_site(site_id):
             (site_id,),
         ).fetchone()
         return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+# ---- Cloudflare Accounts CRUD ----
+
+def list_cf_accounts(hide_secrets=True):
+    """List all Cloudflare accounts. hide_secrets=True masks sensitive fields."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM cloudflare_accounts ORDER BY is_default DESC, id ASC"
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            if hide_secrets:
+                if d.get("api_token"):
+                    d["api_token"] = d["api_token"][:8] + "..." if len(d["api_token"]) > 8 else "***"
+                if d.get("api_key"):
+                    d["api_key"] = "***"
+            result.append(d)
+        return result
+    finally:
+        conn.close()
+
+
+def get_cf_account(account_id):
+    """Get a single Cloudflare account by ID (with full credentials)."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT * FROM cloudflare_accounts WHERE id = ?", (account_id,)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_default_cf_account():
+    """Get the default Cloudflare account (with full credentials)."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT * FROM cloudflare_accounts WHERE is_default = 1 ORDER BY id ASC LIMIT 1"
+        ).fetchone()
+        if not row:
+            row = conn.execute(
+                "SELECT * FROM cloudflare_accounts ORDER BY id ASC LIMIT 1"
+            ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def create_cf_account(data):
+    """Create a new Cloudflare account."""
+    conn = get_db()
+    now = datetime.utcnow().isoformat()
+    try:
+        # If this is the first account, make it default
+        existing = conn.execute("SELECT COUNT(*) as cnt FROM cloudflare_accounts").fetchone()
+        is_first = existing["cnt"] == 0
+
+        conn.execute(
+            """INSERT INTO cloudflare_accounts
+               (name, api_token, api_email, api_key, auth_type, is_default, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                data.get("name", ""),
+                data.get("api_token", ""),
+                data.get("api_email", ""),
+                data.get("api_key", ""),
+                data.get("auth_type", "token"),
+                1 if (data.get("is_default") or is_first) else 0,
+                now, now,
+            ),
+        )
+
+        # If marked as default, unset others
+        if data.get("is_default") or is_first:
+            new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            conn.execute(
+                "UPDATE cloudflare_accounts SET is_default = 0 WHERE id != ?", (new_id,)
+            )
+
+        conn.commit()
+        new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        return get_cf_account(new_id)
+    finally:
+        conn.close()
+
+
+def delete_cf_account(account_id):
+    """Delete a Cloudflare account."""
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM cloudflare_accounts WHERE id = ?", (account_id,))
+        conn.commit()
+        _compact_ids(conn, "cloudflare_accounts")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_default_cf_account(account_id):
+    """Set a Cloudflare account as the default."""
+    conn = get_db()
+    try:
+        conn.execute("UPDATE cloudflare_accounts SET is_default = 0")
+        conn.execute(
+            "UPDATE cloudflare_accounts SET is_default = 1 WHERE id = ?", (account_id,)
+        )
+        conn.commit()
     finally:
         conn.close()
