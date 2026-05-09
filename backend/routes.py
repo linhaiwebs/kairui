@@ -706,7 +706,7 @@ def register_routes(app):
                 app_type="installed",
                 app_install_id=app_install_id,
                 website_group_id=group_id,
-                enable_ipv6=True,
+                enable_ipv6=False,
             )
             logger.info(f"Fix-website: create_website response: code={result.get('code')}, message={result.get('message','')[:200]}")
 
@@ -721,7 +721,7 @@ def register_routes(app):
                         app_type="installed",
                         app_install_id=app_install_id,
                         website_group_id=group_id,
-                        enable_ipv6=True,
+                        enable_ipv6=False,
                     )
                     if result.get("code") == 200:
                         alias = unique_alias
@@ -923,7 +923,7 @@ def register_routes(app):
                 services=data.get("services"),
                 website_group_id=data.get("webSiteGroupID", 1),
                 remark=data.get("remark", ""),
-                enable_ipv6=data.get("enableIPV6", True),
+                enable_ipv6=data.get("enableIPV6", False),
                 proxy=data.get("proxy", ""),
             ))
         except Exception as e:
@@ -1103,7 +1103,7 @@ def register_routes(app):
                 if not domain:
                     continue
 
-                alias = domain.replace(".", "-")
+                alias = domain
                 site_name = domain
                 port = find_available_port(base_port)
 
@@ -1227,7 +1227,7 @@ def register_routes(app):
                                     app_install_params=install_params,
                                     services={s_db_service: s_db_service},
                                     website_group_id=s_group_id,
-                                    enable_ipv6=True,
+                                    enable_ipv6=False,
                                 )
                                 logger.info(f"Step2: create_website response: code={website_result.get('code')}, message={website_result.get('message','')[:200]}")
                                 if website_result.get("code") == 200:
@@ -1245,7 +1245,7 @@ def register_routes(app):
                                         app_install_params=install_params,
                                         services={s_db_service: s_db_service},
                                         website_group_id=s_group_id,
-                                        enable_ipv6=True,
+                                        enable_ipv6=False,
                                     )
                                     logger.info(f"Step2: Retry alias={unique_alias}: code={website_result.get('code')}")
                                     if website_result.get("code") == 200:
@@ -1344,7 +1344,7 @@ def register_routes(app):
                                         app_type="installed",
                                         app_install_id=app_install_id,
                                         website_group_id=s_group_id,
-                                        enable_ipv6=True,
+                                        enable_ipv6=False,
                                     )
                                     if website_result.get("code") == 200:
                                         break

@@ -227,7 +227,7 @@ class OnePanelClient:
         services=None,
         website_group_id=1,
         remark="",
-        enable_ipv6=True,
+        enable_ipv6=False,
         proxy="",
     ):
         """Create a deployment website in 1Panel (一键部署).
