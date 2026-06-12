@@ -76,6 +76,13 @@ const app = createApp({
         const feedStats = ref(null);
         const feedStatsLoading = ref(false);
 
+        // WooCommerce Sales Stats page
+        const wooStats = ref(null);
+        const wooStatsLoading = ref(false);
+        const wooStatsPeriod = ref('month');
+        const wooStatsDateMin = ref('');
+        const wooStatsDateMax = ref('');
+
         // 筛品 - Walmart tab state
         const walmartCategories = ref([]);  // grouped: [{group, items: [{key, label, url, cached_count}]}]
         const walmartSelectedCategory = ref('');
@@ -647,6 +654,28 @@ pipelineStatuses[siteId].demo_importing = false;
             } finally {
                 feedStatsLoading.value = false;
             }
+        }
+        async function loadWooStats() {
+            wooStatsLoading.value = true;
+            try {
+                const params = { period: wooStatsPeriod.value };
+                if (wooStatsDateMin.value) params.date_min = wooStatsDateMin.value;
+                if (wooStatsDateMax.value) params.date_max = wooStatsDateMax.value;
+                const resp = await API.getWooCommerceStats(params);
+                if (resp.code === 200) {
+                    wooStats.value = resp.data;
+                }
+            } catch (e) {
+                // silent fail
+            } finally {
+                wooStatsLoading.value = false;
+            }
+        }
+        function setWooStatsPeriod(period) {
+            wooStatsPeriod.value = period;
+            wooStatsDateMin.value = '';
+            wooStatsDateMax.value = '';
+            loadWooStats();
         }
 
         // ---- 筛品 Walmart ----
@@ -2456,6 +2485,7 @@ pipelineStatuses[siteId].demo_importing = false;
             createForm, createProgress, wpInstallStatuses,
             feedSiteId, feedProducts, showFeedProductModal, feedEditId, feedEditForm,
             feedMenuOpen, sourceTab, feedStats, feedStatsLoading,
+            wooStats, wooStatsLoading, wooStatsPeriod, wooStatsDateMin, wooStatsDateMax,
             walmartCategories, walmartSelectedCategory, walmartProducts, walmartLoading, walmartError, walmartFetchLimit,
             walmartEnriching, walmartEnrichProgress, generatedFeed,
             walmartPage, walmartPerPage, walmartPagedProducts, walmartTotalPages,
@@ -2515,6 +2545,7 @@ pipelineStatuses[siteId].demo_importing = false;
             loadFeedProducts, openFeedProductModal, closeFeedProductModal, handleSaveFeedProduct,
             handleDeleteFeedProduct, handleImportSampleProducts, handleExportFeed,
             toggleFeedMenu, setSourceTab, loadFeedStats,
+            loadWooStats, setWooStatsPeriod,
             loadWalmartCategories, fetchWalmartBestsellers, loadPersistedWalmartProducts, exportWalmartData,
             enrichWalmartProducts, loadGeneratedFeed, clearGeneratedFeed,
             walmartGoPage,
@@ -2650,6 +2681,7 @@ pipelineStatuses[siteId].demo_importing = false;
                         </a>
                     </div>
                 </div>
+                <a @click="currentPage = 'woo-stats'; loadWooStats()" :class="['flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition', currentPage === 'woo-stats' ? 'bg-white bg-opacity-20' : 'hover:bg-white hover:bg-opacity-10']"><i class="fas fa-chart-bar w-5 text-center"></i><span>数据统计</span></a>
                 <a @click="currentPage = 'brand-kits'; loadBrandKits()" :class="['flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition', (currentPage === 'brand-kits' || currentPage === 'brand-kits-detail') ? 'bg-white bg-opacity-20' : 'hover:bg-white hover:bg-opacity-10']"><i class="fas fa-paint-brush w-5 text-center"></i><span>品牌套件</span><span class="ml-auto bg-indigo-500 text-xs px-2 py-0.5 rounded-full">{{ brandKits.length }}</span></a>
                 <a @click="currentPage = 'mc-automation'" :class="['flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition', currentPage === 'mc-automation' ? 'bg-white bg-opacity-20' : 'hover:bg-white hover:bg-opacity-10']"><i class="fab fa-google w-5 text-center"></i><span>Google MC</span></a>
                 <a v-if="currentUserRole === 'admin'" @click="currentPage = 'users'; loadUsers()" :class="['flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition', currentPage === 'users' ? 'bg-white bg-opacity-20' : 'hover:bg-white hover:bg-opacity-10']"><i class="fas fa-users w-5 text-center"></i><span>用户管理</span></a>
@@ -2661,7 +2693,7 @@ pipelineStatuses[siteId].demo_importing = false;
         <!-- Main Content -->
         <main class="flex-1 overflow-auto">
             <header class="bg-white border-b px-8 py-4 flex items-center justify-between">
-                <div><h1 class="text-xl font-bold text-gray-800">{{ currentPage === 'dashboard' ? '仪表盘' : currentPage === 'sites' ? '站点列表' : currentPage === 'brand-kits' ? '品牌套件' : currentPage === 'brand-kits-detail' ? '品牌套件详情' : currentPage === 'shai-pin-dashboard' ? '筛品 - 数据总览' : currentPage === 'shai-pin-source' ? '筛品 - 商品来源' : currentPage === 'shai-pin-feed' ? '筛品 - Feed生成' : currentPage === 'woocommerce-products' ? '筛品 - WooCommerce产品' : currentPage === 'mc-automation' ? 'Google Merchant Center' : currentPage === 'users' ? '用户管理' : '系统设置' }}</h1><p class="text-sm text-gray-500"><span :class="panelConnected ? 'text-green-500' : 'text-red-500'"><i class="fas fa-circle text-xs mr-1"></i>{{ panelConnected ? '1Panel 已连接' : '1Panel 未连接' }}</span></p></div>
+                <div><h1 class="text-xl font-bold text-gray-800">{{ currentPage === 'dashboard' ? '仪表盘' : currentPage === 'sites' ? '站点列表' : currentPage === 'brand-kits' ? '品牌套件' : currentPage === 'brand-kits-detail' ? '品牌套件详情' : currentPage === 'shai-pin-dashboard' ? '筛品 - 数据总览' : currentPage === 'shai-pin-source' ? '筛品 - 商品来源' : currentPage === 'shai-pin-feed' ? '筛品 - Feed生成' : currentPage === 'woocommerce-products' ? '筛品 - WooCommerce产品' : currentPage === 'woo-stats' ? '数据统计' : currentPage === 'mc-automation' ? 'Google Merchant Center' : currentPage === 'users' ? '用户管理' : '系统设置' }}</h1><p class="text-sm text-gray-500"><span :class="panelConnected ? 'text-green-500' : 'text-red-500'"><i class="fas fa-circle text-xs mr-1"></i>{{ panelConnected ? '1Panel 已连接' : '1Panel 未连接' }}</span></p></div>
                 <button @click="syncWithPanel" class="px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition text-sm" title="从1Panel同步数据"><i class="fas fa-exchange-alt mr-2"></i>同步1Panel</button>
                 <button @click="refreshSites" class="px-4 py-2 border rounded-lg hover:bg-gray-50 transition text-sm"><i class="fas fa-sync-alt mr-2" :class="{'fa-spin': loading}"></i>刷新</button>
             </header>
@@ -2679,6 +2711,96 @@ pipelineStatuses[siteId].demo_importing = false;
                         <button @click="openWizard('batch')" class="p-4 border-2 border-dashed border-purple-200 rounded-xl hover:border-purple-400 hover:bg-purple-50 transition text-center"><i class="fas fa-layer-group text-2xl text-purple-500 mb-2"></i><p class="text-sm font-medium text-gray-700">批量创建站点</p></button>
                         <button @click="exportCSV" class="p-4 border-2 border-dashed border-green-200 rounded-xl hover:border-green-400 hover:bg-green-50 transition text-center"><i class="fas fa-file-csv text-2xl text-green-500 mb-2"></i><p class="text-sm font-medium text-gray-700">导出CSV</p></button>
                     </div>
+                </div>
+            </div>
+
+            <!-- WooCommerce Stats -->
+            <div v-if="currentPage === 'woo-stats'" class="p-8 fade-in">
+                <div v-if="wooStatsLoading" class="flex items-center justify-center py-20">
+                    <i class="fas fa-spinner fa-spin text-3xl text-indigo-500"></i>
+                    <span class="ml-3 text-gray-500">加载销售数据中...</span>
+                </div>
+                <div v-else-if="wooStats">
+                    <!-- Period filter -->
+                    <div class="flex items-center gap-2 mb-6">
+                        <span class="text-sm text-gray-500 mr-2">时间范围:</span>
+                        <button v-for="p in [{k:'today',l:'今日'},{k:'7day',l:'7天'},{k:'30day',l:'30天'},{k:'month',l:'本月'}]" :key="p.k"
+                                @click="setWooStatsPeriod(p.k)"
+                                :class="['px-3 py-1.5 rounded-lg text-sm transition', wooStatsPeriod === p.k ? 'bg-indigo-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
+                            {{ p.l }}
+                        </button>
+                    </div>
+                    <!-- Summary cards -->
+                    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+                        <div class="bg-white rounded-xl p-5 card-shadow">
+                            <p class="text-sm text-gray-500">总销售额</p>
+                            <p class="text-2xl font-bold text-gray-800 mt-1">${{ wooStats.summary.total_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</p>
+                        </div>
+                        <div class="bg-white rounded-xl p-5 card-shadow">
+                            <p class="text-sm text-gray-500">净销售额</p>
+                            <p class="text-2xl font-bold text-green-700 mt-1">${{ wooStats.summary.net_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</p>
+                        </div>
+                        <div class="bg-white rounded-xl p-5 card-shadow">
+                            <p class="text-sm text-gray-500">总订单数</p>
+                            <p class="text-2xl font-bold text-blue-700 mt-1">{{ wooStats.summary.total_orders.toLocaleString() }}</p>
+                        </div>
+                        <div class="bg-white rounded-xl p-5 card-shadow">
+                            <p class="text-sm text-gray-500">平均客单价</p>
+                            <p class="text-2xl font-bold text-purple-700 mt-1">${{ wooStats.summary.average_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</p>
+                        </div>
+                        <div class="bg-white rounded-xl p-5 card-shadow">
+                            <p class="text-sm text-gray-500">活跃站点</p>
+                            <p class="text-2xl font-bold text-indigo-700 mt-1">{{ wooStats.summary.active_sites }}<span class="text-sm text-gray-400 font-normal"> / {{ wooStats.summary.total_sites }}</span></p>
+                        </div>
+                    </div>
+                    <!-- Per-site table -->
+                    <div class="bg-white rounded-xl card-shadow overflow-hidden">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50 text-gray-600">
+                                <tr>
+                                    <th class="text-left px-4 py-3 font-medium">站点</th>
+                                    <th class="text-right px-4 py-3 font-medium">销售额</th>
+                                    <th class="text-right px-4 py-3 font-medium">净销售额</th>
+                                    <th class="text-right px-4 py-3 font-medium">订单数</th>
+                                    <th class="text-right px-4 py-3 font-medium">平均客单价</th>
+                                    <th class="text-center px-4 py-3 font-medium">状态</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                <tr v-for="s in wooStats.sites" :key="s.id" class="hover:bg-gray-50">
+                                    <td class="px-4 py-3">
+                                        <div class="font-medium text-gray-800">{{ s.site_name }}</div>
+                                        <div class="text-xs text-gray-400">{{ s.url }}</div>
+                                    </td>
+                                    <td class="text-right px-4 py-3 text-gray-700">${{ s.total_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</td>
+                                    <td class="text-right px-4 py-3 text-gray-700">${{ s.net_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</td>
+                                    <td class="text-right px-4 py-3 text-gray-700">{{ s.total_orders.toLocaleString() }}</td>
+                                    <td class="text-right px-4 py-3 text-gray-700">${{ s.average_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</td>
+                                    <td class="text-center px-4 py-3">
+                                        <span v-if="s.status === 'ok'" class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">正常</span>
+                                        <span v-else-if="s.status === 'no_woocommerce'" class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">无WooCommerce</span>
+                                        <span v-else-if="s.status === 'no_data'" class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">无数据</span>
+                                        <span v-else class="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">无法连接</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                            <tfoot v-if="wooStats.summary.active_sites > 0" class="bg-indigo-50 font-medium">
+                                <tr>
+                                    <td class="px-4 py-3 text-indigo-700">汇总</td>
+                                    <td class="text-right px-4 py-3 text-indigo-700">${{ wooStats.summary.total_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</td>
+                                    <td class="text-right px-4 py-3 text-indigo-700">${{ wooStats.summary.net_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</td>
+                                    <td class="text-right px-4 py-3 text-indigo-700">{{ wooStats.summary.total_orders.toLocaleString() }}</td>
+                                    <td class="text-right px-4 py-3 text-indigo-700">${{ wooStats.summary.average_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</td>
+                                    <td class="text-center px-4 py-3 text-indigo-700">{{ wooStats.summary.active_sites }} 个站点</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+                <div v-else class="bg-white rounded-xl card-shadow p-12 text-center text-gray-400">
+                    <i class="fas fa-chart-bar text-5xl mb-4"></i>
+                    <p class="text-lg font-medium text-gray-500 mb-2">暂无销售数据</p>
+                    <p>请先创建站点并安装 WooCommerce</p>
                 </div>
             </div>
 

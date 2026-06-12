@@ -7963,6 +7963,88 @@ Respond with strict JSON only (no markdown code blocks):
             logger.error(f"Feed stats failed: {e}")
             return jsonify({"code": 500, "message": f"获取统计失败: {str(e)[:100]}"}), 500
 
+    # ---- WooCommerce Sales Stats ----
+
+    @app.route("/api/stats/woocommerce", methods=["GET"])
+    @jwt_required()
+    def wc_stats_route():
+        """Aggregate WooCommerce sales data across all visible sites."""
+        period = request.args.get("period", "month")
+        date_min = request.args.get("date_min", None)
+        date_max = request.args.get("date_max", None)
+
+        user_id = get_current_user_id()
+        user = get_user_by_id(user_id)
+        if user and user.get("role") == "admin":
+            sites = list_sites()
+        else:
+            sites = list_sites(user_id=user_id)
+
+        summary = {
+            "total_sales": 0.0, "net_sales": 0.0, "total_orders": 0,
+            "average_sales": 0.0, "total_items": 0,
+            "active_sites": 0, "total_sites": len(sites),
+        }
+        site_results = []
+
+        for site in sites:
+            sid = site["id"]
+            site_entry = {
+                "id": sid, "site_name": site["site_name"], "url": site["url"],
+                "total_sales": 0.0, "net_sales": 0.0, "total_orders": 0,
+                "average_sales": 0.0, "status": "ok",
+            }
+            try:
+                wp = WordPressAdminSession(
+                    site_url=site["url"] or f"http://{site['site_name']}",
+                    username=site.get("admin_name", "admin"),
+                    password=site.get("admin_password", ""),
+                )
+                if not wp.login():
+                    site_entry["status"] = "unreachable"
+                    site_results.append(site_entry)
+                    continue
+
+                if not wp.is_woocommerce_active():
+                    site_entry["status"] = "no_woocommerce"
+                    site_results.append(site_entry)
+                    continue
+
+                report = wp.get_wc_sales_report(period=period, date_min=date_min, date_max=date_max)
+                if not report:
+                    site_entry["status"] = "no_data"
+                    site_results.append(site_entry)
+                    continue
+
+                site_entry["total_sales"] = float(report.get("total_sales", 0) or 0)
+                site_entry["net_sales"] = float(report.get("net_sales", 0) or 0)
+                site_entry["total_orders"] = int(report.get("total_orders", 0) or 0)
+                site_entry["average_sales"] = float(report.get("average_sales", 0) or 0)
+
+                site_results.append(site_entry)
+
+                summary["total_sales"] += site_entry["total_sales"]
+                summary["net_sales"] += site_entry["net_sales"]
+                summary["total_orders"] += site_entry["total_orders"]
+                summary["total_items"] += int(report.get("total_items", 0) or 0)
+                summary["active_sites"] += 1
+
+            except Exception as e:
+                logger.warning("WC stats for site %s failed: %s", site.get("site_name"), e)
+                site_entry["status"] = "unreachable"
+                site_results.append(site_entry)
+
+        if summary["active_sites"] > 0:
+            summary["average_sales"] = round(
+                summary["net_sales"] / summary["active_sites"], 2
+            )
+
+        return jsonify({"code": 200, "data": {
+            "period": period,
+            "summary": summary,
+            "sites": site_results,
+        }})
+
     # ---- Feed Products (Google Merchant Center) ----
 
     @app.route("/api/sites/<int:site_id>/feed-products", methods=["GET"])

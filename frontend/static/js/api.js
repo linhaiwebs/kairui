@@ -319,6 +319,12 @@ const API = {
         return this.request('GET', '/api/feed/stats');
     },
 
+    // WooCommerce Sales Statistics
+    async getWooCommerceStats(params = {}) {
+        const qs = new URLSearchParams(params).toString();
+        return this.request('GET', `/api/stats/woocommerce?${qs}`);
+    },
+
     // 筛品 - Walmart Bestsellers (Crawlbase)
     async getWalmartCategories() {
         return this.request('GET', '/api/shai-pin/walmart/categories');

@@ -625,6 +625,60 @@ class WordPressAdminSession:
             logger.warning("WC API auth check error: %s", e)
         return False
 
+    def get_wc_sales_report(self, period="month", date_min=None, date_max=None):
+        """Fetch WooCommerce sales report via REST API.
+
+        Returns the first item of the reports/sales array, or None on failure.
+        """
+        if not self._logged_in and not self.login():
+            return None
+        try:
+            nonce = self._get_rest_nonce()
+            headers = {"X-WP-Nonce": nonce} if nonce else {}
+            params = {"period": period}
+            if date_min:
+                params["date_min"] = date_min
+            if date_max:
+                params["date_max"] = date_max
+            r = self.session.get(
+                f"{self.site_url}/wp-json/wc/v3/reports/sales",
+                headers=headers,
+                params=params,
+                timeout=30,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                if isinstance(data, list) and len(data) > 0:
+                    return data[0]
+            logger.warning("WC sales report failed: status=%s", r.status_code)
+            return None
+        except Exception as e:
+            logger.warning("get_wc_sales_report error: %s", e)
+            return None
+
+    def get_wc_orders_totals(self):
+        """Fetch WooCommerce orders totals grouped by status.
+
+        Returns a list of {slug, name, total} dicts, or None on failure.
+        """
+        if not self._logged_in and not self.login():
+            return None
+        try:
+            nonce = self._get_rest_nonce()
+            headers = {"X-WP-Nonce": nonce} if nonce else {}
+            r = self.session.get(
+                f"{self.site_url}/wp-json/wc/v3/reports/orders/totals",
+                headers=headers,
+                timeout=30,
+            )
+            if r.status_code == 200:
+                return r.json()
+            logger.warning("WC orders totals failed: status=%s", r.status_code)
+            return None
+        except Exception as e:
+            logger.warning("get_wc_orders_totals error: %s", e)
+            return None
+
     def get_woocommerce_settings(self, group: str = "general") -> list:
         """Get WooCommerce settings for *group*: general/products/tax/shipping/payments etc."""
         if not self._logged_in and not self.login():
