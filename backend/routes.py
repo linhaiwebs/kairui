@@ -6721,6 +6721,10 @@ Respond with strict JSON only (no markdown code blocks):
                             break
 
                 if top:
+                    # Skip products without any price data
+                    if not top.get("price") and not top.get("original_price"):
+                        logger.info(f"[AmazonSearch] [{idx+1}/{total_names}] Skipped (no price): '{top.get('product_name','')[:60]}'")
+                        return []
                     logger.info(f"[AmazonSearch] [{idx+1}/{total_names}] Picked top result: '{top.get('product_name','')[:60]}'")
                     return [top]
                 return []
@@ -6839,6 +6843,9 @@ Respond with strict JSON only (no markdown code blocks):
                 detail = _fetch_amazon_product_detail(crawlbase_keys, url)
                 # Build product dict compatible with search results format
                 extra = detail.get("extra_data") or {}
+                price_str = detail.get("price") or extra.get("originalPrice") or ""
+                if not price_str:
+                    return {"ok": False, "idx": idx, "error": "no_price"}
                 product = {
                     "product_name": detail.get("title", ""),
                     "price": detail.get("price", ""),
