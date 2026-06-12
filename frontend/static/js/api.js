@@ -18,7 +18,7 @@ const API = {
         try {
             const resp = await fetch(url, opts);
             
-            if (resp.status === 401) {
+            if (resp.status === 401 && !url.includes('/auth/login')) {
                 this.logout();
                 throw new Error('登录已过期，请重新登录');
             }
