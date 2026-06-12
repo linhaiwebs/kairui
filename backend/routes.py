@@ -7092,6 +7092,10 @@ Respond with strict JSON only (no markdown code blocks):
                 except ValueError:
                     regular_price = price_str
 
+                # Early rejection: skip products without title
+                if not name:
+                    return {"ok": False, "idx": idx, "title": "(no title)", "error": "no_title"}
+
                 description = detail.get("description", "")
                 features = detail.get("features") or []
                 if features:
@@ -7116,8 +7120,14 @@ Respond with strict JSON only (no markdown code blocks):
                 attributes = []
                 variations_list = []
 
-                if variants_raw and len(variants_raw) > 1:
-                    product_type = "variable"
+                # Determine if this is a variable product: multiple variants, or single variant with attributes
+                if variants_raw:
+                    has_attrs = any(
+                        isinstance(v, dict) and v.get("attributes")
+                        for v in variants_raw
+                    )
+                    if len(variants_raw) > 1 or (len(variants_raw) == 1 and has_attrs):
+                        product_type = "variable"
                     # Collect all attribute names across variants
                     attr_names = set()
                     for v in variants_raw:
@@ -7158,7 +7168,10 @@ Respond with strict JSON only (no markdown code blocks):
                     # Build variation list
                     for v in variants_raw:
                         v_attrs = v.get("attributes") if isinstance(v, dict) else {}
-                        v_price = (v.get("price") or v.get("salePrice") or "").replace("$", "").replace(",", "").strip()
+                        v_price = (
+                            v.get("price") or v.get("salePrice") or v.get("rawPrice")
+                            or v.get("currentPrice") or ""
+                        ).replace("$", "").replace(",", "").strip()
                         v_sku = str(v.get("asin") or v.get("id") or v.get("sku") or "").strip()
                         v_image = v.get("image") or v.get("thumbnail") or ""
                         v_avail = (v.get("availability") or "").lower()
@@ -7194,6 +7207,20 @@ Respond with strict JSON only (no markdown code blocks):
                     extra["product_type"] = "variable"
                     extra["attributes"] = attributes
                     extra["variations"] = variations_list
+
+                # Price validation: simple products must have a price; variable products need at least one priced variant
+                if product_type == "simple" and not regular_price:
+                    return {"ok": False, "idx": idx, "title": name[:60], "error": "no_price"}
+                if product_type == "variable" and variations_list:
+                    priced_count = sum(1 for v in variations_list if v.get("regular_price"))
+                    if priced_count == 0:
+                        # All variants lack prices — try to inherit parent price for each variant
+                        if regular_price:
+                            for v in variations_list:
+                                if not v.get("regular_price"):
+                                    v["regular_price"] = regular_price
+                        else:
+                            return {"ok": False, "idx": idx, "title": name[:60], "error": "no_variant_prices"}
 
                 wc = {
                     "name": name,
@@ -7703,7 +7730,10 @@ Respond with strict JSON only (no markdown code blocks):
 
         # Extract all available fields from Amazon autoparse
         title = body.get("title") or body.get("name") or body.get("productName") or ""
-        price = body.get("price") or body.get("salePrice") or body.get("currentPrice") or ""
+        price = (
+            body.get("price") or body.get("salePrice") or body.get("currentPrice")
+            or body.get("rawPrice") or body.get("minPrice") or body.get("buyingPrice") or ""
+        )
         currency = body.get("currency") or body.get("priceCurrency") or "USD"
         brand = body.get("brand") or body.get("manufacturer") or body.get("vendor") or ""
         item_id = (
@@ -7771,7 +7801,10 @@ Respond with strict JSON only (no markdown code blocks):
         coupon_text = body.get("couponText") or body.get("coupon") or ""
         dimensions = body.get("dimensions") or body.get("productDimensions") or ""
         weight = body.get("weight") or body.get("itemWeight") or ""
-        variants = body.get("variants") or body.get("variations") or []
+        variants = (
+            body.get("variants") or body.get("variations")
+            or body.get("asinVariationValues") or []
+        )
         estimated_sales = body.get("estimatedSales") or body.get("monthlySales") or ""
 
         # Pack all supplementary fields into extra_data dict
@@ -7844,7 +7877,10 @@ Respond with strict JSON only (no markdown code blocks):
             title = item.get("title") or item.get("name") or item.get("productName") or ""
             if not title:
                 continue
-            price = item.get("price") or item.get("salePrice") or item.get("currentPrice") or ""
+            price = (
+                item.get("price") or item.get("salePrice") or item.get("currentPrice")
+                or item.get("rawPrice") or item.get("minPrice") or item.get("buyingPrice") or ""
+            )
 
             # Debug: log all keys that could be the product URL
             raw_link = item.get("link")
