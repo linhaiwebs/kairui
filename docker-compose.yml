@@ -20,7 +20,7 @@ services:
       - wp-db:/app/backend/data
       - wp-plugins:/app/backend/plugins
       - wp-themes:/app/backend/themes
-      - /run/host-services/docker.proxy.sock:/var/run/docker.sock
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8011/ || exit 1"]
