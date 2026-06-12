@@ -1,0 +1,29 @@
+# WordPress Site Manager - Python Dependencies
+# Environment
+python-dotenv>=1.0,<2.0
+
+# Flask core
+Flask>=3.0,<4.0
+flask-cors>=4.0,<7.0
+Flask-JWT-Extended>=4.6,<5.0
+
+# HTTP client for 1Panel API
+requests>=2.31,<3.0
+
+# Production WSGI server
+gunicorn>=21.2,<24.0
+gevent>=23.9,<25.0
+
+# Data export (Walmart/Amazon/TikTok product feeds)
+pandas>=2.0,<3.0
+openpyxl>=3.1,<4.0
+
+# Anti-detect browser automation (GMC auto-registration)
+cloakbrowser>=0.3
+
+# TOTP 2FA (Google account login automation)
+pyotp>=2.9,<3.0
+
+# WebSocket proxy for noVNC (VNC → WebSocket bridge)
+websockify>=0.12,<1.0
+

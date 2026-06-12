@@ -1,0 +1,182 @@
+/* Additional custom styles for WordPress Site Manager */
+
+/* Smooth transitions for all interactive elements */
+a, button, input, select, textarea {
+    transition: all 0.2s ease;
+}
+
+/* Better focus states */
+input:focus, select:focus, textarea:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+/* Table improvements */
+table {
+    border-collapse: collapse;
+}
+
+.table-row {
+    transition: background-color 0.15s ease;
+}
+
+/* Responsive sidebar */
+@media (max-width: 768px) {
+    .sidebar-gradient {
+        width: 4rem;
+    }
+    .sidebar-gradient span,
+    .sidebar-gradient h2,
+    .sidebar-gradient p {
+        display: none;
+    }
+}
+
+/* Loading overlay */
+.loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+/* Scrollable modals */
+.modal-scroll {
+    max-height: 85vh;
+    overflow-y: auto;
+}
+
+/* Badge variants */
+.badge-success {
+    background-color: #dcfce7;
+    color: #166534;
+}
+
+.badge-error {
+    background-color: #fee2e2;
+    color: #991b1b;
+}
+
+.badge-warning {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+.badge-info {
+    background-color: #dbeafe;
+    color: #1e40af;
+}
+
+/* SVG preview for brand kit logos */
+.svg-preview {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.svg-preview svg {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+}
+
+/* Print styles for CSV export preview */
+@media print {
+    .no-print {
+        display: none !important;
+    }
+}
+
+/* Orange color utilities — missing from purged Tailwind build */
+.bg-orange-100 { background-color: #ffedd5; }
+.bg-orange-200 { background-color: #fed7aa; }
+.bg-orange-500 { background-color: #f97316; }
+.hover\:bg-orange-600:hover { background-color: #ea580c; }
+.text-orange-500 { color: #f97316; }
+.text-orange-600 { color: #ea580c; }
+.text-orange-700 { color: #c2410c; }
+.border-orange-200 { border-color: #fed7aa; }
+.border-orange-300 { border-color: #fdba74; }
+.focus\:border-orange-500:focus { border-color: #f97316; }
+
+/* Timeline connector animation */
+@keyframes dash-flow {
+    0% { background-position: 0 0; }
+    100% { background-position: 16px 0; }
+}
+.timeline-line {
+    width: 40px;
+    height: 3px;
+    min-width: 16px;
+    border-radius: 2px;
+    transition: all 0.4s ease;
+}
+.timeline-line.inactive { background: #e5e7eb; }
+.timeline-line.connecting {
+    background: repeating-linear-gradient(90deg, #818cf8 0px, #818cf8 5px, transparent 5px, transparent 10px);
+    background-size: 16px 100%;
+    animation: dash-flow 0.6s linear infinite;
+}
+.timeline-line.done { background: #34d399; }
+
+/* Timeline icon circles */
+.timeline-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+    transition: all 0.3s ease;
+}
+.timeline-icon.inactive {
+    background: #f3f4f6;
+    color: #9ca3af;
+    border: 2px solid #e5e7eb;
+}
+.timeline-icon.active {
+    background: #d1fae5;
+    color: #059669;
+    border: 2px solid #34d399;
+}
+.timeline-icon.in-progress {
+    background: #dbeafe;
+    color: #2563eb;
+    border: 2px solid #60a5fa;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+.timeline-icon.clickable { cursor: pointer; }
+.timeline-icon:not(.clickable) { pointer-events: none; }
+.timeline-icon.clickable:hover {
+    transform: scale(1.1);
+    box-shadow: 0 0 8px rgba(99, 102, 241, 0.4);
+}
+
+/* Site info tooltip */
+.site-tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    margin-bottom: 6px;
+    background: #1f2937;
+    color: #fff;
+    font-size: 12px;
+    border-radius: 8px;
+    padding: 10px 14px;
+    min-width: 240px;
+    z-index: 50;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+    pointer-events: none;
+}
+.site-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 12px;
+    border: 6px solid transparent;
+    border-top-color: #1f2937;
+}

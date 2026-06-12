@@ -1,0 +1,10 @@
+__pycache__
+*.pyc
+.git
+*.db
+backend/browsers/
+backend/data/
+backend/plugins/
+backend/themes/
+backend/brand-kits/
+logs/

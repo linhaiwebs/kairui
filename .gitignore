@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+backend/browsers/
+backend/data/
+backend/plugins/
+backend/themes/
+backend/brand-kits/
+logs/
+*.db
+*.log
+venv/
+node_modules/

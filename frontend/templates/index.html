@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WordPress 站点管理</title>
+    <link href="/vendor/tailwind.min.css" rel="stylesheet">
+    <link href="/vendor/fontawesome/all.min.css" rel="stylesheet">
+    <link href="/css/app.css?v=4" rel="stylesheet">
+    <style>
+        * { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .slide-in { animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
+        .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .btn-primary:hover { background: linear-gradient(135deg, #5a6fd6 0%, #6a4192 100%); }
+        .btn-danger { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        .btn-accent { background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); }
+        .btn-accent:hover { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); }
+        .sidebar-gradient { background: linear-gradient(180deg, #1e1b4b 0%, #312e81 50%, #3730a3 100%); }
+        .login-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .card-shadow { box-shadow: 0 4px 6px -1px rgba(0,0,0,.1), 0 2px 4px -2px rgba(0,0,0,.1); }
+        .table-row:hover { background-color: #f8fafc; }
+        .badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 9999px; }
+        .toast { position: fixed; top: 20px; right: 20px; z-index: 9999; min-width: 300px; }
+        .modal-overlay { background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); }
+        input:focus, select:focus, textarea:focus { outline: none; ring: 2px; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,0.3); }
+        .status-running { color: #10b981; }
+        .status-stopped { color: #ef4444; }
+        .status-creating { color: #f59e0b; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 3px; }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="app"></div>
+
+    <script src="/vendor/vue.global.prod.js"></script>
+    <script src="/js/api.js?v=40"></script>
+    <script src="/js/app.js?v=146"></script>
+</body>
+</html>

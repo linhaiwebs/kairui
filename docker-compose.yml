@@ -1,0 +1,36 @@
+services:
+  wp-manager:
+    image: kairui-wp-manager:latest
+    container_name: wp-site-manager
+    ports:
+      - "8011:8011"
+      - "5900:5900"
+      - "6080:6080"
+    environment:
+      - WPCOM_CLIENT_ID=${WPCOM_CLIENT_ID:-}
+      - WPCOM_CLIENT_SECRET=${WPCOM_CLIENT_SECRET:-}
+      - CRAWLBASE_TOKEN=${CRAWLBASE_TOKEN:-}
+      - PLAYWRIGHT_BROWSERS_PATH=/app/backend/browsers
+      - WP_PORT=8011
+    volumes:
+      - wp-brand-kits:/app/backend/brand-kits
+      - wp-browsers:/app/backend/browsers
+      - wp-logs:/app/logs
+      - wp-db:/app/backend/data
+      - wp-plugins:/app/backend/plugins
+      - wp-themes:/app/backend/themes
+      - /run/host-services/docker.proxy.sock:/var/run/docker.sock
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8011/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  wp-brand-kits:
+  wp-browsers:
+  wp-logs:
+  wp-db:
+  wp-plugins:
+  wp-themes:
