@@ -677,6 +677,14 @@ pipelineStatuses[siteId].demo_importing = false;
             wooStatsDateMax.value = '';
             loadWooStats();
         }
+        function formatMoney(val) {
+            const n = Number(val) || 0;
+            return n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+        }
+        function formatInt(val) {
+            const n = Number(val) || 0;
+            return n.toLocaleString('en-US', {maximumFractionDigits:0});
+        }
 
         // ---- 筛品 Walmart ----
         async function loadWalmartCategories() {
@@ -2545,7 +2553,7 @@ pipelineStatuses[siteId].demo_importing = false;
             loadFeedProducts, openFeedProductModal, closeFeedProductModal, handleSaveFeedProduct,
             handleDeleteFeedProduct, handleImportSampleProducts, handleExportFeed,
             toggleFeedMenu, setSourceTab, loadFeedStats,
-            loadWooStats, setWooStatsPeriod,
+            loadWooStats, setWooStatsPeriod, formatMoney, formatInt,
             loadWalmartCategories, fetchWalmartBestsellers, loadPersistedWalmartProducts, exportWalmartData,
             enrichWalmartProducts, loadGeneratedFeed, clearGeneratedFeed,
             walmartGoPage,
@@ -2734,11 +2742,11 @@ pipelineStatuses[siteId].demo_importing = false;
                     <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
                         <div class="bg-white rounded-xl p-5 card-shadow">
                             <p class="text-sm text-gray-500">总销售额</p>
-                            <p class="text-2xl font-bold text-gray-800 mt-1">${{ wooStats.summary.total_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</p>
+                            <p class="text-2xl font-bold text-gray-800 mt-1">${{ wooStats.summary.total_sales.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') }}</p>
                         </div>
                         <div class="bg-white rounded-xl p-5 card-shadow">
                             <p class="text-sm text-gray-500">净销售额</p>
-                            <p class="text-2xl font-bold text-green-700 mt-1">${{ wooStats.summary.net_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</p>
+                            <p class="text-2xl font-bold text-green-700 mt-1">${{ wooStats.summary.net_sales.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') }}</p>
                         </div>
                         <div class="bg-white rounded-xl p-5 card-shadow">
                             <p class="text-sm text-gray-500">总订单数</p>
@@ -2746,7 +2754,7 @@ pipelineStatuses[siteId].demo_importing = false;
                         </div>
                         <div class="bg-white rounded-xl p-5 card-shadow">
                             <p class="text-sm text-gray-500">平均客单价</p>
-                            <p class="text-2xl font-bold text-purple-700 mt-1">${{ wooStats.summary.average_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</p>
+                            <p class="text-2xl font-bold text-purple-700 mt-1">${{ wooStats.summary.average_sales.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') }}</p>
                         </div>
                         <div class="bg-white rounded-xl p-5 card-shadow">
                             <p class="text-sm text-gray-500">活跃站点</p>
@@ -2772,10 +2780,10 @@ pipelineStatuses[siteId].demo_importing = false;
                                         <div class="font-medium text-gray-800">{{ s.site_name }}</div>
                                         <div class="text-xs text-gray-400">{{ s.url }}</div>
                                     </td>
-                                    <td class="text-right px-4 py-3 text-gray-700">${{ s.total_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</td>
-                                    <td class="text-right px-4 py-3 text-gray-700">${{ s.net_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</td>
+                                    <td class="text-right px-4 py-3 text-gray-700">${{ s.total_sales.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') }}</td>
+                                    <td class="text-right px-4 py-3 text-gray-700">${{ s.net_sales.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') }}</td>
                                     <td class="text-right px-4 py-3 text-gray-700">{{ s.total_orders.toLocaleString() }}</td>
-                                    <td class="text-right px-4 py-3 text-gray-700">${{ s.average_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</td>
+                                    <td class="text-right px-4 py-3 text-gray-700">${{ s.average_sales.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') }}</td>
                                     <td class="text-center px-4 py-3">
                                         <span v-if="s.status === 'ok'" class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">正常</span>
                                         <span v-else-if="s.status === 'no_woocommerce'" class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">无WooCommerce</span>
@@ -2787,10 +2795,10 @@ pipelineStatuses[siteId].demo_importing = false;
                             <tfoot v-if="wooStats.summary.active_sites > 0" class="bg-indigo-50 font-medium">
                                 <tr>
                                     <td class="px-4 py-3 text-indigo-700">汇总</td>
-                                    <td class="text-right px-4 py-3 text-indigo-700">${{ wooStats.summary.total_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</td>
-                                    <td class="text-right px-4 py-3 text-indigo-700">${{ wooStats.summary.net_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</td>
+                                    <td class="text-right px-4 py-3 text-indigo-700">${{ wooStats.summary.total_sales.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') }}</td>
+                                    <td class="text-right px-4 py-3 text-indigo-700">${{ wooStats.summary.net_sales.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') }}</td>
                                     <td class="text-right px-4 py-3 text-indigo-700">{{ wooStats.summary.total_orders.toLocaleString() }}</td>
-                                    <td class="text-right px-4 py-3 text-indigo-700">${{ wooStats.summary.average_sales.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2}) }}</td>
+                                    <td class="text-right px-4 py-3 text-indigo-700">${{ wooStats.summary.average_sales.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') }}</td>
                                     <td class="text-center px-4 py-3 text-indigo-700">{{ wooStats.summary.active_sites }} 个站点</td>
                                 </tr>
                             </tfoot>
