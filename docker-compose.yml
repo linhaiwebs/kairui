@@ -1,5 +1,6 @@
 services:
   wp-manager:
+    build: .
     image: kairui-wp-manager:latest
     container_name: wp-site-manager
     ports:
