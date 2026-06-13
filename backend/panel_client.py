@@ -567,13 +567,12 @@ class OnePanelClient:
         }
         resp = self._request("POST", "/websites", body)
         if resp.get("code") == 200:
-            # 1Panel creates site directory at .../sites/{alias} (no trailing /index)
-            # sitePath from search response: /opt/1panel/apps/openresty/openresty/www/sites/maxc.lhwebs.com
-            site_dir = f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}"
+            # 1Panel creates site at sitePath (e.g. .../sites/maxc.lhwebs.com)
+            # but nginx serves from sitePath/index/ — files go in the /index subdirectory
+            site_dir = f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index"
             resp["data"] = {"website_id": None, "site_dir": site_dir, "alias": alias}
 
             # Search by domain (primaryDomain) to get actual website_id and siteDir
-            # 1Panel's /websites/search filters by the "name" field, so we set name=domain above
             for attempt in range(3):
                 _time.sleep(1 if attempt == 0 else 2)
                 ws = self.search_websites(name=domain)
@@ -582,10 +581,10 @@ class OnePanelClient:
                     for w in items:
                         if w.get("primaryDomain") == domain:
                             resp["data"]["website_id"] = w.get("id")
-                            # 1Panel returns sitePath (not siteDir) for static sites
+                            # sitePath is base dir, files go in sitePath/index/
                             actual_dir = w.get("sitePath") or w.get("siteDir") or ""
                             if actual_dir:
-                                resp["data"]["site_dir"] = actual_dir
+                                resp["data"]["site_dir"] = actual_dir + "/index"
                             break
                     if not resp["data"].get("website_id"):
                         import logging

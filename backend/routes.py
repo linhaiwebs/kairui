@@ -3035,7 +3035,7 @@ def register_routes(app):
             # Step 1: Create static website on 1Panel
             site_resp = _get_pc().create_static_website(domain=domain, alias=alias)
             site_data = site_resp.get("data", {}) if site_resp.get("code") == 200 else {}
-            site_dir_1panel = site_data.get("site_dir", f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}")
+            site_dir_1panel = site_data.get("site_dir", f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index")
             logger.info(f"Deploy static site: domain={domain} site_dir_1panel={site_dir_1panel} website_id={site_data.get('website_id')}")
 
             # Step 2: Generate files locally
@@ -3176,7 +3176,7 @@ def register_routes(app):
                     "security_id": security_id,
                     "status": "deploying",
                     "site_type": "static",
-                    "static_dir": f"/www/sites/{alias}",
+                    "static_dir": f"/www/sites/{alias}/index",
                     "brand_kit_id": brand_kit_id,
                     "nginx_alias": alias,
                     "created_by": user_id,
