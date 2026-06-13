@@ -2406,21 +2406,23 @@ def register_routes(app):
 
             nginx_alias = site.get("nginx_alias", "")
 
-            # Static site: delete local files + 1Panel website (if any)
+            # Static site: delete 1Panel website + directory + local files
             if site.get("site_type") == "static":
-                # Delete local site directory
                 domain = site.get("url", "")
-                local_dir = f"/app/backend/static-sites/{domain}"
-                try:
-                    import shutil
-                    if os.path.isdir(local_dir):
-                        shutil.rmtree(local_dir)
-                        logger.info(f"Deleted local static site: {local_dir}")
-                except Exception as e:
-                    logger.warning(f"Failed to delete local dir: {e}")
+                alias = site.get("nginx_alias", domain.replace(".", "-"))
 
-                # Also clean 1Panel website if one was created
+                # Delete 1Panel website (search by domain if panel_website_id is missing)
                 pid = site.get("panel_website_id")
+                if not pid:
+                    try:
+                        ws = _get_panel_client().search_websites(name=domain)
+                        if ws.get("code") == 200:
+                            for w in (ws.get("data") or {}).get("items", []) or []:
+                                if w.get("primaryDomain") == domain:
+                                    pid = w.get("id")
+                                    break
+                    except Exception:
+                        pass
                 if pid:
                     try:
                         _get_panel_client().delete_website(pid, delete_app=False,
@@ -2428,6 +2430,21 @@ def register_routes(app):
                         logger.info(f"Deleted 1Panel website {pid}")
                     except Exception as e:
                         logger.warning(f"Failed to delete 1Panel website: {e}")
+
+                # Delete 1Panel site directory
+                try:
+                    _get_panel_client().delete_file(f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}")
+                except Exception:
+                    pass
+
+                # Delete local temp files
+                local_dir = f"/app/backend/static-sites/{domain}"
+                try:
+                    import shutil
+                    if os.path.isdir(local_dir):
+                        shutil.rmtree(local_dir)
+                except Exception:
+                    pass
 
             # WordPress site (legacy)
             elif site.get("panel_website_id"):
