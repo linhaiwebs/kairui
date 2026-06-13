@@ -334,6 +334,36 @@ def init_db():
         )
     """)
 
+    # Static site products — product data for static e-commerce sites (replaces WooCommerce)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS static_site_products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            site_id INTEGER NOT NULL,
+            title TEXT NOT NULL DEFAULT '',
+            description TEXT DEFAULT '',
+            price REAL DEFAULT 0.0,
+            sale_price REAL DEFAULT NULL,
+            currency TEXT DEFAULT 'USD',
+            image_url TEXT DEFAULT '',
+            additional_images TEXT DEFAULT '[]',
+            category TEXT DEFAULT '',
+            brand TEXT DEFAULT '',
+            sku TEXT DEFAULT '',
+            mpn TEXT DEFAULT '',
+            gtin TEXT DEFAULT '',
+            availability TEXT DEFAULT 'in_stock',
+            condition TEXT DEFAULT 'new',
+            shipping_weight TEXT DEFAULT '',
+            shipping_weight_unit TEXT DEFAULT 'kg',
+            product_url TEXT DEFAULT '',
+            variant_data TEXT DEFAULT '{}',
+            created_at TEXT,
+            updated_at TEXT,
+            FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_static_site_products_sid ON static_site_products(site_id)")
+
     # Brand kits — AI-generated brand kits with logo + assets
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS brand_kits (
@@ -439,6 +469,12 @@ def _migrate_add_columns(conn):
             conn.execute("ALTER TABLE sites ADD COLUMN demo_name TEXT DEFAULT ''")
         if "brand_configured" not in cols:
             conn.execute("ALTER TABLE sites ADD COLUMN brand_configured INTEGER DEFAULT 0")
+        if "site_type" not in cols:
+            conn.execute("ALTER TABLE sites ADD COLUMN site_type TEXT DEFAULT 'wordpress'")
+        if "static_dir" not in cols:
+            conn.execute("ALTER TABLE sites ADD COLUMN static_dir TEXT DEFAULT ''")
+        if "brand_kit_id" not in cols:
+            conn.execute("ALTER TABLE sites ADD COLUMN brand_kit_id INTEGER DEFAULT NULL")
     except Exception:
         pass
 
@@ -475,6 +511,10 @@ def _migrate_add_columns(conn):
             conn.execute("ALTER TABLE brand_kits ADD COLUMN proxy_id INTEGER DEFAULT NULL")
         if "google_account_id" not in bk_cols:
             conn.execute("ALTER TABLE brand_kits ADD COLUMN google_account_id INTEGER DEFAULT NULL")
+        if "html_site" not in bk_cols:
+            conn.execute("ALTER TABLE brand_kits ADD COLUMN html_site TEXT DEFAULT '{}'")
+        if "static_style" not in bk_cols:
+            conn.execute("ALTER TABLE brand_kits ADD COLUMN static_style TEXT DEFAULT '{}'")
     except Exception:
         pass
 
@@ -979,8 +1019,9 @@ def create_site(data):
                 http_username, http_password, verify_certificate, ssl_version,
                 panel_website_id, panel_app_install_id, panel_app_detail_id,
                 port, nginx_alias, db_name, db_service,
-                status, created_by, cloakbrowser_profile_name, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                status, created_by, cloakbrowser_profile_name,
+                site_type, static_dir, brand_kit_id, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("site_name", ""),
                 data.get("url", ""),
@@ -1002,6 +1043,9 @@ def create_site(data):
                 data.get("status", "active"),
                 data.get("created_by"),
                 data.get("cloakbrowser_profile_name"),
+                data.get("site_type", "static"),
+                data.get("static_dir", ""),
+                data.get("brand_kit_id"),
                 now,
                 now,
             ),
@@ -1051,6 +1095,7 @@ def update_site(site_id, data):
             "google_feed_url", "google_verification_method", "google_verification_done",
             "google_mc_account_id", "cloakbrowser_profile_name",
             "demo_imported", "demo_name", "brand_configured",
+            "site_type", "static_dir", "brand_kit_id",
         ]:
             if key in data:
                 sets.append(f"{key} = ?")
@@ -2358,10 +2403,14 @@ def set_default_cf_account(account_id):
 
 def _deserialize_brand_kit(d: dict) -> dict:
     """Parse JSON fields in a brand kit record."""
+    json_array_fields = {"colors", "html_site"}
     for field in ("colors", "typography", "woo_config", "footer_config",
-                  "business_info", "tax_config", "shipping_config"):
-        if field in ("colors",):
+                  "business_info", "tax_config", "shipping_config",
+                  "html_site", "static_style"):
+        if field in json_array_fields:
             default, empty = "[]", []
+        elif field == "html_site":
+            default, empty = "{}", {}
         else:
             default, empty = "{}", {}
         try:
@@ -2393,9 +2442,10 @@ def create_brand_kit(data: dict) -> dict:
                 colors, typography, directory, png_256, png_512, png_1024,
                 ico, webp, og_image, brand_md, status, error_message,
                 woo_config, footer_config, business_info, tax_config, shipping_config,
+                html_site, static_style,
                 created_by, cloakbrowser_profile_name, proxy, proxy_id,
                 google_account_id, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("name", ""),
                 data.get("brand_name", ""),
@@ -2420,6 +2470,8 @@ def create_brand_kit(data: dict) -> dict:
                 json.dumps(data.get("business_info", {})),
                 json.dumps(data.get("tax_config", {})),
                 json.dumps(data.get("shipping_config", {})),
+                json.dumps(data.get("html_site", {})),
+                json.dumps(data.get("static_style", {})),
                 data.get("created_by"),
                 data.get("cloakbrowser_profile_name"),
                 proxy_url,
@@ -2545,13 +2597,15 @@ def update_brand_kit(kit_id: int, data: dict) -> dict | None:
             "status", "error_message",
             "woo_config", "footer_config",
             "business_info", "tax_config", "shipping_config",
+            "html_site", "static_style",
             "cloakbrowser_profile_name", "proxy", "proxy_id",
             "google_account_id",
         ]
         sets = []
         vals = []
         json_fields = ("colors", "typography", "woo_config", "footer_config",
-                        "business_info", "tax_config", "shipping_config")
+                        "business_info", "tax_config", "shipping_config",
+                        "html_site", "static_style")
         for key in updatable:
             if key in data:
                 sets.append(f"{key} = ?")
@@ -3008,3 +3062,198 @@ def release_google_account(kit_id: int) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+# ============================================================
+# Static Site Products — CRUD (replaces WooCommerce products)
+# ============================================================
+
+def create_static_site_product(data: dict) -> dict:
+    """Create a product for a static site."""
+    conn = get_db()
+    now = datetime.utcnow().isoformat()
+    try:
+        conn.execute(
+            """INSERT INTO static_site_products
+               (site_id, title, description, price, sale_price, currency,
+                image_url, additional_images, category, brand, sku, mpn, gtin,
+                availability, condition, shipping_weight, shipping_weight_unit,
+                product_url, variant_data, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                data.get("site_id"),
+                data.get("title", ""),
+                data.get("description", ""),
+                data.get("price", 0.0),
+                data.get("sale_price"),
+                data.get("currency", "USD"),
+                data.get("image_url", ""),
+                json.dumps(data.get("additional_images", [])),
+                data.get("category", ""),
+                data.get("brand", ""),
+                data.get("sku", ""),
+                data.get("mpn", ""),
+                data.get("gtin", ""),
+                data.get("availability", "in_stock"),
+                data.get("condition", "new"),
+                data.get("shipping_weight", ""),
+                data.get("shipping_weight_unit", "kg"),
+                data.get("product_url", ""),
+                json.dumps(data.get("variant_data", {})),
+                now, now,
+            ),
+        )
+        pid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.commit()
+        return get_static_site_product(pid)
+    finally:
+        conn.close()
+
+
+def get_static_site_product(product_id: int) -> dict | None:
+    """Get a single product by ID."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT * FROM static_site_products WHERE id = ?", (product_id,)
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        for f in ("additional_images", "variant_data"):
+            try:
+                d[f] = json.loads(d.get(f, "[]"))
+            except (json.JSONDecodeError, TypeError):
+                d[f] = [] if f == "additional_images" else {}
+        return d
+    finally:
+        conn.close()
+
+
+def list_static_site_products(site_id: int) -> list:
+    """List all products for a given site."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM static_site_products WHERE site_id = ? ORDER BY id",
+            (site_id,),
+        ).fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            try:
+                d["additional_images"] = json.loads(d.get("additional_images", "[]"))
+            except (json.JSONDecodeError, TypeError):
+                d["additional_images"] = []
+            try:
+                d["variant_data"] = json.loads(d.get("variant_data", "{}"))
+            except (json.JSONDecodeError, TypeError):
+                d["variant_data"] = {}
+            result.append(d)
+        return result
+    finally:
+        conn.close()
+
+
+def update_static_site_product(product_id: int, data: dict) -> dict | None:
+    """Update a product. Returns updated record or None if not found."""
+    conn = get_db()
+    now = datetime.utcnow().isoformat()
+    try:
+        row = conn.execute(
+            "SELECT * FROM static_site_products WHERE id = ?", (product_id,)
+        ).fetchone()
+        if not row:
+            return None
+        updatable = [
+            "title", "description", "price", "sale_price", "currency",
+            "image_url", "additional_images", "category", "brand",
+            "sku", "mpn", "gtin", "availability", "condition",
+            "shipping_weight", "shipping_weight_unit", "product_url",
+            "variant_data",
+        ]
+        json_fields = {"additional_images", "variant_data"}
+        sets = []
+        vals = []
+        for key in updatable:
+            if key in data:
+                sets.append(f"{key} = ?")
+                val = data[key]
+                if key in json_fields and isinstance(val, (list, dict)):
+                    val = json.dumps(val)
+                vals.append(val)
+        if not sets:
+            return get_static_site_product(product_id)
+        sets.append("updated_at = ?")
+        vals.append(now)
+        vals.append(product_id)
+        conn.execute(
+            f"UPDATE static_site_products SET {', '.join(sets)} WHERE id = ?", vals
+        )
+        conn.commit()
+        return get_static_site_product(product_id)
+    finally:
+        conn.close()
+
+
+def delete_static_site_product(product_id: int) -> bool:
+    """Delete a product. Returns True if deleted."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT id FROM static_site_products WHERE id = ?", (product_id,)
+        ).fetchone()
+        if not row:
+            return False
+        conn.execute("DELETE FROM static_site_products WHERE id = ?", (product_id,))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def import_products_to_site(site_id: int, products: list) -> int:
+    """Bulk import products from screening results to a static site.
+    Returns count of newly created products."""
+    conn = get_db()
+    now = datetime.utcnow().isoformat()
+    count = 0
+    try:
+        for p in products:
+            conn.execute(
+                """INSERT INTO static_site_products
+                   (site_id, title, description, price, sale_price, currency,
+                    image_url, additional_images, category, brand, sku, mpn, gtin,
+                    availability, condition, shipping_weight, shipping_weight_unit,
+                    product_url, variant_data, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    site_id,
+                    p.get("title", ""),
+                    p.get("description", ""),
+                    p.get("price", 0.0),
+                    p.get("sale_price"),
+                    p.get("currency", "USD"),
+                    p.get("image_url", ""),
+                    json.dumps(p.get("additional_images", p.get("images", []))),
+                    p.get("category", ""),
+                    p.get("brand", ""),
+                    p.get("sku", ""),
+                    p.get("mpn", ""),
+                    p.get("gtin", ""),
+                    p.get("availability", "in_stock"),
+                    p.get("condition", "new"),
+                    p.get("shipping_weight", ""),
+                    p.get("shipping_weight_unit", "kg"),
+                    p.get("product_url", ""),
+                    json.dumps(p.get("variant_data", {})),
+                    now, now,
+                ),
+            )
+            count += 1
+        conn.commit()
+        return count
+    finally:
+        conn.close()
+
+

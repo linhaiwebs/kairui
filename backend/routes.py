@@ -102,6 +102,13 @@ from models import (
     update_site,
     update_site_fields,
     update_user,
+    create_static_site_product,
+    get_static_site_product,
+    list_static_site_products,
+    update_static_site_product,
+    delete_static_site_product,
+    import_products_to_site,
+    get_site as get_site_by_id,
 )
 from panel_client import panel_client, OnePanelClient
 from wordpress_com_client import WordPressComClient
@@ -2922,13 +2929,489 @@ def register_routes(app):
             logger.error(f"Panel operate website failed: {e}")
             return jsonify({"code": 502, "message": f"1Panel连接失败: {str(e)[:80]}"}), 502
 
+    # ---- Static Site Deployment ----
+
+    @app.route("/api/sites/create-static", methods=["POST"])
+    @jwt_required()
+    def batch_create_static_site():
+        """Create static e-commerce sites. No WordPress, no database, no containers.
+
+        Flow:
+        1. For each domain: create site DB record (site_type="static")
+        2. Create Cloudflare DNS record
+        3. Spawn background thread to deploy static HTML via 1Panel
+        """
+        try:
+            data = request.get_json(silent=True) or {}
+            domains = data.get("domains", [])
+            if not domains:
+                return jsonify({"code": 400, "message": "未提供域名"}), 400
+
+            brand_kit_id = data.get("brand_kit_id")
+            cf_account_id = data.get("cf_account_id")
+            tag = data.get("tag", "静态独立站")
+            admin_name = data.get("admin_name", "admin")
+            admin_password = data.get("admin_password", "")
+
+            # Resolve brand kit (contains all site data)
+            brand_kit = None
+            if brand_kit_id:
+                brand_kit = get_brand_kit(int(brand_kit_id))
+                if not brand_kit:
+                    return jsonify({"code": 404, "message": "品牌套件不存在"}), 404
+                if brand_kit.get("status") != "ready":
+                    return jsonify({"code": 400, "message": f"品牌套件未就绪 (当前状态: {brand_kit['status']})"}), 400
+
+            # Resolve CF account and panel environment
+            cf_account = None
+            panel_env = None
+            if cf_account_id:
+                cf_account = get_cf_account(int(cf_account_id))
+                if cf_account:
+                    panel_env = get_environment_by_cf_account(int(cf_account_id))
+
+            # Get current user ID
+            current_user = get_jwt_identity()
+            user = get_user_by_username(current_user)
+            user_id = user["id"] if user else None
+
+            # Get global config for panel defaults
+            global_cfg = get_global_config()
+            panel_server_ip = global_cfg.get("panel_server_ip", "")
+
+            # Generate security ID
+            try:
+                conn = get_db()
+                row = conn.execute(
+                    "SELECT MAX(CAST(security_id AS INTEGER)) FROM sites WHERE security_id GLOB '[0-9]*'"
+                ).fetchone()
+                conn.close()
+                security_id = str((row[0] or 0) + 1)
+            except Exception:
+                security_id = "1"
+
+            results = []
+
+            for dom in domains:
+                domain = dom.get("domain", "").strip()
+                if not domain:
+                    continue
+
+                alias = domain.replace(".", "-").replace("_", "-")
+                alias_sanitized = re.sub(r"[^a-zA-Z0-9\-]", "", alias)
+
+                # Create site record
+                site_data = {
+                    "site_name": domain,
+                    "url": domain,
+                    "admin_name": admin_name,
+                    "admin_password": admin_password,
+                    "tag": tag,
+                    "security_id": security_id,
+                    "status": "deploying",
+                    "site_type": "static",
+                    "static_dir": f"/www/sites/{alias_sanitized}/index",
+                    "brand_kit_id": brand_kit_id,
+                    "nginx_alias": alias_sanitized,
+                    "created_by": user_id,
+                    "cloakbrowser_profile_name": brand_kit.get("cloakbrowser_profile_name") if brand_kit else None,
+                }
+                site = create_site(site_data)
+                site_id = site["id"]
+
+                # Cloudflare DNS
+                cf_result = None
+                if cf_account:
+                    cf_api_token = cf_account.get("api_token", "")
+                    if cf_api_token:
+                        try:
+                            from cloudflare_client import CloudflareClient
+                            cf_client = CloudflareClient(cf_api_token)
+                            zone = cf_client.find_zone_by_domain(domain)
+                            if not zone:
+                                zone = cf_client.create_zone(domain)
+                            zone_id = zone.get("id") if isinstance(zone, dict) else None
+                            if zone_id:
+                                dns = cf_client.create_dns_record(
+                                    zone_id, domain,
+                                    panel_server_ip or panel_env.get("host", "") if panel_env else "",
+                                    proxied=True,
+                                )
+                                if dns:
+                                    cf_result = dns
+                                    update_site_fields(site_id, {
+                                        "cf_zone_id": zone_id,
+                                        "cf_dns_record_id": dns.get("id"),
+                                    })
+                        except Exception as e:
+                            logger.warning(f"Cloudflare DNS for {domain} failed: {e}")
+
+                # Spawn background deployment thread
+                task_id = str(uuid.uuid4())
+                create_bg_task({
+                    "task_id": task_id, "site_id": site_id,
+                    "task_type": "deploy_static", "status": "queued",
+                    "message": "排队等待部署...",
+                    "created_by": user_id,
+                })
+
+                panel_host = panel_env.get("host") if panel_env else ""
+                panel_port = panel_env.get("port", 3500) if panel_env else 3500
+                panel_key = panel_env.get("api_key", "") if panel_env else ""
+
+                thread = Thread(
+                    target=_bg_deploy_static,
+                    args=(task_id, site_id, alias_sanitized, domain),
+                    kwargs={
+                        "brand_kit": brand_kit,
+                        "panel_host": panel_host,
+                        "panel_port": panel_port,
+                        "panel_api_key": panel_key,
+                    },
+                    daemon=True,
+                )
+                thread.start()
+
+                results.append({
+                    "site_id": site_id,
+                    "domain": domain,
+                    "task_id": task_id,
+                    "cf_result": cf_result,
+                    "status": "deploying",
+                })
+
+            return jsonify({
+                "code": 200,
+                "message": f"已创建 {len(results)} 个静态站点部署任务",
+                "data": results,
+            })
+
+        except Exception as e:
+            logger.error(f"Static site creation failed: {traceback.format_exc()}")
+            return jsonify({"code": 500, "message": f"创建失败: {str(e)[:200]}"}), 500
+
+    # ---- Static Site Feed Generation ----
+
+    def _generate_static_feed(site_id, site):
+        """Generate Google Shopping Feed XML from static_site_products table.
+        Also uploads the feed.xml to 1Panel site directory.
+        """
+        try:
+            products = list_static_site_products(site_id)
+            if not products:
+                return jsonify({"code": 400, "message": "站点没有产品，请先导入产品"}), 400
+
+            domain = site.get("url", "")
+            brand_name = ""
+            brand_kit_id = site.get("brand_kit_id")
+            if brand_kit_id:
+                brand_kit = get_brand_kit(brand_kit_id)
+                if brand_kit:
+                    brand_name = brand_kit.get("brand_name", "")
+
+            # Build RSS + Google Shopping XML
+            import xml.etree.ElementTree as ET
+            rss = ET.Element("rss", {
+                "version": "2.0",
+                "xmlns:g": "http://base.google.com/ns/1.0",
+            })
+            channel = ET.SubElement(rss, "channel")
+            ET.SubElement(channel, "title").text = domain
+            ET.SubElement(channel, "link").text = f"https://{domain}"
+            ET.SubElement(channel, "description").text = "Google Shopping Product Feed"
+
+            for p in products:
+                item = ET.SubElement(channel, "item")
+                pid = str(p.get("id", ""))
+                ET.SubElement(item, "g:id").text = pid
+                ET.SubElement(item, "g:title").text = (p.get("title") or "")[:150]
+                desc = (p.get("description") or "")
+                # Strip HTML from description
+                import re as _re
+                desc = _re.sub(r"<[^>]+>", "", desc)[:5000]
+                ET.SubElement(item, "g:description").text = desc
+                product_url = p.get("product_url", "") or f"https://{domain}/products/{pid}"
+                ET.SubElement(item, "g:link").text = product_url
+                image = p.get("image_url", "")
+                if image:
+                    ET.SubElement(item, "g:image_link").text = image
+                # Additional images
+                add_images = p.get("additional_images", [])
+                if isinstance(add_images, str):
+                    try:
+                        add_images = json.loads(add_images)
+                    except Exception:
+                        add_images = []
+                for img in add_images[:10]:
+                    if img:
+                        ET.SubElement(item, "g:additional_image_link").text = img
+
+                price = p.get("price", 0) or 0
+                currency = p.get("currency", "USD")
+                ET.SubElement(item, "g:price").text = f"{float(price):.2f} {currency}"
+                sale_price = p.get("sale_price")
+                if sale_price and float(sale_price) > 0:
+                    ET.SubElement(item, "g:sale_price").text = f"{float(sale_price):.2f} {currency}"
+
+                ET.SubElement(item, "g:availability").text = p.get("availability", "in_stock")
+                ET.SubElement(item, "g:condition").text = p.get("condition", "new")
+                b = p.get("brand", "") or brand_name
+                if b:
+                    ET.SubElement(item, "g:brand").text = b
+                mpn = p.get("mpn", "") or p.get("sku", "")
+                if mpn:
+                    ET.SubElement(item, "g:mpn").text = mpn
+                gtin = p.get("gtin", "")
+                if gtin:
+                    ET.SubElement(item, "g:gtin").text = gtin
+                category = p.get("category", "")
+                if category:
+                    ET.SubElement(item, "g:product_type").text = category
+                weight = p.get("shipping_weight", "")
+                if weight:
+                    unit = p.get("shipping_weight_unit", "kg")
+                    ET.SubElement(item, "g:shipping_weight").text = f"{weight} {unit}"
+
+            xml_str = '<?xml version="1.0" encoding="UTF-8"?>\n'
+            xml_str += ET.tostring(rss, encoding="unicode")
+
+            # Save locally
+            feed_dir = os.path.join(os.path.dirname(__file__), "data", "feeds")
+            os.makedirs(feed_dir, exist_ok=True)
+            local_path = os.path.join(feed_dir, f"{site_id}.xml")
+            with open(local_path, "w", encoding="utf-8") as f:
+                f.write(xml_str)
+
+            # Upload to 1Panel site directory for public access
+            nginx_alias = site.get("nginx_alias", "")
+            feed_url = f"https://{domain}/feed.xml"
+            if nginx_alias:
+                try:
+                    from panel_client import panel_client as _pc
+                    env = get_user_panel_environment(site.get("created_by") or 1)
+                    if env:
+                        pc = OnePanelClient(
+                            host=env.get("host", ""),
+                            port=env.get("port", 3500),
+                            api_key=env.get("api_key", ""),
+                        )
+                        pc.upload_static_site_files(
+                            alias=nginx_alias,
+                            files={"feed.xml": xml_str},
+                        )
+                except Exception as ue:
+                    logger.warning(f"Upload feed.xml to 1Panel failed: {ue}")
+
+            update_site(site_id, {"google_feed_url": feed_url})
+
+            return jsonify({
+                "code": 200,
+                "message": "Feed 生成成功",
+                "data": {
+                    "feed_url": feed_url,
+                    "product_count": len(products),
+                    "local_path": local_path,
+                },
+            })
+        except Exception as e:
+            logger.error(f"Static feed generation error site={site_id}: {traceback.format_exc()}")
+            return jsonify({"code": 500, "message": str(e)[:200]}), 500
+
+    # ---- Static Site Product Management ----
+
+    @app.route("/api/sites/<int:site_id>/static-products", methods=["GET"])
+    @jwt_required()
+    def list_site_products(site_id):
+        """List all products for a static site."""
+        site = get_site(site_id)
+        if not site:
+            return jsonify({"code": 404, "message": "站点不存在"}), 404
+        products = list_static_site_products(site_id)
+        return jsonify({"code": 200, "data": products})
+
+    @app.route("/api/sites/<int:site_id>/static-products", methods=["POST"])
+    @jwt_required()
+    def create_site_product(site_id):
+        """Add a single product to a static site."""
+        site = get_site(site_id)
+        if not site:
+            return jsonify({"code": 404, "message": "站点不存在"}), 404
+        data = request.get_json(silent=True) or {}
+        data["site_id"] = site_id
+        product = create_static_site_product(data)
+        return jsonify({"code": 200, "data": product})
+
+    @app.route("/api/sites/<int:site_id>/static-products/import", methods=["POST"])
+    @jwt_required()
+    def import_site_products(site_id):
+        """Bulk import products from screening results to a static site.
+        Accepts a list of product objects. After import, regenerates the site HTML
+        and feed.xml to include the new products.
+        """
+        site = get_site(site_id)
+        if not site:
+            return jsonify({"code": 404, "message": "站点不存在"}), 404
+        if site.get("site_type") != "static":
+            return jsonify({"code": 400, "message": "仅支持静态站点"}), 400
+
+        data = request.get_json(silent=True) or {}
+        products = data.get("products", [])
+        if not products:
+            return jsonify({"code": 400, "message": "未提供产品数据"}), 400
+
+        try:
+            count = import_products_to_site(site_id, products)
+            return jsonify({
+                "code": 200,
+                "message": f"成功导入 {count} 个产品",
+                "data": {"imported": count},
+            })
+        except Exception as e:
+            logger.error(f"Import products error: {traceback.format_exc()}")
+            return jsonify({"code": 500, "message": str(e)[:200]}), 500
+
+    @app.route("/api/static-products/<int:product_id>", methods=["PUT"])
+    @jwt_required()
+    def update_site_product(product_id):
+        """Update a static site product."""
+        data = request.get_json(silent=True) or {}
+        product = update_static_site_product(product_id, data)
+        if not product:
+            return jsonify({"code": 404, "message": "产品不存在"}), 404
+        return jsonify({"code": 200, "data": product})
+
+    @app.route("/api/static-products/<int:product_id>", methods=["DELETE"])
+    @jwt_required()
+    def delete_site_product(product_id):
+        """Delete a static site product."""
+        deleted = delete_static_site_product(product_id)
+        if not deleted:
+            return jsonify({"code": 404, "message": "产品不存在"}), 404
+        return jsonify({"code": 200, "message": "已删除"})
+
+    @app.route("/api/sites/<int:site_id>/regenerate-static", methods=["POST"])
+    @jwt_required()
+    def regenerate_static_site(site_id):
+        """Regenerate static site HTML after product changes.
+        Rebuilds index.html (product grid) and product detail pages,
+        then uploads to 1Panel.
+        """
+        site = get_site(site_id)
+        if not site:
+            return jsonify({"code": 404, "message": "站点不存在"}), 404
+        if site.get("site_type") != "static":
+            return jsonify({"code": 400, "message": "仅支持静态站点"}), 400
+
+        try:
+            products = list_static_site_products(site_id)
+            nginx_alias = site.get("nginx_alias", "")
+            brand_kit_id = site.get("brand_kit_id")
+            brand_kit = get_brand_kit(brand_kit_id) if brand_kit_id else None
+
+            if not brand_kit or not brand_kit.get("html_site"):
+                return jsonify({"code": 400, "message": "品牌套件缺少html_site数据"}), 400
+
+            html_site = brand_kit["html_site"]
+            if isinstance(html_site, str):
+                html_site = json.loads(html_site)
+
+            # Build product cards HTML for index page
+            product_cards = ""
+            product_template = html_site.get("product.html", "")
+            for p in products:
+                card = product_template
+                # Simple placeholder replacement
+                for key in ["title", "description", "price", "image_url",
+                           "category", "brand", "sku"]:
+                    val = str(p.get(key, ""))
+                    card = card.replace("{{" + key + "}}", val)
+                card = card.replace("{{product_id}}", str(p.get("id", "")))
+                product_cards += card
+
+            # Update index.html with product cards
+            index_html = html_site.get("index.html", "")
+            index_html = index_html.replace("{{product_grid}}", product_cards)
+
+            # Replace business info placeholders
+            business = brand_kit.get("business_info", {})
+            if isinstance(business, str):
+                business = json.loads(business)
+            footer = brand_kit.get("footer_config", {})
+            if isinstance(footer, str):
+                footer = json.loads(footer)
+            tax = brand_kit.get("tax_config", {})
+            if isinstance(tax, str):
+                tax = json.loads(tax)
+            shipping = brand_kit.get("shipping_config", {})
+            if isinstance(shipping, str):
+                shipping = json.loads(shipping)
+
+            for page_name in ["index.html", "about.html", "contact.html",
+                             "privacy.html", "terms.html", "shipping.html", "returns.html"]:
+                content = html_site.get(page_name, "")
+                if not content:
+                    continue
+                replacements = {
+                    "{{business_name}}": business.get("name", brand_kit.get("brand_name", "")),
+                    "{{business_address}}": business.get("address", ""),
+                    "{{business_phone}}": business.get("phone", ""),
+                    "{{business_email}}": business.get("email", ""),
+                    "{{footer_text}}": footer.get("text", ""),
+                    "{{tax_rate}}": str(tax.get("rate", "")),
+                    "{{tax_region}}": tax.get("region", ""),
+                    "{{shipping_policy}}": shipping.get("policy", ""),
+                    "{{return_policy}}": shipping.get("returns", ""),
+                    "{{brand_name}}": brand_kit.get("brand_name", ""),
+                    "{{domain}}": site.get("url", ""),
+                    "{{current_year}}": str(datetime.utcnow().year),
+                }
+                for placeholder, value in replacements.items():
+                    content = content.replace(placeholder, value)
+                html_site[page_name] = content
+
+            # Re-apply index with actual products
+            html_site["index.html"] = index_html
+
+            # Upload updated files to 1Panel
+            files = {}
+            for page_name, content in html_site.items():
+                if page_name == "css":
+                    files["assets/style.css"] = content
+                elif page_name.endswith(".html") or page_name.endswith(".txt"):
+                    files[page_name] = content
+
+            if files and nginx_alias:
+                env = get_user_panel_environment(site.get("created_by") or 1)
+                if env:
+                    pc = OnePanelClient(
+                        host=env.get("host", ""),
+                        port=env.get("port", 3500),
+                        api_key=env.get("api_key", ""),
+                    )
+                    pc.upload_static_site_files(alias=nginx_alias, files=files)
+                    pc.reload_openresty()
+
+            # Also regenerate feed
+            try:
+                _generate_static_feed(site_id, site)
+            except Exception:
+                pass
+
+            return jsonify({
+                "code": 200,
+                "message": f"站点已重新生成 ({len(products)} 个产品)",
+            })
+        except Exception as e:
+            logger.error(f"Regenerate static site error: {traceback.format_exc()}")
+            return jsonify({"code": 500, "message": str(e)[:200]}), 500
+
     # ---- WordPress Batch Creation ----
 
     @app.route("/api/wordpress/batch-create", methods=["POST"])
     @jwt_required()
     def batch_create_wordpress():
         """Create multiple WordPress sites in batch via 1Panel.
-        
+
         Workflow:
         1. For each domain, create a database via 1Panel's /databases API
         2. Install WordPress with PANEL_DB_HOST='mariadb' (1Panel DB name)
@@ -3220,6 +3703,132 @@ def register_routes(app):
                         _bg_deploy_inner(task_id, sid, s_alias, s_domain, s_port, s_db_name, s_db_user, s_db_pass,
                                          s_app_detail_id, s_app_id, s_db_service, s_admin, s_password, s_plugin_ids,
                                          s_theme_ids, s_group_id, s_panel_host, s_panel_port, s_panel_api_key)
+
+                def _bg_deploy_static(task_id, site_id, alias, domain,
+                                     brand_kit=None, panel_host="", panel_port=3500, panel_api_key=""):
+                    """Deploy a static e-commerce site to 1Panel/OpenResty.
+
+                    Steps:
+                    1. Create directory structure + OpenResty config via 1Panel API
+                    2. Upload brand kit HTML files via 1Panel file API
+                    3. Reload OpenResty
+                    4. Update site status to active
+                    """
+                    _get_panel_client = lambda: OnePanelClient(
+                        host=panel_host, port=panel_port, api_key=panel_api_key
+                    )
+
+                    try:
+                        update_bg_task(task_id, status="deploying", message="正在创建站点目录和OpenResty配置...")
+
+                        # Step 1: Create site structure + OpenResty config
+                        config_resp = _get_panel_client().create_static_site_config(
+                            alias=alias, domain=domain
+                        )
+                        if config_resp.get("code") not in (200, 207):
+                            update_bg_task(task_id, status="failed",
+                                          message=f"创建站点配置失败: {config_resp.get('message', '')}")
+                            update_site_fields(site_id, {"status": "error"})
+                            return
+                        logger.info(f"Static site config created for {domain}: {config_resp.get('data', {})}")
+
+                        # Step 2: Upload brand kit HTML files
+                        if brand_kit and brand_kit.get("html_site"):
+                            update_bg_task(task_id, status="deploying", message="正在上传品牌页面文件...")
+
+                            html_site = brand_kit["html_site"]
+                            if isinstance(html_site, str):
+                                try:
+                                    html_site = json.loads(html_site)
+                                except (json.JSONDecodeError, TypeError):
+                                    html_site = {}
+
+                            # Prepare files for upload
+                            files = {}
+                            page_order = [
+                                "index.html", "about.html", "contact.html",
+                                "privacy.html", "terms.html", "shipping.html",
+                                "returns.html", "product.html", "robots.txt",
+                            ]
+                            for page_name in page_order:
+                                content = html_site.get(page_name, "")
+                                if content:
+                                    files[page_name] = content
+
+                            # CSS separately
+                            css_content = html_site.get("css", "")
+                            if css_content:
+                                files["assets/style.css"] = css_content
+
+                            # Brand assets
+                            if brand_kit.get("png_256"):
+                                # Copy logo from brand-kits directory
+                                png_path = brand_kit.get("png_256")
+                                if os.path.isfile(png_path):
+                                    import base64
+                                    with open(png_path, "rb") as f:
+                                        logo_data = f.read()
+                                    files["assets/logo.png"] = base64.b64encode(logo_data).decode("utf-8")
+
+                            if brand_kit.get("ico"):
+                                ico_path = brand_kit.get("ico")
+                                if os.path.isfile(ico_path):
+                                    import base64
+                                    with open(ico_path, "rb") as f:
+                                        ico_data = f.read()
+                                    files["assets/favicon.ico"] = base64.b64encode(ico_data).decode("utf-8")
+
+                            if brand_kit.get("og_image"):
+                                og_path = brand_kit.get("og_image")
+                                if os.path.isfile(og_path):
+                                    import base64
+                                    with open(og_path, "rb") as f:
+                                        og_data = f.read()
+                                    files["assets/og-image.png"] = base64.b64encode(og_data).decode("utf-8")
+
+                            if files:
+                                upload_resp = _get_panel_client().upload_static_site_files(
+                                    alias=alias, files=files
+                                )
+                                if upload_resp.get("code") not in (200, 207):
+                                    logger.warning(f"File upload issue: {upload_resp.get('message', '')}")
+                                else:
+                                    logger.info(f"Uploaded {len(upload_resp.get('data', {}).get('uploaded', []))} files for {domain}")
+                        else:
+                            # No brand kit HTML — create a basic placeholder index.html
+                            logger.info(f"No html_site in brand kit for {domain}, creating placeholder")
+                            placeholder = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>{domain}</title>
+<style>body{{font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f5f5f5}}h1{{color:#333}}</style>
+</head>
+<body><h1>{domain} - Coming Soon</h1></body>
+</html>"""
+                            _get_panel_client().upload_static_site_files(
+                                alias=alias, files={"index.html": placeholder}
+                            )
+
+                        # Step 3: Reload OpenResty
+                        update_bg_task(task_id, status="deploying", message="正在重载OpenResty...")
+                        reload_resp = _get_panel_client().reload_openresty()
+                        if reload_resp.get("code") != 200:
+                            update_bg_task(task_id, status="failed",
+                                          message=f"重载OpenResty失败: {reload_resp.get('message', '')}")
+                            return
+
+                        # Step 4: Mark site as active
+                        update_site_fields(site_id, {
+                            "status": "active",
+                            "static_dir": f"/www/sites/{alias}/index",
+                        })
+                        update_bg_task(task_id, status="completed",
+                                      message=f"站点 {domain} 部署完成 (静态站点)")
+
+                    except Exception as e:
+                        logger.error(f"Static deployment failed for {domain}: {traceback.format_exc()}")
+                        update_bg_task(task_id, status="failed",
+                                      message=f"部署失败: {str(e)[:200]}")
+                        update_site_fields(site_id, {"status": "error"})
 
                 def _bg_deploy_inner(task_id, sid, s_alias, s_domain, s_port, s_db_name, s_db_user, s_db_pass,
                                      s_app_detail_id, s_app_id, s_db_service, s_admin, s_password, s_plugin_ids,
@@ -3801,10 +4410,19 @@ def register_routes(app):
     @app.route("/api/sites/<int:site_id>/generate-feed", methods=["POST"])
     @jwt_required()
     def generate_google_feed(site_id):
-        """Generate Google Shopping product feed XML for a site."""
+        """Generate Google Shopping product feed XML for a site.
+        For static sites: reads from local static_site_products table.
+        For WordPress sites: uses WordPressAdminSession (legacy).
+        """
         site = get_site(site_id)
         if not site:
             return jsonify({"code": 404, "message": "站点不存在"}), 404
+
+        # Static site: generate feed from local DB
+        if site.get("site_type") == "static":
+            return _generate_static_feed(site_id, site)
+
+        # WordPress site (legacy): generate feed via WP API
         try:
             wp = WordPressAdminSession(site["url"], site["admin_name"], site["admin_password"])
             result = wp.generate_google_feed()

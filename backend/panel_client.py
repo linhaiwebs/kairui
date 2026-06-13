@@ -581,6 +581,145 @@ class OnePanelClient:
             return {"code": 207, "message": "; ".join(errors), "data": {"conf_path": conf_path}}
         return {"code": 200, "message": "nginx配置创建成功", "data": {"conf_path": conf_path}}
 
+    def create_static_site_config(self, alias, domain, website_dir="/opt/1panel/www"):
+        """Create OpenResty configuration for a static HTML site.
+
+        Unlike create_nginx_proxy_config (reverse proxy to a container), this
+        configures OpenResty to serve static HTML files directly from the site
+        directory. No PHP/MySQL/container needed.
+
+        Args:
+            alias: Site alias (used for directory names)
+            domain: Domain name for the site
+            website_dir: Base directory for website files (default: /opt/1panel/www)
+
+        Returns:
+            dict with code and message
+        """
+        errors = []
+
+        # Step 1: Create site directory structure
+        site_dir = f"{website_dir}/sites/{alias}"
+        index_dir = f"{site_dir}/index"
+        for subdir in ["log", "index", "ssl"]:
+            resp = self.create_file(f"{site_dir}/{subdir}", is_dir=True)
+            if resp.get("code") not in (200, 500):
+                errors.append(f"创建目录 {site_dir}/{subdir} 失败: {resp.get('message', '')}")
+
+        # Create products subdirectory
+        resp = self.create_file(f"{index_dir}/products", is_dir=True)
+        if resp.get("code") not in (200, 500):
+            errors.append(f"创建产品目录失败: {resp.get('message', '')}")
+
+        # Create assets subdirectory
+        resp = self.create_file(f"{index_dir}/assets", is_dir=True)
+        if resp.get("code") not in (200, 500):
+            errors.append(f"创建资源目录失败: {resp.get('message', '')}")
+
+        # Create empty log files
+        for log_file in ["access.log", "error.log"]:
+            file_path = f"{site_dir}/log/{log_file}"
+            self.create_file(file_path, is_dir=False)
+            self.save_file(file_path, "")
+
+        # Step 2: Create OpenResty static site configuration
+        nginx_conf = f"""server {{
+    listen 80;
+    listen [::]:80;
+    server_name {domain};
+
+    root /www/sites/{alias}/index;
+    index index.html;
+
+    client_max_body_size 128m;
+
+    access_log /www/sites/{alias}/log/access.log main;
+    error_log /www/sites/{alias}/log/error.log;
+
+    # SPA fallback + clean URLs
+    location / {{
+        try_files $uri $uri.html $uri/ /index.html;
+    }}
+
+    # Google Shopping Feed
+    location = /feed.xml {{
+        add_header Content-Type "application/rss+xml";
+        add_header Access-Control-Allow-Origin "*";
+    }}
+
+    # Robots.txt
+    location = /robots.txt {{
+        add_header Content-Type "text/plain";
+    }}
+
+    # Static assets with long cache
+    location /assets/ {{
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }}
+
+    # Product images cache
+    location /products/ {{
+        expires 7d;
+    }}
+}}
+"""
+        conf_path = f"{website_dir}/conf.d/{alias}.conf"
+
+        # Create and write the config file
+        self.create_file(conf_path, is_dir=False)
+        save_resp = self.save_file(conf_path, nginx_conf)
+        if save_resp.get("code") != 200:
+            errors.append(f"保存OpenResty配置失败: {save_resp.get('message', '')}")
+
+        # Step 3: Reload OpenResty
+        reload_resp = self.reload_openresty()
+        if reload_resp.get("code") != 200:
+            errors.append(f"重载OpenResty失败: {reload_resp.get('message', '')}")
+
+        if errors:
+            return {"code": 207, "message": "; ".join(errors), "data": {"conf_path": conf_path}}
+        return {"code": 200, "message": "静态站点OpenResty配置创建成功", "data": {
+            "conf_path": conf_path,
+            "site_dir": site_dir,
+            "index_dir": index_dir,
+        }}
+
+    def upload_static_site_files(self, alias, files, website_dir="/opt/1panel/www"):
+        """Upload static HTML/CSS/image files to the 1Panel site directory.
+
+        Args:
+            alias: Site alias
+            files: dict of {relative_path: content} e.g. {"index.html": "<html>...", "assets/style.css": "..."}
+            website_dir: Base directory for website files
+
+        Returns:
+            dict with code, message, and uploaded file list
+        """
+        errors = []
+        uploaded = []
+        index_dir = f"{website_dir}/sites/{alias}/index"
+
+        for rel_path, content in files.items():
+            full_path = f"{index_dir}/{rel_path}"
+            # Ensure parent directory exists
+            parent_dir = "/".join(full_path.split("/")[:-1])
+            if parent_dir != index_dir:
+                self.create_file(parent_dir, is_dir=True)
+
+            # Create file
+            self.create_file(full_path, is_dir=False)
+            # Write content
+            save_resp = self.save_file(full_path, content)
+            if save_resp.get("code") != 200:
+                errors.append(f"上传 {rel_path} 失败: {save_resp.get('message', '')}")
+            else:
+                uploaded.append(rel_path)
+
+        if errors:
+            return {"code": 207, "message": "; ".join(errors), "data": {"uploaded": uploaded}}
+        return {"code": 200, "message": f"成功上传 {len(uploaded)} 个文件", "data": {"uploaded": uploaded}}
+
     def delete_nginx_proxy_config(self, alias, domain="", website_dir="/opt/1panel/www"):
         """Delete nginx proxy configuration and site directory.
         
