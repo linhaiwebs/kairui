@@ -292,7 +292,7 @@ const app = createApp({
         const showBrandKitModal = ref(false);
         const brandKitEditId = ref(null);
         const brandKitForm = reactive({
-            name: '', industry: '', proxy: '', proxy_id: null, google_account_id: null
+            name: '', industry: '', proxy: '', proxy_id: null, google_account_id: null, cloakbrowser_profile_name: ''
         });
         // Proxy Pool
         const proxies = ref([]);
@@ -2190,14 +2190,16 @@ pipelineStatuses[siteId].demo_importing = false;
         function openBrandKitModal(kit) {
             loadProxies();
             loadGoogleAccounts();
+            loadCloakbrowserProfiles();
             if (kit) {
                 brandKitEditId.value = kit.id;
-                Object.assign(brandKitForm, { name: kit.name, industry: kit.industry, proxy: kit.proxy || '', proxy_id: kit.proxy_id || null, google_account_id: kit.google_account_id || null });
+                Object.assign(brandKitForm, { name: kit.name, industry: kit.industry, proxy: kit.proxy || '', proxy_id: kit.proxy_id || null, google_account_id: kit.google_account_id || null, cloakbrowser_profile_name: kit.cloakbrowser_profile_name || '' });
             } else {
                 brandKitEditId.value = null;
                 Object.keys(brandKitForm).forEach(k => brandKitForm[k] = '');
                 brandKitForm.proxy_id = null;
                 brandKitForm.google_account_id = null;
+                brandKitForm.cloakbrowser_profile_name = '';
             }
             showBrandKitModal.value = true;
         }
@@ -5134,6 +5136,17 @@ async function loadProfileCategories() {
                             <option v-if="brandKitEditId && brandKitForm.google_account_id" :value="brandKitForm.google_account_id" selected hidden>已选择</option>
                         </select>
                         <p class="text-xs text-on-surface-variant mt-1">GMC 注册时将使用此账户自动登录 Google（支持 TOTP 2FA）</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-on-surface mb-1">指纹环境 <span class="text-xs text-on-surface-variant">(可选)</span></label>
+                        <select v-model="brandKitForm.cloakbrowser_profile_name" class="w-full px-4 py-2 border rounded-lg focus:border-primary">
+                            <option value="">自动创建新的指纹环境</option>
+                            <option v-for="p in cloakbrowserProfiles" :key="p.name" :value="p.name" :disabled="p.bound && p.bound !== brandKitEditId">
+                                {{ p.bound ? '[已绑定]' : '[可用]' }} {{ p.name }}
+                                <template v-if="p.config && p.config.proxy"> — {{ p.config.proxy.substring(0, 40) }}</template>
+                            </option>
+                        </select>
+                        <p class="text-xs text-on-surface-variant mt-1">选择已有指纹环境，或留空自动创建新的（含随机指纹+代理配置）</p>
                     </div>
                 </div>
                 <div class="p-6 border-t flex gap-3 justify-end">

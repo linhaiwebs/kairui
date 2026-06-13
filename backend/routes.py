@@ -5076,10 +5076,32 @@ def register_routes(app):
     @app.route("/api/cloakbrowser/profiles", methods=["GET"])
     @jwt_required()
     def cloakbrowser_profiles():
-        """List all CloakBrowser profiles with full fingerprint details."""
+        """List all CloakBrowser profiles with binding status from brand_kits."""
         try:
             from services.mc_auto_register import list_profiles
             data = list_profiles()
+            # Enrich with brand kit binding info
+            conn = get_db()
+            try:
+                bindings = conn.execute(
+                    "SELECT id, name, cloakbrowser_profile_name FROM brand_kits "
+                    "WHERE cloakbrowser_profile_name IS NOT NULL AND cloakbrowser_profile_name != ''"
+                ).fetchall()
+                bound_map = {}
+                for b in bindings:
+                    bound_map[b["cloakbrowser_profile_name"]] = {
+                        "kit_id": b["id"], "kit_name": b["name"],
+                    }
+            finally:
+                conn.close()
+            for p in data:
+                b = bound_map.get(p["name"])
+                if b:
+                    p["bound_kit_id"] = b["kit_id"]
+                    p["bound_kit_name"] = b["kit_name"]
+                    p["bound"] = True
+                else:
+                    p["bound"] = False
             return jsonify({"code": 200, "data": data})
         except Exception as e:
             return jsonify({"code": 500, "message": str(e)[:200]}), 500
