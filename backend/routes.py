@@ -1,4 +1,5 @@
 ﻿import functools
+import hashlib
 import json
 import logging
 import os
@@ -2963,7 +2964,7 @@ def register_routes(app):
         })
 
     def _regenerate_static_site_html(task_id_or_none, site_id):
-        """Regenerate static site HTML with current products."""
+        """Regenerate static site HTML with current products, upload to 1Panel."""
         site = get_site(site_id)
         if not site or site.get("site_type") != "static":
             return
@@ -2974,26 +2975,111 @@ def register_routes(app):
         brand_kit = get_brand_kit(brand_kit_id) if brand_kit_id else {}
 
         from static_store_engine import render_site
-        count = render_site(domain, brand_kit, products)
+        local_tmp = f"/tmp/regenerate-{site_id}"
+        os.makedirs(local_tmp, exist_ok=True)
+        count = render_site(domain, brand_kit, products, local_tmp)
+
+        # Upload to 1Panel
+        env = get_user_panel_environment(site.get("created_by") or 1)
+        if env:
+            alias = site.get("nginx_alias", domain.replace(".", "-"))
+            remote_dir = f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index"
+            pc = OnePanelClient(host=env["host"], port=env["port"], api_key=env["api_key"])
+            for root, dirs, files in os.walk(local_tmp):
+                for fname in files:
+                    local_path = os.path.join(root, fname)
+                    rel_path = os.path.relpath(local_path, local_tmp)
+                    remote_path = f"{remote_dir}/{rel_path}"
+                    pc.create_file(os.path.dirname(remote_path), is_dir=True)
+                    ts = str(int(time.time()))
+                    token = hashlib.md5(("1panel" + env["api_key"] + ts).encode()).hexdigest()
+                    with open(local_path, "rb") as f:
+                        http_requests.post(
+                            f"http://{env['host']}:{env['port']}/api/v1/files/upload",
+                            data={"path": remote_path},
+                            files={"file": (fname, f, "application/octet-stream")},
+                            headers={"1Panel-Token": token, "1Panel-Timestamp": ts},
+                            timeout=30,
+                        )
+            pc.reload_openresty()
+            import shutil as _shutil
+            _shutil.rmtree(local_tmp, ignore_errors=True)
         logger.info(f"Regenerated static site {site_id} ({domain}) with {len(products)} products, {count} files")
 
 # _generate_brand_pages removed — replaced by static_store_engine.render_site()
 
     def _bg_deploy_static(task_id, site_id, alias, domain,
                          brand_kit=None, panel_host="", panel_port=3500, panel_api_key=""):
-        """Deploy a static site — write files locally, served by puhuo nginx wildcard."""
+        """Deploy static site via 1Panel:
+        1. Create static website on 1Panel (creates nginx config + directory)
+        2. Upload generated store files to 1Panel site directory
+        3. Reload OpenResty
+        """
+        import io as _io
+        _get_pc = lambda: OnePanelClient(host=panel_host, port=panel_port, api_key=panel_api_key)
+
         try:
-            update_bg_task(task_id, status="deploying", message="正在创建站点目录...")
+            update_bg_task(task_id, status="deploying", message="1Panel正在创建静态网站...")
 
+            # Step 1: Create static website on 1Panel
+            site_resp = _get_pc().create_static_website(domain=domain, alias=alias)
+            if site_resp.get("code") != 200:
+                update_bg_task(task_id, status="failed",
+                              message=f"1Panel创建网站失败: {site_resp.get('message','')}")
+                update_site_fields(site_id, {"status": "error"})
+                return
+
+            site_data = site_resp.get("data", {})
+            site_dir_1panel = site_data.get("site_dir", f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index")
+            logger.info(f"1Panel website created, dir={site_dir_1panel}")
+
+            # Step 2: Generate store files locally, then upload to 1Panel
             from static_store_engine import render_site
-            site_dir = f"/app/backend/static-sites/{domain}"
-            count = render_site(domain, brand_kit or {}, [], site_dir)
+            local_tmp = f"/tmp/static-deploy-{site_id}"
+            os.makedirs(local_tmp, exist_ok=True)
+            render_site(domain, brand_kit or {}, [], local_tmp)
 
-            logger.info(f"Static site {domain}: {count} files written")
+            update_bg_task(task_id, status="deploying", message="正在上传商城文件...")
+            uploaded = 0
+            for root, dirs, files in os.walk(local_tmp):
+                for fname in files:
+                    local_path = os.path.join(root, fname)
+                    rel_path = os.path.relpath(local_path, local_tmp)
+                    remote_path = f"{site_dir_1panel}/{rel_path}"
 
-            update_site_fields(site_id, {"status": "active", "static_dir": site_dir})
+                    # Create parent directory
+                    parent_dir = os.path.dirname(remote_path)
+                    _get_pc().create_file(parent_dir, is_dir=True)
+
+                    # Upload via multipart
+                    ts = str(int(time.time()))
+                    token = hashlib.md5(("1panel" + panel_api_key + ts).encode()).hexdigest()
+                    with open(local_path, "rb") as f:
+                        resp = http_requests.post(
+                            f"http://{panel_host}:{panel_port}/api/v1/files/upload",
+                            data={"path": remote_path},
+                            files={"file": (fname, f, "application/octet-stream")},
+                            headers={"1Panel-Token": token, "1Panel-Timestamp": ts},
+                            timeout=30,
+                        )
+                    if resp.status_code == 200:
+                        uploaded += 1
+
+            # Clean up temp
+            import shutil as _shutil
+            _shutil.rmtree(local_tmp, ignore_errors=True)
+
+            # Step 3: Reload OpenResty
+            update_bg_task(task_id, status="deploying", message="正在重载OpenResty...")
+            _get_pc().reload_openresty()
+
+            update_site_fields(site_id, {
+                "status": "active",
+                "static_dir": site_dir_1panel,
+                "panel_website_id": site_data.get("website_id"),
+            })
             update_bg_task(task_id, status="completed",
-                          message=f"站点 {domain} 部署完成")
+                          message=f"站点 {domain} 部署完成 ({uploaded} 文件)")
 
         except Exception as e:
             logger.error(f"Static deployment failed for {domain}: {traceback.format_exc()}")
@@ -3118,7 +3204,7 @@ def register_routes(app):
                             if zone_id:
                                 # For root domain, name=domain; for subdomain, name=domain (full FQDN)
                                 # DNS target = 1Panel environment IP (always use panel env)
-                                target_ip = "163.123.236.110"
+                                target_ip = (panel_env.get("host", "") if panel_env else "") or panel_server_ip
                                 dns = cf_client.create_dns_record(
                                     zone_id=zone_id,
                                     record_type="A",
