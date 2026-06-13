@@ -2963,7 +2963,7 @@ def register_routes(app):
         })
 
     def _regenerate_static_site_html(task_id_or_none, site_id):
-        """Regenerate static site HTML with current products, write locally."""
+        """Regenerate static site HTML with current products."""
         site = get_site(site_id)
         if not site or site.get("site_type") != "static":
             return
@@ -2971,194 +2971,25 @@ def register_routes(app):
         domain = site.get("url", "")
         products = list_static_site_products(site_id)
         brand_kit_id = site.get("brand_kit_id")
-        brand_kit = get_brand_kit(brand_kit_id) if brand_kit_id else None
+        brand_kit = get_brand_kit(brand_kit_id) if brand_kit_id else {}
 
-        # Write to local filesystem (served by puhuo nginx wildcard)
-        site_dir = f"/app/backend/static-sites/{domain}"
-        assets_dir = os.path.join(site_dir, "assets")
-        os.makedirs(assets_dir, exist_ok=True)
+        from static_store_engine import render_site
+        count = render_site(domain, brand_kit, products)
+        logger.info(f"Regenerated static site {site_id} ({domain}) with {len(products)} products, {count} files")
 
-        files = _generate_brand_pages(domain, brand_kit)
-
-        # Inject product cards
-        if products:
-            product_cards = ""
-            for p in products:
-                price = f"${p.get('price', 0):.2f}"
-                title = p.get('title', 'Product') or 'Product'
-                image = p.get("image_url", "")
-                img_tag = f'<img src="{image}" alt="{title}">' if image else '<div style="height:240px;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8">No Image</div>'
-                product_cards += f'<div class="product-card">{img_tag}<div class="product-info"><h3>{title}</h3><p class="price">{price}</p></div></div>'
-
-            index = files.get("index.html", "")
-            placeholder = '<p style="text-align:center;color:#999;padding:40px">Products coming soon. Check back later!</p>'
-            if placeholder in index:
-                index = index.replace(placeholder, product_cards)
-            files["index.html"] = index
-
-        # Write files
-        for rel_path, content in files.items():
-            full_path = os.path.join(site_dir, rel_path)
-            os.makedirs(os.path.dirname(full_path), exist_ok=True)
-            with open(full_path, "w", encoding="utf-8") as f:
-                f.write(content)
-
-        logger.info(f"Regenerated static site {site_id} ({domain}) with {len(products)} products")
-
-    def _generate_brand_pages(domain, brand_kit):
-        """Generate static HTML pages from brand kit data.
-
-        Returns dict of {filename: content} ready for upload.
-        Uses brand kit colors, business info, footer, tax/shipping configs.
-        """
-        files = {}
-        bk = brand_kit or {}
-        brand_name = bk.get("brand_name", domain)
-        colors = bk.get("colors", []) if isinstance(bk.get("colors"), list) else (
-            json.loads(bk.get("colors", "[]")) if isinstance(bk.get("colors"), str) else [])
-        if not colors or len(colors) < 2:
-            colors = ["#1a1a2e", "#667eea"]
-
-        primary = colors[0]
-        accent = colors[1] if len(colors) > 1 else "#667eea"
-        bg = "#ffffff"
-        text = "#333333"
-
-        business = bk.get("business_info", {})
-        if isinstance(business, str):
-            business = json.loads(business) if business else {}
-        footer = bk.get("footer_config", {})
-        if isinstance(footer, str):
-            footer = json.loads(footer) if footer else {}
-
-        biz_name = business.get("name", brand_name)
-        biz_address = business.get("address", "")
-        biz_phone = business.get("phone", "")
-        biz_email = business.get("email", "")
-        footer_text = footer.get("text", f"© 2024 {brand_name}. All rights reserved.")
-
-        css = f"""/* {brand_name} */
-:root{{--primary:{primary};--accent:{accent};--bg:{bg};--text:{text}}}
-*{{margin:0;padding:0;box-sizing:border-box}}
-body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.6}}
-.header{{background:var(--primary);color:#fff;padding:20px 40px;display:flex;justify-content:space-between;align-items:center}}
-.logo{{font-size:24px;font-weight:700;letter-spacing:1px}}
-.nav a{{color:#ccc;margin-left:20px;text-decoration:none;font-size:14px}}
-.nav a:hover{{color:#fff}}
-.hero{{background:linear-gradient(135deg,{primary} 0%,{accent} 100%);color:#fff;padding:80px 40px;text-align:center}}
-.hero h1{{font-size:42px;margin-bottom:12px}}
-.hero p{{font-size:18px;opacity:.9;max-width:600px;margin:0 auto}}
-.products{{max-width:1200px;margin:40px auto;padding:0 20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:24px}}
-.product-card{{border:1px solid #eee;border-radius:12px;overflow:hidden;transition:box-shadow .3s,transform .3s;background:#fff}}
-.product-card:hover{{box-shadow:0 8px 30px rgba(0,0,0,.12);transform:translateY(-4px)}}
-.product-card img{{width:100%;height:240px;object-fit:cover;background:#e2e8f0}}
-.product-info{{padding:16px}}
-.product-info h3{{font-size:16px;margin-bottom:8px}}
-.price{{font-size:20px;font-weight:700;color:{accent}}}
-.page-content{{max-width:800px;margin:40px auto;padding:0 20px}}
-.page-content h1{{color:{primary};font-size:28px;margin-bottom:20px}}
-.page-content p{{margin-bottom:16px;color:#555}}
-.footer{{background:var(--primary);color:#aaa;padding:40px;text-align:center;margin-top:60px}}
-.footer a{{color:{accent};margin:0 12px;text-decoration:none}}
-.footer a:hover{{color:#fff}}"""
-
-        files["assets/style.css"] = css
-
-        index_html = f"""<!DOCTYPE html><html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{brand_name} - Shop</title><link rel="stylesheet" href="/assets/style.css"></head>
-<body>
-<header class="header"><div class="logo">{brand_name}</div><nav class="nav"><a href="/">Home</a><a href="/about.html">About</a><a href="/contact.html">Contact</a></nav></header>
-<section class="hero"><h1>Welcome to {brand_name}</h1><p>Discover our curated collection of premium products</p></section>
-<section class="products" id="products"><p style="text-align:center;color:#999;padding:40px">Products coming soon. Check back later!</p></section>
-<footer class="footer"><p>{footer_text}</p><div style="margin-top:12px"><a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a><a href="/shipping.html">Shipping</a><a href="/returns.html">Returns</a></div></footer>
-</body></html>"""
-        files["index.html"] = index_html
-
-        files["about.html"] = f"""<!DOCTYPE html><html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>About - {brand_name}</title><link rel="stylesheet" href="/assets/style.css"></head>
-<body>
-<header class="header"><div class="logo">{brand_name}</div><nav class="nav"><a href="/">Home</a><a href="/about.html">About</a><a href="/contact.html">Contact</a></nav></header>
-<div class="page-content"><h1>About {brand_name}</h1><p>Welcome to {brand_name}, your trusted destination for quality products. We are committed to providing exceptional value and service to our customers worldwide.</p></div>
-<footer class="footer"><p>{footer_text}</p></footer>
-</body></html>"""
-
-        files["contact.html"] = f"""<!DOCTYPE html><html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Contact - {brand_name}</title><link rel="stylesheet" href="/assets/style.css"></head>
-<body>
-<header class="header"><div class="logo">{brand_name}</div><nav class="nav"><a href="/">Home</a><a href="/about.html">About</a><a href="/contact.html">Contact</a></nav></header>
-<div class="page-content"><h1>Contact Us</h1><p><strong>Address:</strong> {biz_address}</p><p><strong>Phone:</strong> {biz_phone}</p><p><strong>Email:</strong> {biz_email}</p></div>
-<footer class="footer"><p>{footer_text}</p></footer>
-</body></html>"""
-
-        for page_name, title, content in [
-            ("privacy.html", "Privacy Policy", "We value your privacy. This policy outlines how we collect, use, and protect your personal information."),
-            ("terms.html", "Terms of Service", "By using our website, you agree to these terms. Please read them carefully before making a purchase."),
-            ("shipping.html", "Shipping Policy", "We ship worldwide. Delivery times vary by location. Free shipping on orders over $50."),
-            ("returns.html", "Returns Policy", "30-day return policy. Items must be unused and in original packaging. Contact us to initiate a return."),
-        ]:
-            files[page_name] = f"""<!DOCTYPE html><html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{title} - {brand_name}</title><link rel="stylesheet" href="/assets/style.css"></head>
-<body>
-<header class="header"><div class="logo">{brand_name}</div><nav class="nav"><a href="/">Home</a><a href="/about.html">About</a><a href="/contact.html">Contact</a></nav></header>
-<div class="page-content"><h1>{title}</h1><p>{content}</p></div>
-<footer class="footer"><p>{footer_text}</p></footer>
-</body></html>"""
-
-        return files
+# _generate_brand_pages removed — replaced by static_store_engine.render_site()
 
     def _bg_deploy_static(task_id, site_id, alias, domain,
                          brand_kit=None, panel_host="", panel_port=3500, panel_api_key=""):
         """Deploy a static site — write files locally, served by puhuo nginx wildcard."""
-        site_dir = f"/app/backend/static-sites/{domain}"
-        assets_dir = os.path.join(site_dir, "assets")
-
         try:
             update_bg_task(task_id, status="deploying", message="正在创建站点目录...")
-            os.makedirs(assets_dir, exist_ok=True)
 
-            # Generate or use brand kit pages
-            files_written = 0
-            if brand_kit and brand_kit.get("html_site"):
-                update_bg_task(task_id, status="deploying", message="正在写入品牌页面...")
-                html_site = brand_kit["html_site"]
-                if isinstance(html_site, str):
-                    html_site = json.loads(html_site) if html_site else {}
+            from static_store_engine import render_site
+            site_dir = f"/app/backend/static-sites/{domain}"
+            count = render_site(domain, brand_kit or {}, [], site_dir)
 
-                for page_name in ["index.html", "about.html", "contact.html",
-                                  "privacy.html", "terms.html", "shipping.html",
-                                  "returns.html", "robots.txt"]:
-                    content = html_site.get(page_name, "")
-                    if content:
-                        with open(os.path.join(site_dir, page_name), "w", encoding="utf-8") as f:
-                            f.write(content)
-                        files_written += 1
-
-                css = html_site.get("css", "")
-                if css:
-                    with open(os.path.join(assets_dir, "style.css"), "w", encoding="utf-8") as f:
-                        f.write(css)
-
-                for ak, an in [("png_256", "logo.png"), ("ico", "favicon.ico"), ("og_image", "og-image.png")]:
-                    src = brand_kit.get(ak, "")
-                    if src and os.path.isfile(src):
-                        import shutil
-                        shutil.copy(src, os.path.join(assets_dir, an))
-
-            if files_written == 0:
-                update_bg_task(task_id, status="deploying", message="正在生成品牌页面...")
-                files = _generate_brand_pages(domain, brand_kit)
-                for rel_path, content in files.items():
-                    full_path = os.path.join(site_dir, rel_path)
-                    os.makedirs(os.path.dirname(full_path), exist_ok=True)
-                    with open(full_path, "w", encoding="utf-8") as f:
-                        f.write(content)
-                    files_written += 1
-
-            logger.info(f"Static site {domain}: {files_written} files written to {site_dir}")
+            logger.info(f"Static site {domain}: {count} files written")
 
             update_site_fields(site_id, {"status": "active", "static_dir": site_dir})
             update_bg_task(task_id, status="completed",
