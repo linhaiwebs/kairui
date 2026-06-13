@@ -638,6 +638,15 @@ const API = {
         return this.request('DELETE', `/api/fingerprint-categories/${id}`);
     },
 
+    
+    // System Export / Import
+    async exportSystem() {
+        return this.request('GET', '/api/system/export');
+    },
+    async importSystem(data) {
+        return this.request('POST', '/api/system/import', data);
+    },
+
     // Profile Category Mapping (CloakBrowser profiles ← categories)
     async getProfileCategories() {
         return this.request('GET', '/api/profile-categories');

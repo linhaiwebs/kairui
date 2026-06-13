@@ -1,0 +1,347 @@
+/* ============================================================
+   Kairui - Stitch Design System 1:1
+   Exact match of stitch.withgoogle.com MD3 design tokens
+   ============================================================ */
+:root {
+  --surface: #faf8ff;
+  --surface-dim: #d9d9e4;
+  --surface-bright: #faf8ff;
+  --surface-container-lowest: #ffffff;
+  --surface-container-low: #f3f3fd;
+  --surface-container: #ededf8;
+  --surface-container-high: #e7e7f2;
+  --surface-container-highest: #e1e2ec;
+  --surface-variant: #e1e2ec;
+  --background: #faf8ff;
+  --on-surface: #191b23;
+  --on-surface-variant: #434654;
+  --on-background: #191b23;
+  --outline: #737685;
+  --outline-variant: #c3c6d6;
+  --primary: #003d9b;
+  --on-primary: #ffffff;
+  --primary-container: #0052cc;
+  --on-primary-container: #c4d2ff;
+  --primary-fixed: #dae2ff;
+  --primary-fixed-dim: #b2c5ff;
+  --on-primary-fixed: #001848;
+  --on-primary-fixed-variant: #0040a2;
+  --surface-tint: #0c56d0;
+  --secondary: #505f78;
+  --on-secondary: #ffffff;
+  --secondary-container: #d1e0fe;
+  --on-secondary-container: #54637d;
+  --secondary-fixed: #d5e3ff;
+  --secondary-fixed-dim: #b8c7e4;
+  --on-secondary-fixed: #0c1c32;
+  --on-secondary-fixed-variant: #38475f;
+  --tertiary: #7b2600;
+  --on-tertiary: #ffffff;
+  --tertiary-container: #a33500;
+  --on-tertiary-container: #ffc6b2;
+  --tertiary-fixed: #ffdbcf;
+  --tertiary-fixed-dim: #ffb59b;
+  --on-tertiary-fixed: #380d00;
+  --on-tertiary-fixed-variant: #812800;
+  --error: #ba1a1a;
+  --on-error: #ffffff;
+  --error-container: #ffdad6;
+  --on-error-container: #93000a;
+  --inverse-surface: #2e3038;
+  --inverse-on-surface: #f0f0fb;
+  --inverse-primary: #b2c5ff;
+  --fs-display-lg: 32px; --lh-display-lg: 40px; --fw-display-lg: 700;
+  --fs-display-md: 24px; --lh-display-md: 32px; --fw-display-md: 700;
+  --fs-headline-sm: 20px; --lh-headline-sm: 28px; --fw-headline-sm: 600;
+  --fs-body-lg: 16px; --lh-body-lg: 24px; --fw-body-lg: 400;
+  --fs-body-md: 14px; --lh-body-md: 20px; --fw-body-md: 400;
+  --fs-label-md: 12px; --lh-label-md: 16px; --fw-label-md: 500;
+  --fs-label-sm: 11px; --lh-label-sm: 16px; --fw-label-sm: 500;
+  --sp-xs: 4px; --sp-sm: 8px; --sp-md: 16px; --sp-lg: 24px; --sp-xl: 32px;
+  --sp-margin: 24px; --sp-gutter: 16px;
+  --radius-DEFAULT: 0.25rem;
+  --radius-sm: 8px; --radius-md: 12px;
+  --radius-lg: 0.5rem; --radius-xl: 0.75rem; --radius-full: 9999px;
+  --shadow-level-1: 0px 1px 3px rgba(0,0,0,0.10);
+  --shadow-level-2: 0px 4px 12px rgba(0,0,0,0.15);
+  --shadow-level-3: 0px 12px 24px rgba(0,0,0,0.20);
+  --ambient-shadow: 0px 1px 3px rgba(0,0,0,0.10);
+  --md-surface: var(--surface-container-lowest);
+  --md-background: var(--background);
+  --md-on-surface: var(--on-surface);
+  --md-on-surface-variant: var(--on-surface-variant);
+  --md-primary: var(--primary);
+  --md-on-primary: var(--on-primary);
+  --md-primary-container: var(--primary-container);
+  --md-primary-fixed-dim: var(--primary-fixed-dim);
+  --md-secondary-container: var(--secondary-container);
+  --md-on-secondary-container: var(--on-secondary-container);
+  --md-error: var(--error);
+  --md-error-container: var(--error-container);
+  --md-outline: var(--outline);
+  --md-outline-variant: var(--outline-variant);
+  --sidebar-width: 240px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;-webkit-font-smoothing:antialiased}
+body{font-family:inherit;background:var(--background);color:var(--on-background);font-size:var(--fs-body-md);line-height:var(--lh-body-md);font-weight:var(--fw-body-md);-webkit-font-smoothing:antialiased;min-height:100vh}
+
+.font-display-lg{font-size:var(--fs-display-lg);line-height:var(--lh-display-lg);font-weight:var(--fw-display-lg)}
+.font-display-md{font-size:var(--fs-display-md);line-height:var(--lh-display-md);font-weight:var(--fw-display-md)}
+.font-headline-sm{font-size:var(--fs-headline-sm);line-height:var(--lh-headline-sm);font-weight:var(--fw-headline-sm)}
+.font-body-lg{font-size:var(--fs-body-lg);line-height:var(--lh-body-lg);font-weight:var(--fw-body-lg)}
+.font-body-md{font-size:var(--fs-body-md);line-height:var(--lh-body-md);font-weight:var(--fw-body-md)}
+.font-label-md{font-size:var(--fs-label-md);line-height:var(--lh-label-md);font-weight:var(--fw-label-md)}
+.font-label-sm{font-size:var(--fs-label-sm);line-height:var(--lh-label-sm);font-weight:var(--fw-label-sm)}
+
+.bg-surface{background:var(--surface)} .bg-surface-container{background:var(--surface-container)}
+.bg-surface-container-low{background:var(--surface-container-low)}
+.bg-surface-container-lowest{background:var(--surface-container-lowest)}
+.bg-surface-container-high{background:var(--surface-container-high)}
+.bg-surface-container-highest{background:var(--surface-container-highest)}
+.bg-background{background:var(--background)}
+.text-on-surface{color:var(--on-surface)} .text-on-surface-variant{color:var(--on-surface-variant)}
+.text-primary{color:var(--primary)} .bg-primary{background:var(--primary)}
+.bg-primary-container{background:var(--primary-container)} .text-on-primary{color:var(--on-primary)}
+.bg-secondary-container{background:var(--secondary-container)}
+.text-on-secondary-container{color:var(--on-secondary-container)}
+.text-error{color:var(--error)} .bg-error-container{background:var(--error-container)}
+.border-outline{border-color:var(--outline)} .border-outline-variant{border-color:var(--outline-variant)}
+
+.p-xs{padding:var(--sp-xs)} .p-sm{padding:var(--sp-sm)} .p-md{padding:var(--sp-md)}
+.p-lg{padding:var(--sp-lg)} .p-xl{padding:var(--sp-xl)}
+.px-sm{padding-left:var(--sp-sm);padding-right:var(--sp-sm)}
+.px-md{padding-left:var(--sp-md);padding-right:var(--sp-md)}
+.px-lg{padding-left:var(--sp-lg);padding-right:var(--sp-lg)}
+.py-sm{padding-top:var(--sp-sm);padding-bottom:var(--sp-sm)}
+.py-md{padding-top:var(--sp-md);padding-bottom:var(--sp-md)}
+.mt-xs{margin-top:var(--sp-xs)} .mt-sm{margin-top:var(--sp-sm)}
+.mt-md{margin-top:var(--sp-md)} .mt-lg{margin-top:var(--sp-lg)}
+.mb-xs{margin-bottom:var(--sp-xs)} .mb-sm{margin-bottom:var(--sp-sm)}
+.mb-md{margin-bottom:var(--sp-md)} .mb-lg{margin-bottom:var(--sp-lg)}
+.mb-xl{margin-bottom:var(--sp-xl)} .ml-auto{margin-left:auto}
+.gap-xs{gap:var(--sp-xs)} .gap-sm{gap:var(--sp-sm)} .gap-md{gap:var(--sp-md)} .gap-lg{gap:var(--sp-lg)}
+.space-y-md>*+*{margin-top:var(--sp-md)} .space-y-lg>*+*{margin-top:var(--sp-lg)}
+.space-y-xl>*+*{margin-top:var(--sp-xl)}
+
+.shadow-level-1{box-shadow:var(--shadow-level-1)}
+.shadow-level-2{box-shadow:var(--shadow-level-2)}
+.shadow-level-3{box-shadow:var(--shadow-level-3)}
+.rounded-md{border-radius:var(--radius-sm)}
+.rounded-lg{border-radius:var(--radius-lg)}
+.rounded-xl{border-radius:var(--radius-xl)}
+.rounded-full{border-radius:var(--radius-full)}
+
+/* ============ SIDEBAR - Exact Stitch Design ============ */
+.sidebar{position:fixed;left:0;top:0;height:100%;width:240px;background:var(--surface);border-right:1px solid var(--outline-variant);display:flex;flex-direction:column;z-index:40;box-shadow:1px 0 3px rgba(0,0,0,0.10)}
+.sidebar-brand{display:flex;align-items:center;gap:var(--sp-md);padding:var(--sp-lg);border-bottom:1px solid var(--outline-variant);height:64px}
+.sidebar-brand .brand-icon{font-size:28px;color:var(--primary);font-variation-settings:'FILL' 1}
+.sidebar-brand .brand-name{font-size:var(--fs-display-md);font-weight:700;color:var(--primary)}
+.sidebar-nav{flex:1;overflow-y:auto;padding:var(--sp-md) var(--sp-sm);display:flex;flex-direction:column;gap:var(--sp-xs);margin-top:var(--sp-md)}
+.sidebar-link{display:flex;align-items:center;gap:var(--sp-md);padding:var(--sp-sm) var(--sp-md);border-radius:var(--radius-lg);color:var(--on-surface-variant);font-size:var(--fs-body-md);cursor:pointer;transition:all .2s;text-decoration:none;border:none;background:transparent;width:100%;text-align:left;font-family:inherit}
+.sidebar-link:hover{background:var(--surface-container-high);color:var(--on-surface)}
+.sidebar-link.active{background:var(--secondary-container);color:var(--on-secondary-container);font-weight:700;transform:scale(.98)}
+.sidebar-link.active .material-symbols-outlined{font-variation-settings:'FILL' 1;font-weight:700}
+.sidebar-divider{height:1px;background:var(--outline-variant);margin:var(--sp-sm) var(--sp-md)}
+.sidebar-user{display:flex;align-items:center;gap:var(--sp-md);padding:var(--sp-lg);border-top:1px solid var(--outline-variant)}
+.sidebar-user .avatar{width:40px;height:40px;border-radius:50%;background:var(--surface-container-highest);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:700;font-size:14px}
+.sidebar-user .name{font-size:var(--fs-body-md);color:var(--on-surface);font-weight:600}
+.sidebar-user .org{font-size:var(--fs-label-sm);color:var(--on-surface-variant)}
+
+/* ============ TOP HEADER - Exact Stitch Design ============ */
+.top-header{position:fixed;top:0;right:0;left:240px;height:64px;z-index:30;display:flex;justify-content:space-between;align-items:center;padding:0 var(--sp-lg);background:var(--surface-container-lowest);border-bottom:1px solid var(--outline-variant);box-shadow:0px 1px 3px rgba(0,0,0,0.05)}
+.header-icon-btn{color:var(--on-surface-variant);transition:all .2s;padding:var(--sp-sm);border-radius:var(--radius-full);cursor:pointer;border:none;background:transparent}
+.header-icon-btn:hover{color:var(--primary);background:var(--surface-container-low)}
+
+/* ============ MAIN CONTENT - Exact Stitch Design ============ */
+.main-content{margin-left:240px;padding-top:88px;padding-right:var(--sp-md);padding-bottom:var(--sp-xl);min-height:100vh}
+.main-content-inner{max-width:1440px;margin:0 auto;padding:var(--sp-lg)}
+
+/* ============ PAGE HEADER - Exact Stitch Design ============ */
+.page-header{display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start;gap:var(--sp-md);margin-bottom:var(--sp-lg)}
+@media(min-width:768px){.page-header{flex-direction:row;align-items:flex-end}}
+.page-breadcrumb{display:flex;align-items:center;gap:var(--sp-sm);font-size:var(--fs-label-md);color:var(--on-surface-variant);margin-bottom:var(--sp-xs)}
+.page-breadcrumb .current{color:var(--primary)}
+.page-title{font-size:var(--fs-display-lg);font-weight:var(--fw-display-lg);line-height:var(--lh-display-lg);color:var(--on-surface)}
+.page-subtitle{font-size:var(--fs-body-md);color:var(--on-surface-variant);margin-top:var(--sp-xs)}
+
+/* ============ KPI CARDS - Exact Stitch Design ============ */
+.kpi-card{background:var(--surface-container-lowest);border-radius:12px;padding:var(--sp-lg);box-shadow:var(--ambient-shadow);border:1px solid rgba(195,198,214,.3);display:flex;flex-direction:column;justify-content:space-between;height:120px}
+.kpi-card .kpi-label{font-size:var(--fs-body-md);color:var(--on-surface-variant)}
+.kpi-card .kpi-value{font-size:var(--fs-display-lg);font-weight:var(--fw-display-lg);line-height:var(--lh-display-lg);color:var(--on-surface)}
+.kpi-card .kpi-icon{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.kpi-card .kpi-icon.primary{background:var(--primary-fixed);color:var(--primary)}
+.kpi-card .kpi-icon.secondary{background:var(--secondary-fixed);color:var(--on-secondary-fixed)}
+.kpi-card .kpi-icon.tertiary{background:var(--tertiary-fixed);color:var(--on-tertiary-fixed)}
+.kpi-change{display:inline-flex;align-items:center;gap:2px;font-size:var(--fs-label-md);font-weight:500;padding:2px var(--sp-xs);border-radius:4px}
+.kpi-change.up{color:#146c2e;background:#e2f6e7}
+.kpi-change.down{color:var(--error);background:var(--error-container)}
+.kpi-change.flat{color:var(--on-surface-variant);background:var(--surface-variant)}
+
+/* ============ TABLE - Exact Stitch Design ============ */
+.table-container{background:var(--surface);border-radius:12px;box-shadow:var(--shadow-level-1);border:1px solid var(--outline-variant);overflow:hidden}
+.table-header{display:flex;justify-content:space-between;align-items:center;padding:var(--sp-md) var(--sp-lg);border-bottom:1px solid var(--outline-variant);background:var(--surface-bright)}
+.data-table{width:100%;border-collapse:collapse}
+.data-table thead tr{background:var(--surface-container-low);border-bottom:1px solid var(--outline-variant)}
+.data-table th{text-align:left;padding:var(--sp-sm) var(--sp-lg);font-size:var(--fs-label-md);font-weight:500;color:var(--on-surface-variant)}
+.data-table td{padding:var(--sp-sm) var(--sp-lg);font-size:var(--fs-body-md);color:var(--on-surface)}
+.data-table tbody tr{border-bottom:1px solid var(--outline-variant)}
+.data-table tbody tr:hover td{background:var(--surface-bright)}
+.data-table tbody tr:last-child{border-bottom:none}
+
+/* ============ PIPELINE BAR - Exact Stitch Design ============ */
+.pipeline-bar{display:flex;align-items:center;width:100%;gap:var(--sp-xs)}
+.pipeline-segment{flex:1;height:10px;border-radius:var(--radius-full);background:var(--surface-variant);box-shadow:inset 0 1px 2px rgba(0,0,0,.05)}
+.pipeline-segment.done{background:linear-gradient(to right,var(--primary),#00A3FF);box-shadow:inset 0 1px 2px rgba(255,255,255,.3),0 0 8px rgba(0,61,155,.4)}
+.pipeline-segment.in-progress{position:relative;overflow:hidden}
+.pipeline-segment.in-progress::after{content:'''';position:absolute;top:0;left:0;height:100%;width:50%;background:linear-gradient(to right,var(--primary),#00A3FF);animation:pulse 2s infinite;border-radius:var(--radius-full);box-shadow:0 0 10px rgba(0,163,255,.6)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+/* ============ BUTTONS - Exact Stitch Design ============ */
+button{display:inline-flex;align-items:center;gap:var(--sp-xs,4px);cursor:pointer;font-family:inherit}
+button .material-symbols-outlined,button .fas,button .far,button .fab{line-height:1;vertical-align:middle}
+.btn{display:inline-flex;align-items:center;gap:var(--sp-sm);padding:var(--sp-sm) var(--sp-md);border-radius:var(--radius-lg);font-size:var(--fs-body-md);font-weight:500;cursor:pointer;border:none;transition:all .2s;font-family:inherit}
+.btn-primary{display:inline-flex;align-items:center;gap:var(--sp-sm);background:var(--primary-container);color:var(--on-primary);box-shadow:var(--shadow-level-1)}
+.btn-primary:hover{background:var(--primary);opacity:.9}
+.btn-secondary{display:inline-flex;align-items:center;gap:var(--sp-sm);background:transparent;color:var(--on-surface);border:1px solid var(--outline)}
+.btn-secondary:hover{background:var(--surface-container-low)}
+.btn-danger{display:inline-flex;align-items:center;gap:var(--sp-sm);background:var(--error);color:var(--on-error)}
+.btn-danger:hover{opacity:.9}
+.btn-sm{padding:4px var(--sp-sm);font-size:var(--fs-label-md)}
+.btn-outline{border:1px solid var(--outline-variant);background:transparent;color:var(--on-surface)}
+.btn-outline:hover{background:var(--surface-container-low)}
+
+/* ============ FORMS - Exact Stitch Design ============ */
+.form-input{width:100%;padding:var(--sp-sm) var(--sp-md);border:1px solid var(--outline-variant);border-radius:var(--radius-lg);font-size:var(--fs-body-md);color:var(--on-surface);background:var(--surface-bright);outline:none;transition:border-color .2s,box-shadow .2s;font-family:inherit}
+.form-input:focus{border-color:var(--primary-container);box-shadow:0 0 0 2px rgba(0,61,155,.1)}
+.form-label{display:block;font-size:var(--fs-label-md);font-weight:var(--fw-label-md);color:var(--on-surface-variant);margin-bottom:var(--sp-xs)}
+
+/* ============ TABS - Exact Stitch Design ============ */
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--outline-variant);padding:var(--sp-sm) var(--sp-md) 0;overflow-x:auto}
+.tab{padding:12px var(--sp-lg);font-size:var(--fs-label-md);font-weight:500;color:var(--on-surface-variant);border-bottom:2px solid transparent;cursor:pointer;transition:all .2s;white-space:nowrap;background:transparent;border-top:none;border-left:none;border-right:none;font-family:inherit}
+.tab:hover{color:var(--primary);background:var(--surface-container-low)}
+.tab.active{color:var(--primary);border-bottom-color:var(--primary);background:var(--surface-container-low);border-radius:var(--radius-lg) var(--radius-lg) 0 0}
+
+/* ============ BADGES - Exact Stitch Design ============ */
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:var(--radius-full);font-size:var(--fs-label-sm);font-weight:600}
+.badge-success{background:#dcfce7;color:#166534}
+.badge-error{background:var(--error-container);color:var(--error)}
+.badge-info{background:var(--primary-fixed);color:var(--on-primary-fixed)}
+.badge-warning{background:#fef3c7;color:#92400e}
+
+/* ============ MODALS - Exact Stitch Design ============ */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(4px);z-index:100;display:flex;align-items:center;justify-content:center}
+.modal{background:var(--surface);border-radius:var(--radius-xl);box-shadow:var(--shadow-level-3);max-width:640px;width:90%;max-height:85vh;overflow-y:auto}
+.modal-header{display:flex;justify-content:space-between;align-items:center;padding:var(--sp-lg);border-bottom:1px solid var(--outline-variant)}
+.modal-body{padding:var(--sp-lg)}
+.modal-footer{display:flex;justify-content:flex-end;gap:var(--sp-sm);padding:var(--sp-md) var(--sp-lg);border-top:1px solid var(--outline-variant)}
+
+/* ============ TOAST ============ */
+.toast{position:fixed;top:20px;right:20px;z-index:9999;min-width:300px;background:var(--surface-container-highest);border-radius:var(--radius-lg);box-shadow:var(--shadow-level-3);padding:16px 20px;font-size:var(--fs-body-md)}
+
+/* ============ LOADING OVERLAY ============ */
+.loading-overlay{position:fixed;inset:0;background:rgba(0,0,0,.3);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;z-index:9999}
+
+/* ============ LOGIN PAGE - Exact Stitch Design ============ */
+.login-container{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:var(--sp-md);background:var(--background)}
+.login-card{width:100%;max-width:1024px;background:var(--surface-container-lowest);border-radius:var(--radius-xl);box-shadow:var(--shadow-level-3);overflow:hidden;display:flex;min-height:600px}
+.login-left{width:50%;background:var(--primary-container);color:var(--on-primary);padding:var(--sp-xl);position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between}
+.login-left::before{content:'''';position:absolute;inset:0;background:var(--primary);opacity:.8;z-index:0}
+.login-left>*{position:relative;z-index:10}
+.login-right{width:50%;padding:48px;display:flex;flex-direction:column;justify-content:center;background:var(--surface-container-lowest)}
+@media(max-width:768px){.login-left{display:none}.login-right{width:100%;padding:var(--sp-xl)}.login-card{flex-direction:column}}
+.login-tabs{display:flex;padding:var(--sp-xs);background:var(--surface-container-high);border-radius:var(--radius-lg);margin-bottom:var(--sp-lg)}
+.login-tab{flex:1;padding:var(--sp-sm) var(--sp-md);text-align:center;border-radius:var(--radius-DEFAULT);font-size:var(--fs-label-md);font-weight:500;cursor:pointer;transition:all .2s;border:none;background:transparent;color:var(--on-surface-variant);font-family:inherit}
+.login-tab.active{background:var(--surface-container-lowest);color:var(--on-surface);box-shadow:var(--shadow-level-1)}
+.login-tab:hover:not(.active){color:var(--on-surface)}
+
+/* ============ MATERIAL SYMBOLS ============ */
+.material-symbols-outlined{font-family:'Material Symbols Outlined';font-weight:400;font-style:normal;font-size:24px;line-height:1;display:inline-block;white-space:nowrap;word-wrap:normal;direction:ltr;-webkit-font-smoothing:antialiased}
+
+/* ============ ANIMATIONS ============ */
+.fade-in{animation:fadeIn .3s ease-in}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ============ RESPONSIVE ============ */
+@media(max-width:768px){.sidebar{display:none}.sidebar.open{display:flex;z-index:50}.top-header{left:0}.main-content{margin-left:0;padding-left:var(--sp-md);padding-top:80px}}
+@media print{.no-print{display:none!important}}
+
+/* ============ SCROLLBAR ============ */
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:var(--surface-container)}
+::-webkit-scrollbar-thumb{background:var(--outline-variant);border-radius:3px}
+
+/* ============ GRID UTILITIES ============ */
+.grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--sp-gutter)}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-gutter)}
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--sp-gutter)}
+@media(max-width:1280px){.grid-4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:768px){.grid-2,.grid-3,.grid-4{grid-template-columns:1fr}}
+
+
+/* ===== Pipeline Timeline ===== */
+.timeline-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    border: 2px solid #e0e0e0;
+    background: #f5f5f5;
+    color: #9e9e9e;
+    cursor: default;
+    flex-shrink: 0;
+}
+.timeline-icon.active {
+    background: #146c2e;
+    border-color: #146c2e;
+    color: #fff;
+}
+.timeline-icon.in-progress {
+    background: #e8f5e9;
+    border-color: #146c2e;
+    color: #146c2e;
+    animation: pulse-border 2s infinite;
+}
+.timeline-icon.clickable {
+    cursor: pointer;
+}
+.timeline-icon.clickable:hover {
+    transform: scale(1.15);
+    border-color: #1976d2;
+    color: #1976d2;
+    background: #e3f2fd;
+}
+.timeline-icon.inactive {
+    background: #f5f5f5;
+    border-color: #e0e0e0;
+    color: #bdbdbd;
+}
+.timeline-line {
+    width: 24px;
+    height: 2px;
+    background: #e0e0e0;
+    flex-shrink: 0;
+    align-self: center;
+}
+.timeline-line.active {
+    background: #146c2e;
+}
+.timeline-line.in-progress {
+    background: linear-gradient(90deg, #146c2e 50%, #e0e0e0 50%);
+}
+@keyframes pulse-border {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(20, 108, 46, 0.3); }
+    50% { box-shadow: 0 0 0 4px rgba(20, 108, 46, 0.1); }
+}
+
+/* Timeline container */
+.timeline-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+}

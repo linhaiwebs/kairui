@@ -1,4 +1,4 @@
-const { createApp, ref, reactive, computed, onMounted, watch, nextTick } = Vue;
+﻿const { createApp, ref, reactive, computed, onMounted, watch, nextTick } = Vue;
 
 const app = createApp({
     setup() {
@@ -316,6 +316,12 @@ const app = createApp({
         const userFormError = ref('');
         // Fingerprint Categories & Profile Mapping
         const fingerprintCategories = ref([]);
+        const activeFingerprintCategory = ref(null);
+        const importingFingerprintText = ref('');
+        const importingFingerprints = ref(false);
+        const importFingerprintResult = ref('');
+        const importFileInput = ref(null);
+
         const profileCategories = ref([]);  // profile_name → category_id mapping
         const newCategoryName = ref('');
         // Settings Tabs
@@ -2470,7 +2476,173 @@ pipelineStatuses[siteId].demo_importing = false;
                 else { showToast(resp.message || '删除失败', 'error'); }
             } catch (e) { showToast('删除失败', 'error'); }
         }
-        async function loadProfileCategories() {
+        
+        // Get profiles filtered by category
+        function getProfilesByCategory(catId) {
+            const profileNames = profileCategories.value
+                .filter(pc => pc.category_id === catId)
+                .map(pc => pc.profile_name);
+            return cloakbrowserProfiles.value.filter(p => profileNames.includes(p.name));
+        }
+
+                // Export all system data
+        async function exportSystemData() {
+            try {
+                showToast('正在导出...');
+                const resp = await API.exportSystem();
+                if (resp.code === 200) {
+                    const blob = new Blob([JSON.stringify(resp.data, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'kairui-export-' + new Date().toISOString().slice(0, 10) + '.json';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    showToast('导出成功');
+                } else {
+                    showToast(resp.message || '导出失败', 'error');
+                }
+            } catch (e) {
+                showToast('导出失败: ' + e.message, 'error');
+            }
+        }
+
+        // Trigger import file dialog
+        function importSystemData() {
+            importFileInput.value.click();
+        }
+
+        // Handle import file selection
+        async function handleImportFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            if (!confirm('导入将覆盖现有数据，确定继续？')) {
+                event.target.value = '';
+                return;
+            }
+            try {
+                showToast('正在导入...');
+                const text = await file.text();
+                const data = JSON.parse(text);
+                const resp = await API.importSystem(data);
+                if (resp.code === 200) {
+                    showToast(resp.message || '导入成功，即将刷新...');
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showToast(resp.message || '导入失败', 'error');
+                }
+            } catch (e) {
+                showToast('导入失败: ' + e.message, 'error');
+            }
+            event.target.value = '';
+        }
+
+// Import fingerprint profiles from text input (auto-parses proxy, syncs to SOCKS5 pool)
+        async function importFingerprintProfiles() {
+            const text = importingFingerprintText.value.trim();
+            if (!text) { showToast('请输入 Profile 名称', 'error'); return; }
+            if (!activeFingerprintCategory.value) { showToast('请先选择分类', 'error'); return; }
+
+            const names = text.split('\n').map(n => n.trim()).filter(n => n.length > 0);
+            if (!names.length) { showToast('未识别到有效的 Profile 名称', 'error'); return; }
+
+            importingFingerprints.value = true;
+            importFingerprintResult.value = '';
+            let created = 0, skipped = 0;
+            // Collect proxy lines in IP:PORT:USER:PASS format for batch import
+            const proxyLines = [];
+
+            for (const name of names) {
+                try {
+                    let proxy = '', country = 'US';
+                    let host = '', port = '', user = '', pass = '';
+
+                    // Format 1: user:pass@host:port (contains @)
+                    const atIdx = name.indexOf('@');
+                    if (atIdx >= 0) {
+                        const userPass = name.substring(0, atIdx);
+                        const hostPort = name.substring(atIdx + 1);
+                        const upColon = userPass.indexOf(':');
+                        const hpColon = hostPort.lastIndexOf(':');
+                        if (upColon >= 0 && hpColon >= 0) {
+                            user = userPass.substring(0, upColon);
+                            pass = userPass.substring(upColon + 1);
+                            host = hostPort.substring(0, hpColon);
+                            port = hostPort.substring(hpColon + 1);
+                        }
+                    } else {
+                        // Format 2: a:b:c:d (4 colon-separated parts)
+                        const parts = name.split(':');
+                        if (parts.length === 4) {
+                            // Check if 2nd part looks like a port (numeric, 2-5 digits)
+                            if (/^\d{2,5}$/.test(parts[1])) {
+                                // host:port:user:pass
+                                host = parts[0]; port = parts[1]; user = parts[2]; pass = parts[3];
+                            } else {
+                                // user:pass:host:port
+                                user = parts[0]; pass = parts[1]; host = parts[2]; port = parts[3];
+                            }
+                        }
+                    }
+
+                    if (host && port && user && pass) {
+                        proxy = 'socks5://' + encodeURIComponent(user) + ':' + encodeURIComponent(pass) + '@' + host + ':' + port;
+                        // Collect for batch proxy import: IP:PORT:USER:PASS
+                        proxyLines.push(host + ':' + port + ':' + user + ':' + pass);
+                    }
+
+                    const resp = await API.createCloakbrowserProfile(name, '', proxy, country, null);
+                    if (resp.code === 200 || resp.code === 409) {
+                        if (resp.code === 200) created++;
+                        else skipped++;
+                        const sanitizedName = name.replace(/[^a-zA-Z0-9\-_]/g, '-');
+                        await API.setProfileCategory(sanitizedName, activeFingerprintCategory.value);
+                    }
+                } catch (e) {
+                    console.error('Import profile error:', name, e);
+                }
+            }
+
+            // Auto-sync proxies to SOCKS5 pool (IP:PORT:USER:PASS format)
+            if (proxyLines.length > 0) {
+                try {
+                    const proxyText = proxyLines.join('\n');
+                    const proxyResp = await API.importProxiesText(proxyText, 'socks5');
+                    if (proxyResp.code === 200) {
+                        console.log('Proxy auto-sync: ' + proxyResp.message);
+                    }
+                } catch (e) {
+                    console.error('Auto-sync proxy error:', e);
+                }
+            }
+
+            importingFingerprints.value = false;
+            importingFingerprintText.value = '';
+            if (created === 0 && skipped > 0) {
+                importFingerprintResult.value = '所有 ' + skipped + ' 个 Profile 均已存在，已关联到当前分类（代理已同步）';
+            } else if (created > 0 && skipped > 0) {
+                importFingerprintResult.value = '成功导入 ' + created + ' 个，' + skipped + ' 个已存在（已关联分类，代理已同步）';
+            } else if (created > 0) {
+                importFingerprintResult.value = '成功导入 ' + created + ' 个 Profile（代理已同步）';
+            } else {
+                importFingerprintResult.value = '未识别到有效的 Profile 名称';
+            }
+            await loadCloakbrowserProfiles();
+            await loadProfileCategories();
+            await loadProxies();
+        }
+
+        // Remove profile from current category (set to uncategorized)
+        async function removeProfileFromCategory(profileName) {
+            try {
+                await API.setProfileCategory(profileName, null);
+                showToast('已移除分类');
+                await loadProfileCategories();
+            } catch (e) {
+                showToast('操作失败', 'error');
+            }
+        }
+async function loadProfileCategories() {
             try { const resp = await API.getProfileCategories(); if (resp.code === 200) profileCategories.value = resp.data || []; } catch (e) {}
         }
         async function handleSetProfileCategory(profileName, categoryId) {
@@ -2573,8 +2745,11 @@ pipelineStatuses[siteId].demo_importing = false;
             fingerprintCategories, profileCategories, newCategoryName,
             loadFingerprintCategories, createFingerprintCategory, deleteFingerprintCategory,
             loadProfileCategories, handleSetProfileCategory,
-            settingsActiveTab, settingsTabs,
-            panelEnvironments, showPanelEnvModal, panelEnvEditId, panelEnvForm, panelEnvFormError,
+
+            activeFingerprintCategory, importingFingerprintText, importingFingerprints, importFingerprintResult,
+            getProfilesByCategory, importFingerprintProfiles, removeProfileFromCategory,            settingsActiveTab, settingsTabs,
+
+            exportSystemData, importSystemData, handleImportFile, importFileInput,            panelEnvironments, showPanelEnvModal, panelEnvEditId, panelEnvForm, panelEnvFormError,
             loadPanelEnvironments, openPanelEnvModal, closePanelEnvModal, handleSavePanelEnv,
             handleDeletePanelEnv, handleSetDefaultPanelEnv,
             showToast, showModal,
@@ -2661,45 +2836,36 @@ pipelineStatuses[siteId].demo_importing = false;
                 <a @click="currentPage = 'dashboard'" :class="['sidebar-link', currentPage === 'dashboard' ? 'active' : '']">
                     <span class="material-symbols-outlined">dashboard</span> 仪表盘
                 </a>
+                <a @click="currentPage = 'woo-stats'; loadWooStats()" :class="['sidebar-link', currentPage === 'woo-stats' ? 'active' : '']">
+                    <span class="material-symbols-outlined">trending_up</span> 销售统计
+                </a>
                 <a @click="currentPage = 'sites'" :class="['sidebar-link', currentPage === 'sites' ? 'active' : '']">
                     <span class="material-symbols-outlined">language</span> 站点列表
                     <span class="ml-auto bg-primary-container text-on-primary text-xs px-2 py-0.5 rounded-full font-label-sm">{{ sites.length }}</span>
                 </a>
-                <a @click="toggleFeedMenu(); currentPage = 'shai-pin-dashboard'; loadFeedStats()"
-                   :class="['sidebar-link', (currentPage === 'shai-pin-dashboard' || currentPage === 'shai-pin-source' || currentPage === 'shai-pin-feed' || currentPage === 'woocommerce-products') ? 'active' : '']">
-                    <span class="material-symbols-outlined">filter_alt</span> 筛品
-                    <span class="material-symbols-outlined ml-auto" style="font-size:16px">{{ feedMenuOpen ? 'expand_less' : 'expand_more' }}</span>
+                <a @click="currentPage = 'shai-pin-source'" :class="['sidebar-link', currentPage === 'shai-pin-source' ? 'active' : '']">
+                    <span class="material-symbols-outlined">inventory_2</span> 产品来源
                 </a>
-                <div v-show="feedMenuOpen" class="ml-8 space-y-1 mt-1 mb-1">
-                    <a @click="currentPage = 'shai-pin-dashboard'; loadFeedStats()" :class="['sidebar-link text-sm', currentPage === 'shai-pin-dashboard' ? 'active' : '']">
-                        <span class="material-symbols-outlined" style="font-size:18px">bar_chart</span> 数据总览
-                    </a>
-                    <a @click="currentPage = 'shai-pin-source'" :class="['sidebar-link text-sm', currentPage === 'shai-pin-source' ? 'active' : '']">
-                        <span class="material-symbols-outlined" style="font-size:18px">inventory_2</span> 商品来源
-                    </a>
-                    <a @click="currentPage = 'shai-pin-feed'" :class="['sidebar-link text-sm', currentPage === 'shai-pin-feed' ? 'active' : '']">
-                        <span class="material-symbols-outlined" style="font-size:18px">rss_feed</span> Feed 生成
-                    </a>
-                    <a @click="currentPage = 'woocommerce-products'" :class="['sidebar-link text-sm', currentPage === 'woocommerce-products' ? 'active' : '']">
-                        <span class="material-symbols-outlined" style="font-size:18px">shopping_cart</span> WooCommerce 产品
-                    </a>
-                    <a @click="currentPage = 'woo-stats'; loadWooStats()" :class="['sidebar-link text-sm', currentPage === 'woo-stats' ? 'active' : '']">
-                        <span class="material-symbols-outlined" style="font-size:18px">trending_up</span> 数据统计
-                    </a>
-                </div>
-                <a @click="currentPage = 'brand-kits'" :class="['sidebar-link', currentPage === 'brand-kits' || currentPage === 'brand-kits-detail' ? 'active' : '']">
-                    <span class="material-symbols-outlined">palette</span> 品牌套件
+                <a @click="currentPage = 'woocommerce-products'" :class="['sidebar-link', currentPage === 'woocommerce-products' ? 'active' : '']">
+                    <span class="material-symbols-outlined">shopping_cart</span> WooCommerce
+                </a>
+                <a @click="currentPage = 'shai-pin-feed'" :class="['sidebar-link', currentPage === 'shai-pin-feed' ? 'active' : '']">
+                    <span class="material-symbols-outlined">rss_feed</span> 数据源生成
                 </a>
                 <a @click="currentPage = 'mc-automation'" :class="['sidebar-link', currentPage === 'mc-automation' ? 'active' : '']">
                     <span class="material-symbols-outlined">hub</span> Google MC
                 </a>
+                <a @click="currentPage = 'brand-kits'; loadBrandKits()" :class="['sidebar-link', currentPage === 'brand-kits' || currentPage === 'brand-kits-detail' ? 'active' : '']">
+                    <span class="material-symbols-outlined">branding_watermark</span> 品牌套件
+                </a>
                 <div class="sidebar-divider"></div>
-                <a @click="currentPage = 'users'" :class="['sidebar-link', currentPage === 'users' ? 'active' : '']">
+                <a @click="currentPage = 'users'; loadUsers()" :class="['sidebar-link', currentPage === 'users' ? 'active' : '']">
                     <span class="material-symbols-outlined">group</span> 用户管理
                 </a>
                 <a @click="currentPage = 'settings'" :class="['sidebar-link', currentPage === 'settings' ? 'active' : '']">
                     <span class="material-symbols-outlined">settings</span> 系统设置
                 </a>
+
             </div>
             <div class="sidebar-user">
                 <div class="avatar">{{ currentUser ? currentUser.substring(0,2).toUpperCase() : 'AD' }}</div>
@@ -2726,7 +2892,7 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
             <div class="flex items-center gap-lg">
                 <div class="flex items-center gap-md">
-                    <button class="header-icon-btn">
+                    <button class="header-icon-btn inline-flex items-center justify-center">
                         <span class="material-symbols-outlined">notifications</span>
                     </button>
                     <button class="header-icon-btn hidden md:block">
@@ -2735,7 +2901,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 </div>
                 <div class="h-8 w-px bg-outline-variant hidden md:block"></div>
                 <div class="flex items-center gap-sm">
-                    <span :class="['inline-flex items-center gap-xs font-label-sm', panelConnected ? 'text-green-600' : 'text-error']">
+                    <span :class="['inline-flex items-center gap-xs font-label-sm', panelConnected ? 'text-[#146c2e]' : 'text-error']">
                         <span class="material-symbols-outlined" style="font-size:14px">{{ panelConnected ? 'cloud_done' : 'cloud_off' }}</span>
                         {{ panelConnected ? '1Panel' : '离线' }}
                     </span>
@@ -2755,76 +2921,81 @@ pipelineStatuses[siteId].demo_importing = false;
                 <div class="page-breadcrumb" v-if="currentPage !== 'dashboard'">
                     <span>凯瑞投流</span>
                     <span class="material-symbols-outlined" style="font-size:16px">chevron_right</span>
-                    <span class="current">{{ currentPage === 'sites' ? '站点列表' : currentPage === 'brand-kits' ? '品牌套件' : currentPage === 'brand-kits-detail' ? '品牌套件详情' : currentPage === 'shai-pin-dashboard' ? '筛品 - 数据总览' : currentPage === 'shai-pin-source' ? '筛品 - 商品来源' : currentPage === 'shai-pin-feed' ? '筛品 - Feed生成' : currentPage === 'woocommerce-products' ? '筛品 - WooCommerce产品' : currentPage === 'woo-stats' ? '数据统计' : currentPage === 'mc-automation' ? 'Google MC' : currentPage === 'users' ? '用户管理' : '系统设置' }}</span>
+                    <span class="current">{{ currentPage === 'sites' ? '站点概览' : currentPage === 'brand-kits' ? '品牌套件' : currentPage === 'brand-kits-detail' ? '品牌套件详情' : currentPage === 'shai-pin-dashboard' ? '筛品' : currentPage === 'shai-pin-source' ? '产品来源' : currentPage === 'shai-pin-feed' ? '数据源生成' : currentPage === 'woocommerce-products' ? 'WooCommerce' : currentPage === 'woo-stats' ? '销售统计' : currentPage === 'mc-automation' ? 'Google MC' : currentPage === 'users' ? '用户管理' : '系统设置' }}</span>
                 </div>
 
 <!-- Main Content -->
-        <div>
-            <!-- header moved to top-header -->
-                <div><h1 class="page-title">{{ currentPage === 'dashboard' ? '仪表盘' : currentPage === 'sites' ? '站点列表' : currentPage === 'brand-kits' ? '品牌套件' : currentPage === 'brand-kits-detail' ? '品牌套件详情' : currentPage === 'shai-pin-dashboard' ? '筛品 - 数据总览' : currentPage === 'shai-pin-source' ? '筛品 - 商品来源' : currentPage === 'shai-pin-feed' ? '筛品 - Feed生成' : currentPage === 'woocommerce-products' ? '筛品 - WooCommerce产品' : currentPage === 'woo-stats' ? '数据统计' : currentPage === 'mc-automation' ? 'Google Merchant Center' : currentPage === 'users' ? '用户管理' : '系统设置' }}</h1><p class="font-body-md text-on-surface-variant font-medium"><span :class="panelConnected ? 'text-green-500' : 'text-red-500'"><i class="fas fa-circle text-xs mr-1"></i>{{ panelConnected ? '1Panel 已连接' : '1Panel 未连接' }}</span></p></div>
-                <button @click="syncWithPanel" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-700 transition text-sm" title="从1Panel同步数据"><i class="fas fa-exchange-alt mr-2"></i>同步1Panel</button>
-                <button @click="refreshSites" class="btn btn-secondary transition text-sm"><i class="fas fa-sync-alt mr-2" :class="{'fa-spin': loading}"></i>刷新</button>
-            </header>
+        <div class="mb-lg">
+                <h1 class="page-title">{{ currentPage === 'dashboard' ? '概览' : currentPage === 'sites' ? '站点概览' : currentPage === 'brand-kits' ? '品牌套件' : currentPage === 'brand-kits-detail' ? '品牌套件详情' : currentPage === 'shai-pin-dashboard' ? '筛品' : currentPage === 'shai-pin-source' ? '产品来源' : currentPage === 'shai-pin-feed' ? '数据源生成' : currentPage === 'woocommerce-products' ? 'WooCommerce' : currentPage === 'woo-stats' ? '销售统计' : currentPage === 'mc-automation' ? 'Google MC' : currentPage === 'users' ? '用户管理' : '系统设置' }}</h1>
+                <p class="font-body-md text-on-surface-variant mt-xs"><span :class="panelConnected ? 'text-[#146c2e]' : 'text-error'"><span class="material-symbols-outlined text-[10px] mr-1">circle</span>{{ panelConnected ? '1Panel 已连接' : '1Panel 未连接' }}</span></p>
+                <div class="flex gap-sm mt-md">
+                    <button v-if="currentPage === 'settings'" @click="exportSystemData" class="flex items-center gap-sm px-md py-sm bg-primary-container text-on-primary rounded-lg hover:bg-primary transition-colors font-label-md text-label-md shadow-level-1" title="导出所有配置和数据"><span class="material-symbols-outlined text-[18px]">download</span>导出配置</button>
+                    <button v-if="currentPage === 'settings'" @click="importSystemData" class="flex items-center gap-sm px-md py-sm bg-surface-container-low border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container-high transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]">upload</span>导入配置</button>
+                    <input v-if="currentPage === 'settings'" type="file" ref="importFileInput" @change="handleImportFile" accept=".json" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden">
+                    <button v-if="currentPage !== 'settings'" @click="syncWithPanel" class="flex items-center gap-sm px-md py-sm bg-primary-container text-on-primary rounded-lg hover:bg-primary transition-colors font-label-md text-label-md shadow-level-1" title="从1Panel同步数据"><span class="material-symbols-outlined text-[18px]">sync</span>同步1Panel</button>
+                    <button v-if="currentPage !== 'settings'" @click="refreshSites" class="flex items-center gap-sm px-md py-sm bg-surface-container-low border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container-high transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]" :class="loading ? 'animate-spin' : ''">refresh</span>刷新</button>
+                </div>
+            </div>
 
             <!-- Dashboard -->
             <div v-if="currentPage === 'dashboard'" class="space-y-lg fade-in">
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-md mb-lg">
-                    <div class="card"><div class="flex items-center justify-between"><div><p class="font-body-md text-on-surface-variant font-medium">站点总数</p><p class="font-display-md mt-xs text-on-surface">{{ sites.length }}</p></div><div class="p-xs bg-surface-container-low rounded-md"><i class="fas fa-globe text-blue-700 text-xl"></i></div></div></div>
-                    <div class="card"><div class="flex items-center justify-between"><div><p class="font-body-md text-on-surface-variant font-medium">1Panel连接</p><p class="text-3xl font-bold mt-1" :class="panelConnected ? 'text-green-600' : 'text-red-600'">{{ panelConnected ? '正常' : '断开' }}</p></div><div class="w-12 h-12 rounded-lg flex items-center justify-center" :class="panelConnected ? 'bg-green-100' : 'bg-red-100'"><i class="fas fa-server text-xl" :class="panelConnected ? 'text-green-600' : 'text-red-600'"></i></div></div></div>
+                    <div class="card"><div class="flex items-center justify-between"><div><p class="font-body-md text-on-surface-variant font-medium">站点总数</p><p class="font-display-md mt-xs text-on-surface">{{ sites.length }}</p></div><div class="p-xs bg-surface-container-low rounded-md"><span class="material-symbols-outlined">language</span></div></div></div>
+                    <div class="card"><div class="flex items-center justify-between"><div><p class="font-body-md text-on-surface-variant font-medium">1Panel连接</p><p class="text-3xl font-bold mt-1" :class="panelConnected ? 'text-[#146c2e]' : 'text-error'">{{ panelConnected ? '正常' : '断开' }}</p></div><div class="w-12 h-12 rounded-lg flex items-center justify-center" :class="panelConnected ? 'bg-[#146c2e]/10' : 'bg-error-container'"><i class="fas fa-server text-xl" :class="panelConnected ? 'text-[#146c2e]' : 'text-error'"></i></div></div></div>
                 </div>
-                <div class="bg-white rounded-xl card-shadow p-6">
-                    <h3 class="font-semibold text-gray-800 mb-4"><i class="fas fa-bolt mr-2 text-blue-500"></i>快速操作</h3>
+                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
+                    <h3 class="font-semibold text-on-surface mb-4"><span class="material-symbols-outlined">bolt</span>快速操作</h3>
                     <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                        <button @click="openWizard('single')" class="p-4 border-2 border-dashed border-blue-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition text-center"><i class="fas fa-plus-circle text-2xl text-blue-500 mb-2"></i><p class="text-sm font-medium text-gray-700">创建单个站点</p></button>
-                        <button @click="openWizard('batch')" class="p-4 border-2 border-dashed border-blue-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition text-center"><i class="fas fa-layer-group text-2xl text-blue-500 mb-2"></i><p class="text-sm font-medium text-gray-700">批量创建站点</p></button>
-                        <button @click="exportCSV" class="p-4 border-2 border-dashed border-green-200 rounded-xl hover:border-green-400 hover:bg-green-50 transition text-center"><i class="fas fa-file-csv text-2xl text-green-500 mb-2"></i><p class="text-sm font-medium text-gray-700">导出CSV</p></button>
+                        <button @click="openWizard('single')" class="flex flex-col items-center justify-center gap-sm p-4 border-2 border-dashed border-outline-variant rounded-xl hover:border-primary-container hover:bg-primary-container/5 transition-all text-center"><span class="material-symbols-outlined text-2xl">add_circle</span><p class="text-sm font-medium text-on-surface">创建单个站点</p></button>
+                        <button @click="openWizard('batch')" class="flex flex-col items-center justify-center gap-sm p-4 border-2 border-dashed border-outline-variant rounded-xl hover:border-primary-container hover:bg-primary-container/5 transition-all text-center"><span class="material-symbols-outlined text-2xl">library_add</span><p class="text-sm font-medium text-on-surface">批量创建站点</p></button>
+                        <button @click="exportCSV" class="flex flex-col items-center justify-center gap-sm p-4 border-2 border-dashed border-outline-variant rounded-xl hover:border-[#146c2e]/40 hover:bg-[#146c2e]/5 transition-all text-center"><span class="material-symbols-outlined text-2xl">description</span><p class="text-sm font-medium text-on-surface">导出CSV</p></button>
                     </div>
                 </div>
             </div>
 
             <!-- WooCommerce Stats -->
-            <div v-if="currentPage === 'woo-stats'" class="p-8 fade-in">
+            <div v-if="currentPage === 'woo-stats'" class="fade-in">
                 <div v-if="wooStatsLoading" class="flex items-center justify-center py-20">
-                    <i class="fas fa-spinner fa-spin text-3xl text-blue-500"></i>
-                    <span class="ml-3 text-gray-500">加载销售数据中...</span>
+                    <span class="spinner w-4 h-4 inline-block"></span>
+                    <span class="ml-3 text-on-surface-variant">加载销售数据中...</span>
                 </div>
                 <div v-else-if="wooStats">
                     <!-- Period filter -->
                     <div class="flex items-center gap-2 mb-6">
-                        <span class="text-sm text-gray-500 mr-2">时间范围:</span>
+                        <span class="text-sm text-on-surface-variant mr-2">时间范围:</span>
                         <button v-for="p in [{k:'today',l:'今日'},{k:'7day',l:'7天'},{k:'30day',l:'30天'},{k:'month',l:'本月'}]" :key="p.k"
                                 @click="setWooStatsPeriod(p.k)"
-                                :class="['px-3 py-1.5 rounded-lg text-sm transition', wooStatsPeriod === p.k ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
+                                :class="['px-3 py-1.5 rounded-lg text-sm transition', wooStatsPeriod === p.k ? 'bg-primary-container text-on-primary' : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high']">
                             {{ p.l }}
                         </button>
                     </div>
                     <!-- Summary cards -->
                     <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-                        <div class="bg-white rounded-xl p-5 card-shadow">
+                        <div class="bg-surface-container-lowest rounded-xl p-5 shadow-level-1">
                             <p class="font-body-md text-on-surface-variant font-medium">总销售额</p>
-                            <p class="text-2xl font-bold text-gray-800 mt-1">{{ '$' + formatMoney(wooStats.summary.total_sales) }}</p>
+                            <p class="text-2xl font-bold text-on-surface mt-1">{{ '$' + formatMoney(wooStats.summary.total_sales) }}</p>
                         </div>
-                        <div class="bg-white rounded-xl p-5 card-shadow">
+                        <div class="bg-surface-container-lowest rounded-xl p-5 shadow-level-1">
                             <p class="font-body-md text-on-surface-variant font-medium">净销售额</p>
-                            <p class="text-2xl font-bold text-green-700 mt-1">{{ '$' + formatMoney(wooStats.summary.net_sales) }}</p>
+                            <p class="text-2xl font-bold text-[#146c2e] mt-1">{{ '$' + formatMoney(wooStats.summary.net_sales) }}</p>
                         </div>
-                        <div class="bg-white rounded-xl p-5 card-shadow">
+                        <div class="bg-surface-container-lowest rounded-xl p-5 shadow-level-1">
                             <p class="font-body-md text-on-surface-variant font-medium">总订单数</p>
-                            <p class="text-2xl font-bold text-blue-700 mt-1">{{ formatInt(wooStats.summary.total_orders) }}</p>
+                            <p class="text-2xl font-bold text-primary mt-1">{{ formatInt(wooStats.summary.total_orders) }}</p>
                         </div>
-                        <div class="bg-white rounded-xl p-5 card-shadow">
+                        <div class="bg-surface-container-lowest rounded-xl p-5 shadow-level-1">
                             <p class="font-body-md text-on-surface-variant font-medium">平均客单价</p>
-                            <p class="text-2xl font-bold text-blue-800 mt-1">{{ '$' + formatMoney(wooStats.summary.average_sales) }}</p>
+                            <p class="text-2xl font-bold text-primary mt-1">{{ '$' + formatMoney(wooStats.summary.average_sales) }}</p>
                         </div>
-                        <div class="bg-white rounded-xl p-5 card-shadow">
+                        <div class="bg-surface-container-lowest rounded-xl p-5 shadow-level-1">
                             <p class="font-body-md text-on-surface-variant font-medium">活跃站点</p>
-                            <p class="text-2xl font-bold text-blue-800 mt-1">{{ wooStats.summary.active_sites }}<span class="text-sm text-gray-400 font-normal"> / {{ wooStats.summary.total_sites }}</span></p>
+                            <p class="text-2xl font-bold text-primary mt-1">{{ wooStats.summary.active_sites }}<span class="text-sm text-on-surface-variant font-normal"> / {{ wooStats.summary.total_sites }}</span></p>
                         </div>
                     </div>
                     <!-- Per-site table -->
-                    <div class="bg-white rounded-xl card-shadow overflow-hidden">
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                         <table class="w-full text-sm">
-                            <thead class="bg-gray-50 text-gray-600">
+                            <thead class="bg-surface-container-low text-on-surface-variant">
                                 <tr>
                                     <th class="text-left px-4 py-3 font-medium">站点</th>
                                     <th class="text-right px-4 py-3 font-medium">销售额</th>
@@ -2834,70 +3005,70 @@ pipelineStatuses[siteId].demo_importing = false;
                                     <th class="text-center px-4 py-3 font-medium">状态</th>
                                 </tr>
                             </thead>
-                            <tbody class="divide-y divide-gray-100">
-                                <tr v-for="s in wooStats.sites" :key="s.id" class="hover:bg-gray-50">
+                            <tbody class="divide-y divide-outline-variant">
+                                <tr v-for="s in wooStats.sites" :key="s.id" class="hover:bg-surface-container-low">
                                     <td class="px-4 py-3">
-                                        <div class="font-medium text-gray-800">{{ s.site_name }}</div>
-                                        <div class="text-xs text-gray-400">{{ s.url }}</div>
+                                        <div class="font-medium text-on-surface">{{ s.site_name }}</div>
+                                        <div class="text-xs text-on-surface-variant">{{ s.url }}</div>
                                     </td>
-                                    <td class="text-right px-4 py-3 text-gray-700">{{ '$' + formatMoney(s.total_sales) }}</td>
-                                    <td class="text-right px-4 py-3 text-gray-700">{{ '$' + formatMoney(s.net_sales) }}</td>
-                                    <td class="text-right px-4 py-3 text-gray-700">{{ formatInt(s.total_orders) }}</td>
-                                    <td class="text-right px-4 py-3 text-gray-700">{{ '$' + formatMoney(s.average_sales) }}</td>
+                                    <td class="text-right px-4 py-3 text-on-surface">{{ '$' + formatMoney(s.total_sales) }}</td>
+                                    <td class="text-right px-4 py-3 text-on-surface">{{ '$' + formatMoney(s.net_sales) }}</td>
+                                    <td class="text-right px-4 py-3 text-on-surface">{{ formatInt(s.total_orders) }}</td>
+                                    <td class="text-right px-4 py-3 text-on-surface">{{ '$' + formatMoney(s.average_sales) }}</td>
                                     <td class="text-center px-4 py-3">
-                                        <span v-if="s.status === 'ok'" class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">正常</span>
-                                        <span v-else-if="s.status === 'no_woocommerce'" class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">无WooCommerce</span>
+                                        <span v-if="s.status === 'ok'" class="text-xs bg-[#146c2e]/10 text-[#146c2e] px-2 py-0.5 rounded-full">正常</span>
+                                        <span v-else-if="s.status === 'no_woocommerce'" class="text-xs bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-full">无WooCommerce</span>
                                         <span v-else-if="s.status === 'no_data'" class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">无数据</span>
-                                        <span v-else class="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">无法连接</span>
+                                        <span v-else class="text-xs bg-error-container text-error px-2 py-0.5 rounded-full">无法连接</span>
                                     </td>
                                 </tr>
                             </tbody>
                             <tfoot v-if="wooStats.summary.active_sites > 0" class="bg-blue-50 font-medium">
                                 <tr>
-                                    <td class="px-4 py-3 text-blue-800">汇总</td>
-                                    <td class="text-right px-4 py-3 text-blue-800">{{ '$' + formatMoney(wooStats.summary.total_sales) }}</td>
-                                    <td class="text-right px-4 py-3 text-blue-800">{{ '$' + formatMoney(wooStats.summary.net_sales) }}</td>
-                                    <td class="text-right px-4 py-3 text-blue-800">{{ formatInt(wooStats.summary.total_orders) }}</td>
-                                    <td class="text-right px-4 py-3 text-blue-800">{{ '$' + formatMoney(wooStats.summary.average_sales) }}</td>
-                                    <td class="text-center px-4 py-3 text-blue-800">{{ wooStats.summary.active_sites }} 个站点</td>
+                                    <td class="px-4 py-3 text-primary">汇总</td>
+                                    <td class="text-right px-4 py-3 text-primary">{{ '$' + formatMoney(wooStats.summary.total_sales) }}</td>
+                                    <td class="text-right px-4 py-3 text-primary">{{ '$' + formatMoney(wooStats.summary.net_sales) }}</td>
+                                    <td class="text-right px-4 py-3 text-primary">{{ formatInt(wooStats.summary.total_orders) }}</td>
+                                    <td class="text-right px-4 py-3 text-primary">{{ '$' + formatMoney(wooStats.summary.average_sales) }}</td>
+                                    <td class="text-center px-4 py-3 text-primary">{{ wooStats.summary.active_sites }} 个站点</td>
                                 </tr>
                             </tfoot>
                         </table>
                     </div>
                 </div>
-                <div v-else class="bg-white rounded-xl card-shadow p-12 text-center text-gray-400">
+                <div v-else class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center text-on-surface-variant">
                     <i class="fas fa-chart-bar text-5xl mb-4"></i>
-                    <p class="text-lg font-medium text-gray-500 mb-2">暂无销售数据</p>
+                    <p class="text-lg font-medium text-on-surface-variant mb-2">暂无销售数据</p>
                     <p>请先创建站点并安装 WooCommerce</p>
                 </div>
             </div>
 
             <!-- Sites List -->
-            <div v-if="currentPage === 'sites'" class="p-8 fade-in">
+            <div v-if="currentPage === 'sites'" class="fade-in">
                 <div class="flex items-center justify-between mb-6">
-                    <div class="relative"><i class="fas fa-search absolute left-3 top-3 text-gray-400"></i><input v-model="searchQuery" type="text" placeholder="搜索站点..." class="pl-10 pr-4 py-2 border rounded-lg focus:border-blue-500 w-64"></div>
-                    <div class="flex gap-3"><button @click="openWizard('single')" class="btn-primary text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus-circle mr-2"></i>创建站点</button><button @click="exportCSV" class="btn btn-secondary text-sm"><i class="fas fa-download mr-2"></i>导出CSV</button></div>
+                    <div class="relative"><i class="fas fa-search absolute left-3 top-3 text-on-surface-variant"></i><input v-model="searchQuery" type="text" placeholder="搜索站点..." class="pl-10 pr-4 py-2 border rounded-lg focus:border-primary w-64"></div>
+                    <div class="flex gap-3"><button @click="openWizard('single')" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><span class="material-symbols-outlined text-[18px]">add_circle</span>创建站点</button><button @click="exportCSV" class="btn btn-secondary text-sm"><i class="fas fa-download mr-2"></i>导出CSV</button></div>
                 </div>
-                <div v-if="!filteredSites.length" class="bg-white rounded-xl card-shadow p-12 text-center text-gray-400"><i class="fas fa-inbox text-4xl mb-4"></i><p>暂无站点，点击"创建站点"开始</p></div>
+                <div v-if="!filteredSites.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center text-on-surface-variant"><i class="fas fa-inbox text-4xl mb-4"></i><p>暂无站点，点击"创建站点"开始</p></div>
                 <div v-else class="space-y-3">
-                    <div v-for="site in filteredSites" :key="site.id" class="bg-white rounded-xl card-shadow p-4">
+                    <div v-for="site in filteredSites" :key="site.id" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4">
                         <!-- Main row: site info + timeline + actions -->
                         <div class="flex items-center gap-3">
                             <!-- Site name + tooltip trigger -->
                             <div class="w-40 flex-shrink-0">
-                                <div class="font-medium text-gray-800 text-sm truncate">{{ site.site_name }}</div>
+                                <div class="font-medium text-on-surface text-sm truncate">{{ site.site_name }}</div>
                                 <div class="relative inline-block mt-0.5"
                                      @mouseenter="tooltipSiteId = site.id"
                                      @mouseleave="tooltipSiteId = null">
-                                    <span class="text-xs text-gray-400 hover:text-blue-500 cursor-help"><i class="fas fa-info-circle mr-0.5"></i>详情</span>
+                                    <span class="text-xs text-on-surface-variant hover:text-primary cursor-help"><i class="fas fa-info-circle mr-0.5"></i>详情</span>
                                     <div v-if="tooltipSiteId === site.id" class="site-tooltip">
                                         <div class="grid grid-cols-2 gap-x-3 gap-y-1">
-                                            <div><span class="text-gray-400">URL:</span> <a :href="site.url" target="_blank" class="text-blue-300 hover:text-blue-200">{{ site.url }}</a></div>
-                                            <div><span class="text-gray-400">标签:</span> {{ site.tag || '-' }}</div>
-                                            <div><span class="text-gray-400">端口:</span> {{ site.port || '-' }}</div>
-                                            <div><span class="text-gray-400">管理员:</span> {{ site.admin_name || '-' }}</div>
-                                            <div class="col-span-2"><span class="text-gray-400">1Panel:</span> <span v-if="site.panel_website_id" :class="site.panel_status === 'Running' ? 'text-green-300' : 'text-red-300'">{{ site.panel_status === 'Running' ? '正常' : site.panel_status || '未知' }}</span><span v-else class="text-gray-500">未关联</span></div>
-                                            <div class="col-span-2"><span class="text-gray-400">DNS:</span> {{ site.cf_dns_record_id ? 'Cloudflare已配置' : '未配置' }}</div>
+                                            <div><span class="text-on-surface-variant">URL:</span> <a :href="site.url" target="_blank" class="text-blue-300 hover:text-blue-200">{{ site.url }}</a></div>
+                                            <div><span class="text-on-surface-variant">标签:</span> {{ site.tag || '-' }}</div>
+                                            <div><span class="text-on-surface-variant">端口:</span> {{ site.port || '-' }}</div>
+                                            <div><span class="text-on-surface-variant">管理员:</span> {{ site.admin_name || '-' }}</div>
+                                            <div class="col-span-2"><span class="text-on-surface-variant">1Panel:</span> <span v-if="site.panel_website_id" :class="site.panel_status === 'Running' ? 'text-green-300' : 'text-red-300'">{{ site.panel_status === 'Running' ? '正常' : site.panel_status || '未知' }}</span><span v-else class="text-on-surface-variant">未关联</span></div>
+                                            <div class="col-span-2"><span class="text-on-surface-variant">DNS:</span> {{ site.cf_dns_record_id ? 'Cloudflare已配置' : '未配置' }}</div>
                                         </div>
                                         <div class="absolute top-full left-3 w-0 h-0 border-l-6 border-r-6 border-t-6 border-l-transparent border-r-transparent" style="border-top-color:#1f2937;"></div>
                                     </div>
@@ -2907,7 +3078,7 @@ pipelineStatuses[siteId].demo_importing = false;
                             <div class="flex items-center gap-0 flex-1 ml-2">
                                 <!-- WP icon -->
                                 <div class="timeline-icon" :class="pipelineStatuses[site.id]?.wp_deployed ? 'active' : (wpInstallStatuses[site.id] && wpInstallStatuses[site.id].status === 'installing' ? 'in-progress' : 'inactive')">
-                                    <i class="fas fa-globe"></i>
+                                    <span class="material-symbols-outlined">language</span>
                                 </div>
                                 <!-- Line 1: WP → Demo -->
                                 <div class="timeline-line" :class="pipelineLineState(site, 'demo')"></div>
@@ -2942,20 +3113,20 @@ pipelineStatuses[siteId].demo_importing = false;
                                     <i class="fab fa-google"></i>
                                 </div>
                                 <!-- Status text -->
-                                <span class="text-xs text-gray-500 ml-3 whitespace-nowrap">{{ siteStatusText(site) }}</span>
+                                <span class="text-xs text-on-surface-variant ml-3 whitespace-nowrap">{{ siteStatusText(site) }}</span>
                             </div>
                             <!-- Created time -->
-                            <div class="flex-shrink-0 w-24 text-right text-xs text-gray-400">
+                            <div class="flex-shrink-0 w-24 text-right text-xs text-on-surface-variant">
                                 <span v-if="site.created_at" :title="site.created_at">{{ site.created_at.split('T')[0] }}</span>
                                 <span v-else>-</span>
                             </div>
                             <!-- Actions -->
                             <div class="flex items-center gap-1.5 flex-shrink-0">
-                                <button v-if="site.cloakbrowser_profile_name" @click="openSiteBrowser(site)" class="text-green-500 hover:text-green-700 p-1.5" title="打开指纹浏览器"><i class="fas fa-external-link-alt"></i></button>
-                                <button @click="openEditModal(site)" class="text-blue-500 hover:text-blue-800 p-1.5" title="编辑"><i class="fas fa-edit"></i></button>
-                                <button v-if="site.panel_app_install_id && (!site.panel_website_id || site.panel_status === 'deleted')" @click="fixSiteWebsite(site)" class="text-orange-500 hover:text-orange-700 p-1.5" title="修复1Panel网站"><i class="fas fa-wrench"></i></button>
-                                <button @click="openMetaModal(site)" class="text-blue-400 hover:text-blue-700 p-1.5" title="注入Meta标签"><i class="fas fa-code"></i></button>
-                                <button @click="confirmDelete(site)" class="text-red-400 hover:text-red-600 p-1.5" title="删除"><i class="fas fa-trash"></i></button>
+                                <button v-if="site.cloakbrowser_profile_name" @click="openSiteBrowser(site)" class="text-[#146c2e] hover:text-[#146c2e] p-1.5" title="打开指纹浏览器"><i class="fas fa-external-link-alt"></i></button>
+                                <button @click="openEditModal(site)" class="text-primary hover:text-primary p-1.5" title="编辑"><span class="material-symbols-outlined">edit</span></button>
+                                <button v-if="site.panel_app_install_id && (!site.panel_website_id || site.panel_status === 'deleted')" @click="fixSiteWebsite(site)" class="text-tertiary hover:text-tertiary p-1.5" title="修复1Panel网站"><i class="fas fa-wrench"></i></button>
+                                <button @click="openMetaModal(site)" class="text-primary hover:text-primary p-1.5" title="注入Meta标签"><i class="fas fa-code"></i></button>
+                                <button @click="confirmDelete(site)" class="text-red-400 hover:text-error p-1.5" title="删除"><span class="material-symbols-outlined">delete</span></button>
                             </div>
                         </div>
                     </div>
@@ -2964,19 +3135,19 @@ pipelineStatuses[siteId].demo_importing = false;
 
             <!-- Meta Tag Injection Modal -->
             <div v-if="metaModal.show" class="modal-overlay modal-overlay" @click.self="metaModal.show = false">
-                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 fade-in">
+                <div class="bg-surface-container-lowest rounded-2xl shadow-level-3 w-full max-w-lg mx-4 p-6 fade-in">
                     <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-lg font-bold"><i class="fas fa-code mr-2 text-blue-500"></i>注入 Meta 标签</h3>
-                        <button @click="metaModal.show = false" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times text-xl"></i></button>
+                        <h3 class="text-lg font-bold"><i class="fas fa-code mr-2 text-primary"></i>注入 Meta 标签</h3>
+                        <button @click="metaModal.show = false" class="text-on-surface-variant hover:text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
                     </div>
-                    <p class="text-sm text-gray-500 mb-4">{{ metaModal.site?.site_name || '' }} · 输入完整的 meta 标签代码，将注入到站点 header 中</p>
+                    <p class="text-sm text-on-surface-variant mb-4">{{ metaModal.site?.site_name || '' }} · 输入完整的 meta 标签代码，将注入到站点 header 中</p>
                     <div class="mb-4">
                         <textarea v-model="metaModal.metaTag" rows="3"
-                            class="w-full border rounded-lg p-3 text-sm font-mono focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                            class="w-full border rounded-lg p-3 text-sm font-mono focus:border-primary focus:ring-1 focus:ring-blue-500"
                             placeholder='<meta name="xxx" content="yyy" />'></textarea>
                     </div>
                     <div class="flex gap-3">
-                        <button @click="metaModal.show = false" class="flex-1 py-2.5 border rounded-lg text-gray-600 hover:bg-gray-50">取消</button>
+                        <button @click="metaModal.show = false" class="flex-1 py-2.5 border rounded-lg text-on-surface-variant hover:bg-surface-container-low">取消</button>
                         <button @click="submitMetaTag" :disabled="!metaModal.metaTag.trim() || metaModal.submitting"
                             class="btn btn-primary flex-1 transition disabled:opacity-50">
                             <i v-if="metaModal.submitting" class="fas fa-spinner fa-spin mr-2"></i>
@@ -2988,14 +3159,14 @@ pipelineStatuses[siteId].demo_importing = false;
 
             <!-- Environment Selection Modal (operator login) -->
             <div v-if="envSelectModal.show" class="modal-overlay modal-overlay">
-                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 fade-in">
-                    <h3 class="text-lg font-bold mb-2"><i class="fas fa-server mr-2 text-blue-500"></i>选择 1Panel 环境</h3>
-                    <p class="text-sm text-gray-500 mb-4">请选择你管理的 1Panel 服务器环境</p>
+                <div class="bg-surface-container-lowest rounded-2xl shadow-level-3 w-full max-w-lg mx-4 p-6 fade-in">
+                    <h3 class="text-lg font-bold mb-2"><span class="material-symbols-outlined">dns</span>选择 1Panel 环境</h3>
+                    <p class="text-sm text-on-surface-variant mb-4">请选择你管理的 1Panel 服务器环境</p>
 
-                    <div v-if="envSelectModal.loading" class="text-center py-12 text-gray-400">
-                        <i class="fas fa-spinner fa-spin text-3xl mb-3"></i><p>加载环境列表...</p>
+                    <div v-if="envSelectModal.loading" class="text-center py-12 text-on-surface-variant">
+                        <span class="spinner w-4 h-4 inline-block"></span><p>加载环境列表...</p>
                     </div>
-                    <div v-else-if="envSelectModal.environments.length === 0" class="text-center py-12 text-gray-400">
+                    <div v-else-if="envSelectModal.environments.length === 0" class="text-center py-12 text-on-surface-variant">
                         <i class="fas fa-exclamation-triangle text-3xl mb-3"></i><p>暂无可用的 1Panel 环境，请联系管理员在系统设置中配置</p>
                     </div>
                     <div v-else>
@@ -3004,18 +3175,18 @@ pipelineStatuses[siteId].demo_importing = false;
                                  @click="envSelectModal.selectedEnvId = env.id"
                                  :class="['p-4 rounded-xl border-2 cursor-pointer transition',
                                      envSelectModal.selectedEnvId === env.id
-                                         ? 'border-blue-500 bg-blue-50'
-                                         : 'border-gray-200 hover:border-gray-300']">
+                                         ? 'border-primary-container bg-blue-50'
+                                         : 'border-outline-variant hover:border-outline']">
                                 <div class="flex items-center justify-between">
                                     <div>
-                                        <div class="font-medium text-gray-800">{{ env.name }}</div>
-                                        <div class="text-sm text-gray-500 mt-1">{{ env.host }}:{{ env.port }}</div>
+                                        <div class="font-medium text-on-surface">{{ env.name }}</div>
+                                        <div class="text-sm text-on-surface-variant mt-1">{{ env.host }}:{{ env.port }}</div>
                                     </div>
-                                    <div v-if="envSelectModal.selectedEnvId === env.id" class="text-blue-500">
+                                    <div v-if="envSelectModal.selectedEnvId === env.id" class="text-primary">
                                         <i class="fas fa-check-circle text-xl"></i>
                                     </div>
                                 </div>
-                                <div v-if="env.is_default" class="mt-2"><span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">默认</span></div>
+                                <div v-if="env.is_default" class="mt-2"><span class="text-xs bg-[#146c2e]/10 text-[#146c2e] px-2 py-0.5 rounded-full">默认</span></div>
                             </div>
                         </div>
                         <button @click="submitEnvSelection"
@@ -3030,17 +3201,17 @@ pipelineStatuses[siteId].demo_importing = false;
 
             <!-- Demo Import Modal (triggered from timeline icon) -->
             <div v-if="demoModal.show" class="modal-overlay modal-overlay" @click.self="demoModal.show = false">
-                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl mx-4 p-6 fade-in max-h-[85vh] overflow-y-auto">
+                <div class="bg-surface-container-lowest rounded-2xl shadow-level-3 w-full max-w-3xl mx-4 p-6 fade-in max-h-[85vh] overflow-y-auto">
                     <div class="flex items-center justify-between mb-4">
                         <h3 class="text-lg font-bold"><i class="fas fa-paint-brush mr-2 text-pink-500"></i>导入主题演示</h3>
-                        <button @click="demoModal.show = false" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times text-xl"></i></button>
+                        <button @click="demoModal.show = false" class="text-on-surface-variant hover:text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
                     </div>
-                    <p class="text-sm text-gray-500 mb-3">{{ demoModal.site?.site_name || '' }} · 选择一个 WoodMart 演示模板导入</p>
+                    <p class="text-sm text-on-surface-variant mb-3">{{ demoModal.site?.site_name || '' }} · 选择一个 WoodMart 演示模板导入</p>
 
-                    <div v-if="demoModal.loading" class="text-center py-12 text-gray-400">
-                        <i class="fas fa-spinner fa-spin text-3xl mb-3"></i><p>加载演示列表...</p>
+                    <div v-if="demoModal.loading" class="text-center py-12 text-on-surface-variant">
+                        <span class="spinner w-4 h-4 inline-block"></span><p>加载演示列表...</p>
                     </div>
-                    <div v-else-if="demoModal.demos.length === 0" class="text-center py-12 text-gray-400">
+                    <div v-else-if="demoModal.demos.length === 0" class="text-center py-12 text-on-surface-variant">
                         <p>暂无可用的演示模板，请确认 WoodMart 主题已激活</p>
                     </div>
                     <div v-else>
@@ -3048,13 +3219,13 @@ pipelineStatuses[siteId].demo_importing = false;
                         <div class="flex flex-wrap gap-1.5 mb-3">
                             <button @click="demoModal.category = 'all'"
                                 :class="['px-2.5 py-1 rounded-full text-xs font-medium transition',
-                                    demoModal.category === 'all' ? 'bg-blue-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
+                                    demoModal.category === 'all' ? 'bg-primary text-on-primary' : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high']">
                                 全部
                             </button>
                             <button v-for="cat in demoModalCategories" :key="cat"
                                 @click="demoModal.category = cat"
                                 :class="['px-2.5 py-1 rounded-full text-xs font-medium transition',
-                                    demoModal.category === cat ? 'bg-blue-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
+                                    demoModal.category === cat ? 'bg-primary text-on-primary' : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high']">
                                 {{ cat }}
                             </button>
                         </div>
@@ -3063,23 +3234,23 @@ pipelineStatuses[siteId].demo_importing = false;
                             <div v-for="demo in demoModalFiltered" :key="demo.id"
                                 @click="demoModal.selectedDemoId = demo.id"
                                 :class="['cursor-pointer border-2 rounded-xl p-3 text-center transition',
-                                    demoModal.selectedDemoId === demo.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300']">
+                                    demoModal.selectedDemoId === demo.id ? 'border-primary-container bg-blue-50' : 'border-outline-variant hover:border-outline']">
                                 <img v-if="demo.thumbnail" :src="demo.thumbnail" :alt="demo.name" class="w-full h-20 object-cover rounded-lg mb-2" />
-                                <p class="text-xs font-medium text-gray-700 truncate">{{ demo.name }}</p>
+                                <p class="text-xs font-medium text-on-surface truncate">{{ demo.name }}</p>
                             </div>
                         </div>
                         <!-- Import button -->
                         <div class="flex items-center gap-3">
                             <button @click="startDemoImportFromModal" :disabled="!demoModal.selectedDemoId || demoModal.importing"
-                                class="btn-primary text-white px-6 py-2.5 rounded-lg disabled:opacity-50">
+                                class="btn-primary text-on-primary px-6 py-2.5 rounded-lg disabled:opacity-50">
                                 <i v-if="demoModal.importing" class="fas fa-spinner fa-spin mr-2"></i>
                                 {{ demoModal.importing ? '导入中...' : '导入演示' }}
                             </button>
-                            <button @click="demoModal.show = false" class="px-4 py-2.5 border rounded-lg text-sm hover:bg-gray-50">
+                            <button @click="demoModal.show = false" class="px-4 py-2.5 border rounded-lg text-sm hover:bg-surface-container-low">
                                 取消
                             </button>
                         </div>
-                        <p v-if="demoModal.status" class="text-xs mt-2" :class="demoModal.status.includes('失败') ? 'text-red-600' : 'text-gray-500'">
+                        <p v-if="demoModal.status" class="text-xs mt-2" :class="demoModal.status.includes('失败') ? 'text-error' : 'text-on-surface-variant'">
                             {{ demoModal.status }}
                         </p>
                     </div>
@@ -3087,10 +3258,10 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- 筛品 Dashboard -->
-            <div v-if="currentPage === 'shai-pin-dashboard'" class="p-8 fade-in">
+            <div v-if="currentPage === 'shai-pin-dashboard'" class="fade-in">
                 <div v-if="feedStatsLoading" class="flex items-center justify-center py-20">
-                    <i class="fas fa-spinner fa-spin text-3xl text-blue-500"></i>
-                    <span class="ml-3 text-gray-500">加载数据统计中...</span>
+                    <span class="spinner w-4 h-4 inline-block"></span>
+                    <span class="ml-3 text-on-surface-variant">加载数据统计中...</span>
                 </div>
 
                 <div v-else-if="feedStats">
@@ -3101,8 +3272,8 @@ pipelineStatuses[siteId].demo_importing = false;
                                     <p class="font-body-md text-on-surface-variant font-medium">商品总数</p>
                                     <p class="font-display-md mt-xs text-on-surface">{{ feedStats.total_products }}</p>
                                 </div>
-                                <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                                    <i class="fas fa-boxes text-green-600 text-xl"></i>
+                                <div class="w-12 h-12 bg-[#146c2e]/10 rounded-lg flex items-center justify-center">
+                                    <i class="fas fa-boxes text-[#146c2e] text-xl"></i>
                                 </div>
                             </div>
                         </div>
@@ -3113,7 +3284,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                     <p class="font-display-md mt-xs text-on-surface">{{ feedStats.sites_with_products }}</p>
                                 </div>
                                 <div class="p-xs bg-surface-container-low rounded-md">
-                                    <i class="fas fa-globe text-blue-700 text-xl"></i>
+                                    <span class="material-symbols-outlined">language</span>
                                 </div>
                             </div>
                         </div>
@@ -3121,10 +3292,10 @@ pipelineStatuses[siteId].demo_importing = false;
                             <div class="flex items-center justify-between">
                                 <div>
                                     <p class="font-body-md text-on-surface-variant font-medium">有货</p>
-                                    <p class="text-3xl font-bold text-green-600 mt-1">{{ feedStats.in_stock }}</p>
+                                    <p class="text-3xl font-bold text-[#146c2e] mt-1">{{ feedStats.in_stock }}</p>
                                 </div>
-                                <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                                    <i class="fas fa-check-circle text-green-600 text-xl"></i>
+                                <div class="w-12 h-12 bg-[#146c2e]/10 rounded-lg flex items-center justify-center">
+                                    <i class="fas fa-check-circle text-[#146c2e] text-xl"></i>
                                 </div>
                             </div>
                         </div>
@@ -3132,10 +3303,10 @@ pipelineStatuses[siteId].demo_importing = false;
                             <div class="flex items-center justify-between">
                                 <div>
                                     <p class="font-body-md text-on-surface-variant font-medium">缺货</p>
-                                    <p class="text-3xl font-bold text-red-600 mt-1">{{ feedStats.out_of_stock }}</p>
+                                    <p class="text-3xl font-bold text-error mt-1">{{ feedStats.out_of_stock }}</p>
                                 </div>
-                                <div class="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
-                                    <i class="fas fa-times-circle text-red-600 text-xl"></i>
+                                <div class="w-12 h-12 bg-error-container rounded-lg flex items-center justify-center">
+                                    <span class="material-symbols-outlined">close</span>
                                 </div>
                             </div>
                         </div>
@@ -3152,76 +3323,76 @@ pipelineStatuses[siteId].demo_importing = false;
                         </div>
                     </div>
 
-                    <div class="bg-white rounded-xl card-shadow p-6">
-                        <h3 class="font-semibold text-gray-800 mb-4">
-                            <i class="fas fa-coins mr-2 text-blue-500"></i>币种分布
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
+                        <h3 class="font-semibold text-on-surface mb-4">
+                            <i class="fas fa-coins mr-2 text-primary"></i>币种分布
                         </h3>
                         <div v-if="feedStats.currencies && feedStats.currencies.length" class="grid grid-cols-2 md:grid-cols-4 gap-4">
                             <div v-for="c in feedStats.currencies" :key="c.currency"
-                                 class="bg-gray-50 rounded-lg p-4 text-center">
-                                <p class="text-2xl font-bold text-gray-800">{{ c.count }}</p>
-                                <p class="text-sm text-gray-500 mt-1">{{ c.currency }}</p>
+                                 class="bg-surface-container-low rounded-lg p-4 text-center">
+                                <p class="text-2xl font-bold text-on-surface">{{ c.count }}</p>
+                                <p class="text-sm text-on-surface-variant mt-1">{{ c.currency }}</p>
                             </div>
                         </div>
-                        <div v-else class="text-center text-gray-400 py-8">
+                        <div v-else class="text-center text-on-surface-variant py-8">
                             <i class="fas fa-inbox text-3xl mb-2"></i>
                             <p>暂无币种数据</p>
                         </div>
                     </div>
                 </div>
 
-                <div v-else class="bg-white rounded-xl card-shadow p-12 text-center text-gray-400">
+                <div v-else class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center text-on-surface-variant">
                     <i class="fas fa-chart-bar text-5xl mb-4"></i>
-                    <p class="text-lg font-medium text-gray-500 mb-2">暂无筛品数据</p>
+                    <p class="text-lg font-medium text-on-surface-variant mb-2">暂无筛品数据</p>
                     <p>请先在站点中添加 Feed 商品数据</p>
                 </div>
             </div>
 
             <!-- 筛品 - 商品来源 -->
-            <div v-if="currentPage === 'shai-pin-source'" class="p-8 fade-in">
+            <div v-if="currentPage === 'shai-pin-source'" class="fade-in">
                 <div class="flex gap-2 mb-6">
                     <button @click="sourceTab = 'walmart'"
                             :class="['px-6 py-3 rounded-lg text-sm font-medium transition',
-                                     sourceTab === 'walmart' ? 'bg-blue-500 text-white shadow' : 'bg-white text-gray-600 hover:bg-gray-100 card-shadow']">
+                                     sourceTab === 'walmart' ? 'bg-primary-container text-on-primary shadow' : 'bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container shadow-level-1']">
                         <i class="fas fa-shopping-cart mr-2"></i>沃尔玛商超
                     </button>
                     <button @click="sourceTab = 'amazon'"
                             :class="['px-6 py-3 rounded-lg text-sm font-medium transition',
-                                     sourceTab === 'amazon' ? 'bg-orange-500 text-white shadow' : 'bg-white text-gray-600 hover:bg-gray-100 card-shadow']">
+                                     sourceTab === 'amazon' ? 'bg-tertiary-container text-on-primary shadow' : 'bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container shadow-level-1']">
                         <i class="fab fa-amazon mr-2"></i>亚马逊网品
                     </button>
                     <button @click="sourceTab = 'tiktok'"
                             :class="['px-6 py-3 rounded-lg text-sm font-medium transition',
-                                     sourceTab === 'tiktok' ? 'bg-gray-800 text-white shadow' : 'bg-white text-gray-600 hover:bg-gray-100 card-shadow']">
+                                     sourceTab === 'tiktok' ? 'bg-gray-800 text-on-primary shadow' : 'bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container shadow-level-1']">
                         <i class="fab fa-tiktok mr-2"></i>tiktok爆款
                     </button>
                     <button @click="sourceTab = 'hot-import'; loadPersistedAmazonResults()"
                             :class="['px-6 py-3 rounded-lg text-sm font-medium transition',
-                                     sourceTab === 'hot-import' ? 'bg-red-500 text-white shadow' : 'bg-white text-gray-600 hover:bg-gray-100 card-shadow']">
+                                     sourceTab === 'hot-import' ? 'bg-error text-on-primary shadow' : 'bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container shadow-level-1']">
                         <i class="fas fa-rocket mr-2"></i>爆品导入
                     </button>
                 </div>
 
                 <!-- Walmart Tab Content -->
-                <div v-if="sourceTab === 'walmart'" class="bg-white rounded-xl card-shadow overflow-hidden">
+                <div v-if="sourceTab === 'walmart'" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                     <div class="p-6 border-b">
                         <div class="flex items-center justify-between mb-4">
-                            <h3 class="font-semibold text-gray-800">
-                                <i class="fas fa-shopping-cart mr-2 text-blue-500"></i>沃尔玛商超 · 热销商品
+                            <h3 class="font-semibold text-on-surface">
+                                <i class="fas fa-shopping-cart mr-2 text-primary"></i>沃尔玛商超 · 热销商品
                             </h3>
                             <div class="flex items-center gap-3">
                                 <button v-if="walmartProducts && walmartProducts.length" @click="exportWalmartData('excel')"
-                                    class="px-3 py-2 bg-green-500 text-white rounded-lg text-sm hover:bg-green-600 transition">
+                                    class="px-3 py-2 bg-[#146c2e] text-on-primary rounded-lg text-sm hover:bg-[#146c2e]/80 transition">
                                     <i class="fas fa-file-excel mr-1"></i>导出Excel
                                 </button>
                                 <button v-if="walmartProducts && walmartProducts.length" @click="exportWalmartData('json')"
-                                    class="px-3 py-2 bg-gray-600 text-white rounded-lg text-sm hover:bg-gray-700 transition">
+                                    class="px-3 py-2 bg-surface-container-highest text-on-primary rounded-lg text-sm hover:bg-surface-container-high transition">
                                     <i class="fas fa-code mr-1"></i>导出JSON
                                 </button>
                             </div>
                         </div>
                         <div class="flex items-center gap-4 flex-wrap">
-                            <select v-model="walmartSelectedCategory" @change="loadPersistedWalmartProducts()" class="px-4 py-2 border rounded-lg text-sm focus:border-blue-500 min-w-[240px]">
+                            <select v-model="walmartSelectedCategory" @change="loadPersistedWalmartProducts()" class="px-4 py-2 border rounded-lg text-sm focus:border-primary min-w-[240px]">
                                 <option value="">-- 选择大类 --</option>
                                 <optgroup v-for="g in walmartCategories" :key="g.group" :label="g.group">
                                     <option v-for="c in g.items" :key="c.key" :value="c.key">
@@ -3231,23 +3402,23 @@ pipelineStatuses[siteId].demo_importing = false;
                             </select>
                             <input v-model.number="walmartFetchLimit" type="number" min="0"
                                 placeholder="全部" title="留空或0=获取全部，填数字=限制条数"
-                                class="px-3 py-2 border rounded-lg text-sm w-20 focus:border-blue-500">
+                                class="px-3 py-2 border rounded-lg text-sm w-20 focus:border-primary">
                             <button @click="fetchWalmartBestsellers" :disabled="walmartLoading || !walmartSelectedCategory"
-                                class="px-6 py-2 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50 transition">
+                                class="px-6 py-2 bg-primary-container text-on-primary rounded-lg text-sm hover:bg-primary disabled:opacity-50 transition">
                                 <i :class="['fas mr-1', walmartLoading ? 'fa-spinner fa-spin' : 'fa-download']"></i>
                                 {{ walmartLoading ? '抓取中...' : '抓取热销榜' }}
                             </button>
                             <button v-if="walmartProducts && walmartProducts.length" @click="enrichWalmartProducts"
                                 :disabled="walmartEnriching"
-                                class="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 transition">
+                                class="px-4 py-2 bg-primary-container text-on-primary rounded-lg text-sm hover:bg-primary disabled:opacity-50 transition">
                                 <i :class="['fas mr-1', walmartEnriching ? 'fa-spinner fa-spin' : 'fa-database']"></i>
                                 {{ walmartEnriching ? '处理中...' : '数据异步' }}
                             </button>
                         </div>
-                        <div v-if="walmartEnrichProgress" class="mt-2 text-xs text-blue-700 font-medium">
-                            <i class="fas fa-circle-notch fa-spin mr-1"></i>{{ walmartEnrichProgress }}
+                        <div v-if="walmartEnrichProgress" class="mt-2 text-xs text-primary font-medium">
+                            <span class="material-symbols-outlined text-[10px]">circle</span>{{ walmartEnrichProgress }}
                         </div>
-                        <p class="text-xs text-gray-500 mt-3">
+                        <p class="text-xs text-on-surface-variant mt-3">
                             通过 Crawlbase 实时抓取 Walmart.com 美国站五大商超品类的 Best Sellers 榜单数据。
                             初次加载请等待 10-30 秒。
                         </p>
@@ -3255,46 +3426,46 @@ pipelineStatuses[siteId].demo_importing = false;
 
                     <!-- Error -->
                     <div v-if="walmartError" class="p-8 text-center">
-                        <div class="bg-red-50 border border-red-200 rounded-lg p-4 inline-block">
+                        <div class="bg-error-container border border-error/20 rounded-lg p-4 inline-block">
                             <i class="fas fa-exclamation-triangle text-red-400 mr-2"></i>
-                            <span class="text-red-600">{{ walmartError }}</span>
+                            <span class="text-error">{{ walmartError }}</span>
                         </div>
                     </div>
 
                     <!-- Loading skeletons -->
                     <div v-if="walmartLoading" class="p-8">
                         <div class="space-y-3 animate-pulse">
-                            <div v-for="i in 5" :key="i" class="flex items-center gap-4 p-3 bg-gray-50 rounded-lg">
-                                <div class="w-8 h-8 bg-gray-200 rounded-full"></div>
-                                <div class="flex-1 h-4 bg-gray-200 rounded w-3/4"></div>
-                                <div class="w-20 h-4 bg-gray-200 rounded"></div>
-                                <div class="w-16 h-4 bg-gray-200 rounded"></div>
+                            <div v-for="i in 5" :key="i" class="flex items-center gap-4 p-3 bg-surface-container-low rounded-lg">
+                                <div class="w-8 h-8 bg-surface-container-high rounded-full"></div>
+                                <div class="flex-1 h-4 bg-surface-container-high rounded w-3/4"></div>
+                                <div class="w-20 h-4 bg-surface-container-high rounded"></div>
+                                <div class="w-16 h-4 bg-surface-container-high rounded"></div>
                             </div>
                         </div>
                     </div>
 
                     <!-- Empty state -->
-                    <div v-if="!walmartLoading && !walmartError && !(walmartProducts && walmartProducts.length)" class="p-12 text-center text-gray-400">
+                    <div v-if="!walmartLoading && !walmartError && !(walmartProducts && walmartProducts.length)" class="p-12 text-center text-on-surface-variant">
                         <div class="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                            <i class="fas fa-shopping-cart text-blue-500 text-2xl"></i>
+                            <i class="fas fa-shopping-cart text-primary text-2xl"></i>
                         </div>
                         <p>选择大类后点击「抓取热销榜」开始获取数据</p>
                     </div>
 
                     <!-- Results table -->
                     <div v-if="walmartProducts && walmartProducts.length" class="overflow-x-auto">
-                        <div class="px-6 py-3 bg-gray-50 border-b flex items-center justify-between text-xs text-gray-500">
+                        <div class="px-6 py-3 bg-surface-container-low border-b flex items-center justify-between text-xs text-on-surface-variant">
                             <span>共 {{ (walmartProducts && walmartProducts.length) || 0 }} 件</span>
                             <span>第 {{ walmartPage || 1 }} / {{ walmartTotalPages || 1 }} 页</span>
                             <div class="flex items-center gap-1">
                                 <button @click="walmartGoPage((walmartPage || 1) - 1)" :disabled="(walmartPage || 1) <= 1"
-                                    class="px-3 py-1 rounded hover:bg-gray-200 disabled:opacity-30 transition">上一页</button>
+                                    class="px-3 py-1 rounded hover:bg-surface-container-high disabled:opacity-30 transition">上一页</button>
                                 <button @click="walmartGoPage((walmartPage || 1) + 1)" :disabled="(walmartPage || 1) >= (walmartTotalPages || 1)"
-                                    class="px-3 py-1 rounded hover:bg-gray-200 disabled:opacity-30 transition">下一页</button>
+                                    class="px-3 py-1 rounded hover:bg-surface-container-high disabled:opacity-30 transition">下一页</button>
                             </div>
                         </div>
                         <table class="w-full text-sm">
-                            <thead class="bg-gray-50 text-left text-xs text-gray-500 uppercase">
+                            <thead class="bg-surface-container-low text-left text-xs text-on-surface-variant uppercase">
                                 <tr>
                                     <th class="px-4 py-3 w-12">排名</th>
                                     <th class="px-4 py-3">产品名称</th>
@@ -3303,125 +3474,125 @@ pipelineStatuses[siteId].demo_importing = false;
                                 </tr>
                             </thead>
                             <tbody class="divide-y">
-                                <tr v-for="(p, idx) in walmartPagedProducts" :key="idx" class="hover:bg-gray-50 transition">
+                                <tr v-for="(p, idx) in walmartPagedProducts" :key="idx" class="hover:bg-surface-container-low transition">
                                     <td class="px-4 py-3">
                                         <span :class="['inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold',
-                                            (p && p.rank <= 3) ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-600']">
+                                            (p && p.rank <= 3) ? 'bg-yellow-100 text-yellow-800' : 'bg-surface-container text-on-surface-variant']">
                                             {{ p && p.rank }}
                                         </span>
                                     </td>
                                     <td class="px-4 py-3">
                                         <div class="max-w-md">
                                             <a v-if="p && p.source_url" :href="p.source_url" target="_blank"
-                                                class="font-medium text-blue-600 hover:text-blue-800 hover:underline line-clamp-2">
+                                                class="font-medium text-primary hover:text-primary hover:underline line-clamp-2">
                                                 {{ p && p.product_name }}
                                             </a>
-                                            <span v-else class="font-medium text-gray-800 line-clamp-2">{{ p && p.product_name }}</span>
+                                            <span v-else class="font-medium text-on-surface line-clamp-2">{{ p && p.product_name }}</span>
                                         </div>
                                     </td>
-                                    <td class="px-4 py-3 font-medium text-gray-800">{{ p && p.price != null ? '$' + p.price.toFixed(2) : '-' }}</td>
-                                    <td class="px-4 py-3 text-gray-600">{{ p && p.review_count != null ? p.review_count.toLocaleString() : '-' }}</td>
+                                    <td class="px-4 py-3 font-medium text-on-surface">{{ p && p.price != null ? '$' + p.price.toFixed(2) : '-' }}</td>
+                                    <td class="px-4 py-3 text-on-surface-variant">{{ p && p.review_count != null ? p.review_count.toLocaleString() : '-' }}</td>
                                 </tr>
                             </tbody>
                         </table>
-                        <div class="px-6 py-3 bg-gray-50 border-t flex items-center justify-between text-xs text-gray-500">
+                        <div class="px-6 py-3 bg-surface-container-low border-t flex items-center justify-between text-xs text-on-surface-variant">
                             <span>第 {{ walmartPage || 1 }} 页，每页 {{ walmartPerPage || 20 }} 件，共 {{ (walmartProducts && walmartProducts.length) || 0 }} 件</span>
                             <div class="flex items-center gap-1">
                                 <button @click="walmartGoPage((walmartPage || 1) - 1)" :disabled="(walmartPage || 1) <= 1"
-                                    class="px-3 py-1 rounded hover:bg-gray-200 disabled:opacity-30 transition">上一页</button>
+                                    class="px-3 py-1 rounded hover:bg-surface-container-high disabled:opacity-30 transition">上一页</button>
                                 <button @click="walmartGoPage((walmartPage || 1) + 1)" :disabled="(walmartPage || 1) >= (walmartTotalPages || 1)"
-                                    class="px-3 py-1 rounded hover:bg-gray-200 disabled:opacity-30 transition">下一页</button>
+                                    class="px-3 py-1 rounded hover:bg-surface-container-high disabled:opacity-30 transition">下一页</button>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div v-if="sourceTab === 'amazon'" class="bg-white rounded-xl card-shadow p-12 text-center">
+                <div v-if="sourceTab === 'amazon'" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center">
                     <div class="w-20 h-20 bg-orange-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                        <i class="fab fa-amazon text-orange-500 text-3xl"></i>
+                        <i class="fab fa-amazon text-tertiary text-3xl"></i>
                     </div>
-                    <h3 class="text-lg font-semibold text-gray-700 mb-2">亚马逊网品商品来源</h3>
-                    <p class="text-gray-400">此功能正在开发中，敬请期待...</p>
+                    <h3 class="text-lg font-semibold text-on-surface mb-2">亚马逊网品商品来源</h3>
+                    <p class="text-on-surface-variant">此功能正在开发中，敬请期待...</p>
                 </div>
 
-                <div v-if="sourceTab === 'tiktok'" class="bg-white rounded-xl card-shadow p-12 text-center">
+                <div v-if="sourceTab === 'tiktok'" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center">
                     <div class="w-20 h-20 bg-gray-800 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                        <i class="fab fa-tiktok text-white text-3xl"></i>
+                        <i class="fab fa-tiktok text-on-primary text-3xl"></i>
                     </div>
-                    <h3 class="text-lg font-semibold text-gray-700 mb-2">tiktok爆款商品来源</h3>
-                    <p class="text-gray-400">此功能正在开发中，敬请期待...</p>
+                    <h3 class="text-lg font-semibold text-on-surface mb-2">tiktok爆款商品来源</h3>
+                    <p class="text-on-surface-variant">此功能正在开发中，敬请期待...</p>
                 </div>
 
                 <!-- 爆品导入 Tab Content -->
-                <div v-if="sourceTab === 'hot-import'" class="bg-white rounded-xl card-shadow overflow-hidden">
+                <div v-if="sourceTab === 'hot-import'" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                     <div class="p-6 border-b">
-                        <h3 class="font-semibold text-gray-800 mb-4">
-                            <i class="fas fa-rocket mr-2 text-red-500"></i>爆品导入 · 亚马逊产品搜索
+                        <h3 class="font-semibold text-on-surface mb-4">
+                            <i class="fas fa-rocket mr-2 text-error"></i>爆品导入 · 亚马逊产品搜索
                         </h3>
                         <div class="flex items-center gap-3">
                             <button @click="openAmazonImportModal" :disabled="amazonSearchLoading"
-                                class="px-5 py-2.5 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 disabled:opacity-50 transition">
+                                class="px-5 py-2.5 bg-error text-on-primary rounded-lg text-sm font-medium hover:bg-error disabled:opacity-50 transition">
                                 <i class="fas fa-keyboard mr-1"></i>输入搜索
                             </button>
-                            <label class="px-5 py-2.5 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition cursor-pointer">
+                            <label class="px-5 py-2.5 bg-primary-container text-on-primary rounded-lg text-sm font-medium hover:bg-primary transition cursor-pointer">
                                 <i class="fas fa-file-upload mr-1"></i>导入文件
                                 <input type="file" accept=".txt,.csv" class="hidden" @change="handleAmazonFileUpload" :disabled="amazonSearchLoading">
                             </label>
                             <button @click="openAmazonUrlModal" :disabled="amazonSearchLoading"
-                                class="px-5 py-2.5 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 disabled:opacity-50 transition">
+                                class="px-5 py-2.5 bg-[#146c2e] text-on-primary rounded-lg text-sm font-medium hover:bg-[#146c2e]/80 disabled:opacity-50 transition">
                                 <i class="fas fa-link mr-1"></i>粘贴链接
                             </button>
                         </div>
-                        <p class="text-xs text-gray-500 mt-3">
+                        <p class="text-xs text-on-surface-variant mt-3">
                             搜索关键词 或 粘贴 Amazon 产品链接直接导入。支持 .txt（每行一个产品名）或 .csv 文件导入。
                         </p>
                     </div>
 
                     <!-- Progress / Searching -->
-                    <div v-if="amazonSearchProgress" class="px-6 py-2 bg-red-50 border-b text-sm">
-                        <span v-if="amazonSearchLoading" class="text-red-600"><i class="fas fa-circle-notch fa-spin mr-1"></i></span>
-                        <span v-else class="text-green-600"><i class="fas fa-check-circle mr-1"></i></span>
-                        <span :class="amazonSearchLoading ? 'text-red-600' : 'text-green-600'">{{ amazonSearchProgress }}</span>
+                    <div v-if="amazonSearchProgress" class="px-6 py-2 bg-error-container border-b text-sm">
+                        <span v-if="amazonSearchLoading" class="text-error"><span class="material-symbols-outlined text-[10px]">circle</span></span>
+                        <span v-else class="text-[#146c2e]"><i class="fas fa-check-circle mr-1"></i></span>
+                        <span :class="amazonSearchLoading ? 'text-error' : 'text-[#146c2e]'">{{ amazonSearchProgress }}</span>
                     </div>
 
                     <!-- Error -->
                     <div v-if="amazonSearchError && !amazonSearchResults.length" class="p-8 text-center">
-                        <div class="bg-red-50 border border-red-200 rounded-lg p-4 inline-block">
+                        <div class="bg-error-container border border-error/20 rounded-lg p-4 inline-block">
                             <i class="fas fa-exclamation-triangle text-red-400 mr-2"></i>
-                            <span class="text-red-600">{{ amazonSearchError }}</span>
+                            <span class="text-error">{{ amazonSearchError }}</span>
                         </div>
                     </div>
 
                     <!-- Loading -->
                     <div v-if="amazonSearchLoading && !amazonSearchResults.length" class="p-8">
                         <div class="space-y-3 animate-pulse">
-                            <div v-for="i in 5" :key="i" class="flex items-center gap-4 p-3 bg-gray-50 rounded-lg">
-                                <div class="w-8 h-8 bg-gray-200 rounded-full"></div>
-                                <div class="flex-1 h-4 bg-gray-200 rounded w-3/4"></div>
-                                <div class="w-20 h-4 bg-gray-200 rounded"></div>
+                            <div v-for="i in 5" :key="i" class="flex items-center gap-4 p-3 bg-surface-container-low rounded-lg">
+                                <div class="w-8 h-8 bg-surface-container-high rounded-full"></div>
+                                <div class="flex-1 h-4 bg-surface-container-high rounded w-3/4"></div>
+                                <div class="w-20 h-4 bg-surface-container-high rounded"></div>
                             </div>
                         </div>
                     </div>
 
                     <!-- Empty -->
-                    <div v-if="!amazonSearchLoading && !amazonSearchError && !amazonSearchResults.length && !amazonSearchProgress" class="p-12 text-center text-gray-400">
-                        <div class="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                            <i class="fas fa-rocket text-red-500 text-2xl"></i>
+                    <div v-if="!amazonSearchLoading && !amazonSearchError && !amazonSearchResults.length && !amazonSearchProgress" class="p-12 text-center text-on-surface-variant">
+                        <div class="w-16 h-16 bg-error-container rounded-2xl flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-rocket text-error text-2xl"></i>
                         </div>
                         <p>点击「输入搜索」或「导入文件」开始</p>
                     </div>
 
                     <!-- Import Modal -->
                     <div v-if="showAmazonImportModal" class="modal-overlay modal-overlay" @click.self="closeAmazonImportModal">
-                        <div class="bg-white rounded-xl card-shadow w-full max-w-lg p-6 fade-in">
-                            <h3 class="text-lg font-semibold text-gray-800 mb-4">
-                                <i class="fas fa-keyboard mr-2 text-red-500"></i>输入产品名称
+                        <div class="bg-surface-container-lowest rounded-xl shadow-level-1 w-full max-w-lg p-6 fade-in">
+                            <h3 class="text-lg font-semibold text-on-surface mb-4">
+                                <i class="fas fa-keyboard mr-2 text-error"></i>输入产品名称
                             </h3>
                             <textarea v-model="amazonImportModalText" placeholder="每行一个产品名称&#10;例如：&#10;running shoes&#10;wireless earbuds&#10;yoga mat"
                                 class="w-full px-4 py-3 border rounded-lg text-sm focus:border-red-500 min-h-[200px] resize-y"></textarea>
                             <div class="flex justify-end gap-3 mt-4">
-                                <button @click="closeAmazonImportModal" class="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">取消</button>
-                                <button @click="startAmazonSearchFromModal" class="px-6 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition">
+                                <button @click="closeAmazonImportModal" class="px-4 py-2 border rounded-lg text-sm hover:bg-surface-container-low">取消</button>
+                                <button @click="startAmazonSearchFromModal" class="px-6 py-2 bg-error text-on-primary rounded-lg text-sm font-medium hover:bg-error transition">
                                     <i class="fas fa-search mr-1"></i>开始搜索
                                 </button>
                             </div>
@@ -3430,15 +3601,15 @@ pipelineStatuses[siteId].demo_importing = false;
 
                     <!-- URL Import Modal -->
                     <div v-if="showAmazonUrlModal" class="modal-overlay modal-overlay" @click.self="closeAmazonUrlModal">
-                        <div class="bg-white rounded-xl card-shadow w-full max-w-lg p-6 fade-in">
-                            <h3 class="text-lg font-semibold text-gray-800 mb-4">
-                                <i class="fas fa-link mr-2 text-green-500"></i>粘贴 Amazon 产品链接
+                        <div class="bg-surface-container-lowest rounded-xl shadow-level-1 w-full max-w-lg p-6 fade-in">
+                            <h3 class="text-lg font-semibold text-on-surface mb-4">
+                                <i class="fas fa-link mr-2 text-[#146c2e]"></i>粘贴 Amazon 产品链接
                             </h3>
                             <textarea v-model="amazonUrlModalText" placeholder="每行一个 Amazon 产品链接&#10;例如：&#10;https://www.amazon.com/dp/B0BDMTZYXZ&#10;https://www.amazon.com/dp/B0C3VJDKM8"
                                 class="w-full px-4 py-3 border rounded-lg text-sm focus:border-green-500 min-h-[200px] resize-y"></textarea>
                             <div class="flex justify-end gap-3 mt-4">
-                                <button @click="closeAmazonUrlModal" class="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">取消</button>
-                                <button @click="startAmazonUrlImport" class="px-6 py-2 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition">
+                                <button @click="closeAmazonUrlModal" class="px-4 py-2 border rounded-lg text-sm hover:bg-surface-container-low">取消</button>
+                                <button @click="startAmazonUrlImport" class="px-6 py-2 bg-[#146c2e] text-on-primary rounded-lg text-sm font-medium hover:bg-[#146c2e]/80 transition">
                                     <i class="fas fa-download mr-1"></i>直接导入
                                 </button>
                             </div>
@@ -3447,26 +3618,26 @@ pipelineStatuses[siteId].demo_importing = false;
 
                     <!-- Results -->
                     <div v-if="amazonSearchResults.length">
-                        <div class="px-6 py-3 bg-gray-50 border-b flex items-center justify-between text-xs text-gray-500">
+                        <div class="px-6 py-3 bg-surface-container-low border-b flex items-center justify-between text-xs text-on-surface-variant">
                             <span>共 {{ amazonSearchResults.length }} 件产品</span>
                             <div class="flex items-center gap-3">
-                                <label class="flex items-center gap-1 cursor-pointer hover:text-gray-700">
+                                <label class="flex items-center gap-1 cursor-pointer hover:text-on-surface">
                                     <input type="checkbox" :checked="amazonSelectedIndices.size === amazonSearchResults.length" @change="selectAllAmazon" class="accent-red-500">
                                     全选
                                 </label>
                                 <button @click="convertToWooCommerce" :disabled="!amazonSelectedIndices.size || amazonSearchLoading || wooConverting"
-                                    class="px-4 py-1.5 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-700 disabled:opacity-50 transition">
+                                    class="px-4 py-1.5 bg-primary-container text-on-primary rounded text-xs font-medium hover:bg-primary disabled:opacity-50 transition">
                                     <i class="fas fa-shopping-cart mr-1"></i>生成 Woo 产品 ({{ amazonSelectedIndices.size }})
                                 </button>
                                 <button @click="deleteSelectedAmazonProducts" :disabled="!amazonSelectedIndices.size || amazonSearchLoading"
-                                    class="px-4 py-1.5 bg-red-500 text-white rounded text-xs font-medium hover:bg-red-600 disabled:opacity-50 transition">
+                                    class="px-4 py-1.5 bg-error text-on-primary rounded text-xs font-medium hover:bg-error disabled:opacity-50 transition">
                                     <i class="fas fa-trash mr-1"></i>删除 ({{ amazonSelectedIndices.size }})
                                 </button>
                             </div>
                         </div>
                         <div class="overflow-x-auto">
                             <table class="w-full text-sm">
-                                <thead class="bg-gray-50 text-left text-xs text-gray-500 uppercase">
+                                <thead class="bg-surface-container-low text-left text-xs text-on-surface-variant uppercase">
                                     <tr>
                                         <th class="px-3 py-3 w-10"></th>
                                         <th class="px-3 py-3 w-14">图片</th>
@@ -3479,50 +3650,50 @@ pipelineStatuses[siteId].demo_importing = false;
                                 </thead>
                                 <tbody class="divide-y">
                                     <tr v-for="(p, idx) in amazonSearchResults" :key="idx"
-                                        :class="['hover:bg-gray-50 transition cursor-pointer', amazonSelectedIndices.has(idx) ? 'bg-red-50' : '']"
+                                        :class="['hover:bg-surface-container-low transition cursor-pointer', amazonSelectedIndices.has(idx) ? 'bg-error-container' : '']"
                                         @click="toggleAmazonSelect(idx)">
                                         <td class="px-3 py-3">
                                             <input type="checkbox" :checked="amazonSelectedIndices.has(idx)" class="accent-red-500 pointer-events-none">
                                         </td>
                                         <td class="px-3 py-3">
                                             <img v-if="p.thumbnail" :src="p.thumbnail" class="w-12 h-12 rounded border object-cover" :alt="p.product_name" loading="lazy">
-                                            <div v-else class="w-12 h-12 bg-gray-100 rounded border flex items-center justify-center"><i class="fas fa-image text-gray-400 text-xs"></i></div>
+                                            <div v-else class="w-12 h-12 bg-surface-container rounded border flex items-center justify-center"><i class="fas fa-image text-on-surface-variant text-xs"></i></div>
                                         </td>
                                         <td class="px-3 py-2.5">
                                             <a v-if="p.source_url" :href="p.source_url" target="_blank" @click.stop
-                                                class="font-medium text-blue-600 hover:text-blue-800 hover:underline block max-w-[280px] truncate">
+                                                class="font-medium text-primary hover:text-primary hover:underline block max-w-[280px] truncate">
                                                 {{ p.product_name }}
                                             </a>
-                                            <span v-else class="font-medium text-gray-800 block max-w-[280px] truncate">{{ p.product_name }}</span>
+                                            <span v-else class="font-medium text-on-surface block max-w-[280px] truncate">{{ p.product_name }}</span>
                                             <div class="flex items-center gap-1.5 mt-1 flex-wrap">
                                                 <span v-if="p.brand" class="inline-flex items-center px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded text-xs font-medium border border-amber-200">
                                                     <i class="fas fa-tag mr-0.5 text-xs"></i>{{ p.brand }}
                                                 </span>
-                                                <span v-if="p.asin" class="inline-flex items-center text-xs text-gray-400 font-mono">{{ p.asin }}</span>
-                                                <span v-if="p.breadcrumbs" class="text-xs text-gray-400 truncate max-w-[200px]" :title="p.breadcrumbs">{{ p.breadcrumbs }}</span>
+                                                <span v-if="p.asin" class="inline-flex items-center text-xs text-on-surface-variant font-mono">{{ p.asin }}</span>
+                                                <span v-if="p.breadcrumbs" class="text-xs text-on-surface-variant truncate max-w-[200px]" :title="p.breadcrumbs">{{ p.breadcrumbs }}</span>
                                             </div>
                                         </td>
                                         <td class="px-3 py-3">
                                             <div v-if="p.original_price && p.original_price !== p.price" class="flex flex-col">
-                                                <span class="text-xs text-gray-400 line-through leading-tight">{{ p.original_price }}</span>
-                                                <span class="font-semibold text-gray-800">{{ p.price || '-' }}</span>
+                                                <span class="text-xs text-on-surface-variant line-through leading-tight">{{ p.original_price }}</span>
+                                                <span class="font-semibold text-on-surface">{{ p.price || '-' }}</span>
                                             </div>
-                                            <span v-else class="font-semibold text-gray-800">{{ p.price || '-' }}</span>
+                                            <span v-else class="font-semibold text-on-surface">{{ p.price || '-' }}</span>
                                         </td>
                                         <td class="px-3 py-3">
-                                            <span v-if="p.is_prime" class="inline-flex items-center px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded text-xs font-medium">
+                                            <span v-if="p.is_prime" class="inline-flex items-center px-1.5 py-0.5 bg-blue-50 text-primary rounded text-xs font-medium">
                                                 <i class="fas fa-check-circle mr-0.5"></i>Prime
                                             </span>
-                                            <span v-else class="text-xs text-gray-300">-</span>
+                                            <span v-else class="text-xs text-on-surface-variant">-</span>
                                         </td>
-                                        <td class="px-3 py-3 text-gray-700">
+                                        <td class="px-3 py-3 text-on-surface">
                                             <span v-if="p.rating_score" class="inline-flex items-center gap-1">
                                                 <i class="fas fa-star text-amber-400 text-xs"></i>
                                                 {{ p.rating_score.toFixed(1) }}
                                             </span>
-                                            <span v-else class="text-xs text-gray-300">-</span>
+                                            <span v-else class="text-xs text-on-surface-variant">-</span>
                                         </td>
-                                        <td class="px-3 py-3 text-gray-600">{{ p.review_count ? p.review_count.toLocaleString() : '-' }}</td>
+                                        <td class="px-3 py-3 text-on-surface-variant">{{ p.review_count ? p.review_count.toLocaleString() : '-' }}</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -3533,35 +3704,35 @@ pipelineStatuses[siteId].demo_importing = false;
 
             <!-- 转换日志弹窗 -->
             <div v-if="showConvertLogModal" class="modal-overlay modal-overlay" @click.self="closeConvertLogModal">
-                <div class="bg-white rounded-xl card-shadow w-full max-w-2xl max-h-[80vh] flex flex-col fade-in">
+                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 w-full max-w-2xl max-h-[80vh] flex flex-col fade-in">
                     <div class="flex items-center justify-between p-5 border-b">
-                        <h3 class="text-lg font-semibold text-gray-800"><i class="fas fa-sync-alt mr-2 text-green-500"></i>转换日志</h3>
-                        <button @click="closeConvertLogModal" :disabled="converting || wooConverting" class="text-gray-400 hover:text-gray-600 disabled:opacity-30"><i class="fas fa-times text-xl"></i></button>
+                        <h3 class="text-lg font-semibold text-on-surface"><span class="material-symbols-outlined">sync</span>转换日志</h3>
+                        <button @click="closeConvertLogModal" :disabled="converting || wooConverting" class="text-on-surface-variant hover:text-on-surface-variant disabled:opacity-30"><span class="material-symbols-outlined">close</span></button>
                     </div>
                     <div class="p-5 overflow-y-auto flex-1">
                         <div class="mb-4">
                             <div class="flex items-center justify-between mb-2">
-                                <span class="text-sm text-gray-600">{{ convertLogProgress }}</span>
-                                <span v-if="converting" class="text-xs text-green-600"><i class="fas fa-spinner fa-spin mr-1"></i>运行中</span>
+                                <span class="text-sm text-on-surface-variant">{{ convertLogProgress }}</span>
+                                <span v-if="converting" class="text-xs text-[#146c2e]"><span class="spinner w-4 h-4 inline-block"></span>运行中</span>
                             </div>
-                            <div v-if="converting" class="w-full bg-gray-200 rounded-full h-2">
-                                <div class="bg-green-500 h-2 rounded-full transition-all animate-pulse" style="width:100%"></div>
+                            <div v-if="converting" class="w-full bg-surface-container-high rounded-full h-2">
+                                <div class="bg-[#146c2e] h-2 rounded-full transition-all animate-pulse" style="width:100%"></div>
                             </div>
                         </div>
                         <div class="space-y-2">
                             <div v-for="(line, i) in convertLogLines" :key="i"
-                                :class="['flex items-start gap-2 text-sm p-2 rounded', line.ok ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800']">
-                                <i :class="['fas mt-0.5', line.ok ? 'fa-check-circle text-green-500' : 'fa-times-circle text-red-500']"></i>
+                                :class="['flex items-start gap-2 text-sm p-2 rounded', line.ok ? 'bg-[#146c2e]/5 text-[#146c2e]' : 'bg-error-container text-error']">
+                                <i :class="['fas mt-0.5', line.ok ? 'fa-check-circle text-[#146c2e]' : 'fa-times-circle text-error']"></i>
                                 <div class="flex-1 min-w-0">
                                     <span class="font-medium">#{{ line.idx }}</span> {{ line.title }}
-                                    <span v-if="line.error" class="block text-red-600 text-xs mt-0.5">{{ line.error }}</span>
+                                    <span v-if="line.error" class="block text-error text-xs mt-0.5">{{ line.error }}</span>
                                 </div>
                             </div>
                         </div>
                     </div>
                     <div class="p-4 border-t flex justify-end">
                         <button @click="closeConvertLogModal" :disabled="converting || wooConverting"
-                            class="px-6 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition disabled:opacity-30">
+                            class="px-6 py-2 bg-surface-container hover:bg-surface-container-high rounded-lg text-sm font-medium transition disabled:opacity-30">
                             {{ converting ? '转换中...' : '关闭' }}
                         </button>
                     </div>
@@ -3569,69 +3740,69 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- 筛品 - Feed生成 -->
-            <div v-if="currentPage === 'shai-pin-feed'" class="p-8 fade-in">
+            <div v-if="currentPage === 'shai-pin-feed'" class="fade-in">
                 <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
-                    <h3 class="font-semibold text-gray-800">
-                        <i class="fas fa-file-export mr-2 text-green-500"></i>Feed 生成
-                        <span v-if="generatedFeed.length" class="text-sm text-gray-500 ml-2">({{ generatedFeed.length }} 件商品)</span>
+                    <h3 class="font-semibold text-on-surface">
+                        <i class="fas fa-file-export mr-2 text-[#146c2e]"></i>Feed 生成
+                        <span v-if="generatedFeed.length" class="text-sm text-on-surface-variant ml-2">({{ generatedFeed.length }} 件商品)</span>
                         <a v-if="feedUrl[feedSyncSiteId]" :href="feedUrl[feedSyncSiteId]" target="_blank"
-                            class="ml-3 text-xs text-blue-500 hover:text-blue-700 underline inline-flex items-center gap-1">
+                            class="ml-3 text-xs text-primary hover:text-primary underline inline-flex items-center gap-1">
                             <i class="fas fa-external-link-alt"></i>{{ feedUrl[feedSyncSiteId].split('/').pop() }}
                         </a>
                     </h3>
                     <div class="flex items-center gap-3">
                         <!-- Site selector -->
-                        <select v-model="feedSyncSiteId" class="border rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-green-300">
+                        <select v-model="feedSyncSiteId" class="border rounded-lg px-3 py-2 text-sm bg-surface-container-lowest focus:ring-2 focus:ring-green-300">
                             <option :value="null">-- 选择站点 --</option>
                             <option v-for="site in sites" :key="site.id" :value="site.id">{{ site.site_name }} ({{ site.url }})</option>
                         </select>
                         <button @click="createFeedForSite" :disabled="!feedSyncSiteId || syncingFeed || !generatedFeed.length"
-                            class="px-4 py-2 bg-green-500 text-white rounded-lg text-sm hover:bg-green-600 disabled:opacity-50 transition whitespace-nowrap">
-                            <i class="fas fa-plus-circle mr-1"></i>{{ syncingFeed ? '创建中...' : '创建' }}
+                            class="px-4 py-2 bg-[#146c2e] text-on-primary rounded-lg text-sm hover:bg-[#146c2e]/80 disabled:opacity-50 transition whitespace-nowrap">
+                            <span class="material-symbols-outlined text-[18px]">add_circle</span>{{ syncingFeed ? '创建中...' : '创建' }}
                         </button>
                         <button @click="cleanFeedFromSite" :disabled="!feedSyncSiteId || syncingFeed"
-                            class="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm hover:bg-orange-600 disabled:opacity-50 transition whitespace-nowrap">
+                            class="px-4 py-2 bg-tertiary-container text-on-primary rounded-lg text-sm hover:bg-tertiary disabled:opacity-50 transition whitespace-nowrap">
                             <i class="fas fa-broom mr-1"></i>清理
                         </button>
-                        <button @click="loadGeneratedFeed" class="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50 transition">
-                            <i class="fas fa-sync-alt mr-1"></i>刷新
+                        <button @click="loadGeneratedFeed" class="px-4 py-2 border rounded-lg text-sm hover:bg-surface-container-low transition">
+                            <span class="material-symbols-outlined">sync</span>刷新
                         </button>
                         <button v-if="generatedFeed.length" @click="clearGeneratedFeed"
-                            class="px-4 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600 transition">
+                            class="px-4 py-2 bg-error text-on-primary rounded-lg text-sm hover:bg-error transition">
                             <i class="fas fa-trash mr-1"></i>清除
                         </button>
                     </div>
                 </div>
 
                 <!-- Empty state -->
-                <div v-if="!generatedFeed.length" class="bg-white rounded-xl card-shadow p-12 text-center">
-                    <div class="w-20 h-20 bg-green-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                        <i class="fas fa-file-export text-green-500 text-3xl"></i>
+                <div v-if="!generatedFeed.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center">
+                    <div class="w-20 h-20 bg-[#146c2e]/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <i class="fas fa-file-export text-[#146c2e] text-3xl"></i>
                     </div>
-                    <h3 class="text-lg font-semibold text-gray-700 mb-2">Feed 生成</h3>
-                    <p class="text-gray-400 mb-1">暂无生成数据</p>
-                    <p class="text-xs text-gray-300">从 Woo产品页面点击「生成 Feed」或在商品来源导入产品后在此创建</p>
+                    <h3 class="text-lg font-semibold text-on-surface mb-2">Feed 生成</h3>
+                    <p class="text-on-surface-variant mb-1">暂无生成数据</p>
+                    <p class="text-xs text-on-surface-variant">从 Woo产品页面点击「生成 Feed」或在商品来源导入产品后在此创建</p>
                 </div>
 
                 <!-- Feed product table -->
-                <div v-else class="bg-white rounded-xl card-shadow overflow-hidden">
+                <div v-else class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                     <!-- Toolbar -->
-                    <div class="px-6 py-3 bg-gray-50 border-b flex items-center justify-between text-xs text-gray-500">
+                    <div class="px-6 py-3 bg-surface-container-low border-b flex items-center justify-between text-xs text-on-surface-variant">
                         <span>共 {{ generatedFeed.length }} 件产品</span>
                         <div class="flex items-center gap-3">
-                            <label class="flex items-center gap-1 cursor-pointer hover:text-gray-700">
+                            <label class="flex items-center gap-1 cursor-pointer hover:text-on-surface">
                                 <input type="checkbox" :checked="feedSelectedIndices.size === generatedFeed.length" @change="selectAllFeed" class="accent-green-500">
                                 全选
                             </label>
                             <button @click="deleteSelectedFeedItems" :disabled="!feedSelectedIndices.size"
-                                class="px-4 py-1.5 bg-red-500 text-white rounded text-xs font-medium hover:bg-red-600 disabled:opacity-50 transition">
+                                class="px-4 py-1.5 bg-error text-on-primary rounded text-xs font-medium hover:bg-error disabled:opacity-50 transition">
                                 <i class="fas fa-trash mr-1"></i>删除 ({{ feedSelectedIndices.size }})
                             </button>
                         </div>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="w-full text-sm">
-                            <thead class="bg-gray-50 text-left text-xs text-gray-500 uppercase border-b">
+                            <thead class="bg-surface-container-low text-left text-xs text-on-surface-variant uppercase border-b">
                                 <tr>
                                     <th class="px-4 py-3 w-10"></th>
                                     <th class="px-4 py-3 w-14">图片</th>
@@ -3644,7 +3815,7 @@ pipelineStatuses[siteId].demo_importing = false;
                             </thead>
                             <tbody class="divide-y">
                                 <tr v-for="(p, idx) in generatedFeed" :key="p.id"
-                                    :class="['hover:bg-gray-50 transition align-top cursor-pointer', feedSelectedIndices.has(idx) ? 'bg-green-50' : '']"
+                                    :class="['hover:bg-surface-container-low transition align-top cursor-pointer', feedSelectedIndices.has(idx) ? 'bg-[#146c2e]/5' : '']"
                                     @click="toggleFeedSelect(idx)">
                                     <td class="px-4 py-3">
                                         <input type="checkbox" :checked="feedSelectedIndices.has(idx)" class="accent-green-500 pointer-events-none">
@@ -3652,57 +3823,57 @@ pipelineStatuses[siteId].demo_importing = false;
                                     <td class="px-4 py-3">
                                         <img v-if="p.thumbnail" :src="p.thumbnail" class="w-12 h-12 rounded border object-cover" :alt="p.title">
                                         <img v-else-if="p.images && p.images.length" :src="p.images[0]" class="w-12 h-12 rounded border object-cover" :alt="p.title">
-                                        <div v-else class="w-12 h-12 bg-gray-100 rounded border flex items-center justify-center"><i class="fas fa-image text-gray-400 text-xs"></i></div>
+                                        <div v-else class="w-12 h-12 bg-surface-container rounded border flex items-center justify-center"><i class="fas fa-image text-on-surface-variant text-xs"></i></div>
                                     </td>
                                     <td class="px-4 py-3 max-w-[300px]">
                                         <a v-if="p.source_url" :href="p.source_url" target="_blank" @click.stop
-                                            class="font-semibold text-gray-800 hover:text-blue-600 transition line-clamp-1 block" :title="p.title">
+                                            class="font-semibold text-on-surface hover:text-primary transition line-clamp-1 block" :title="p.title">
                                             {{ p.title }}
                                         </a>
-                                        <span v-else class="font-semibold text-gray-800 line-clamp-1 block" :title="p.title">{{ p.title }}</span>
-                                        <div class="flex items-center gap-2 mt-1 text-xs text-gray-400 flex-wrap">
+                                        <span v-else class="font-semibold text-on-surface line-clamp-1 block" :title="p.title">{{ p.title }}</span>
+                                        <div class="flex items-center gap-2 mt-1 text-xs text-on-surface-variant flex-wrap">
                                             <span v-if="p.item_id">ASIN: {{ p.item_id }}</span>
-                                            <span v-if="p.extra_data && p.extra_data.sellerName" class="text-blue-500" :title="p.extra_data.sellerUrl || ''">
+                                            <span v-if="p.extra_data && p.extra_data.sellerName" class="text-primary" :title="p.extra_data.sellerUrl || ''">
                                                 <i class="fas fa-store-alt mr-0.5"></i>{{ p.extra_data.sellerName }}
                                             </span>
-                                            <span v-if="p.extra_data && p.extra_data.isPrime" class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px] font-semibold">Prime</span>
+                                            <span v-if="p.extra_data && p.extra_data.isPrime" class="bg-blue-100 text-primary px-1.5 py-0.5 rounded text-[10px] font-semibold">Prime</span>
                                             <span v-if="p.extra_data && p.extra_data.condition && p.extra_data.condition !== 'New'" class="bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded text-[10px]">{{ p.extra_data.condition }}</span>
-                                            <span v-if="p.extra_data && p.extra_data.couponText" class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-[10px] font-semibold">{{ p.extra_data.couponText }}</span>
+                                            <span v-if="p.extra_data && p.extra_data.couponText" class="bg-[#146c2e]/10 text-[#146c2e] px-1.5 py-0.5 rounded text-[10px] font-semibold">{{ p.extra_data.couponText }}</span>
                                         </div>
                                     </td>
                                     <td class="px-4 py-3">
-                                        <p class="text-xs text-gray-400" v-if="p.brand">{{ p.brand }}</p>
-                                        <p v-if="p.extra_data && p.extra_data.originalPrice && p.extra_data.originalPrice !== p.price" class="text-xs text-gray-400 line-through">{{ p.currency || 'USD' }} {{ p.extra_data.originalPrice }}</p>
-                                        <p class="font-bold text-green-600" v-if="p.price">{{ p.currency || '' }} {{ p.price }}</p>
-                                        <p v-else class="text-gray-400 text-xs">-</p>
-                                        <p v-if="p.extra_data && p.extra_data.discount" class="text-xs text-red-500 mt-0.5 font-medium">{{ p.extra_data.discount }}</p>
+                                        <p class="text-xs text-on-surface-variant" v-if="p.brand">{{ p.brand }}</p>
+                                        <p v-if="p.extra_data && p.extra_data.originalPrice && p.extra_data.originalPrice !== p.price" class="text-xs text-on-surface-variant line-through">{{ p.currency || 'USD' }} {{ p.extra_data.originalPrice }}</p>
+                                        <p class="font-bold text-[#146c2e]" v-if="p.price">{{ p.currency || '' }} {{ p.price }}</p>
+                                        <p v-else class="text-on-surface-variant text-xs">-</p>
+                                        <p v-if="p.extra_data && p.extra_data.discount" class="text-xs text-error mt-0.5 font-medium">{{ p.extra_data.discount }}</p>
                                     </td>
                                     <td class="px-4 py-3">
                                         <div class="flex items-center gap-1">
                                             <div v-if="p.ratings" class="flex items-center gap-1 text-yellow-600">
                                                 <i class="fas fa-star text-[10px]"></i><span class="font-medium text-xs">{{ p.ratings }}</span>
                                             </div>
-                                            <span v-else class="text-gray-400 text-xs">-</span>
+                                            <span v-else class="text-on-surface-variant text-xs">-</span>
                                         </div>
-                                        <p v-if="p.reviews_count" class="text-xs text-gray-500 mt-0.5">{{ p.reviews_count.toLocaleString() }} 评</p>
-                                        <p v-if="p.extra_data && p.extra_data.bestSellerRank" class="text-xs text-orange-500 mt-0.5 font-medium" :title="'Best Sellers Rank'">BSR #{{ p.extra_data.bestSellerRank }}</p>
-                                        <p v-if="p.extra_data && p.extra_data.estimatedSales" class="text-xs text-gray-500 mt-0.5">{{ p.extra_data.estimatedSales }}</p>
+                                        <p v-if="p.reviews_count" class="text-xs text-on-surface-variant mt-0.5">{{ p.reviews_count.toLocaleString() }} 评</p>
+                                        <p v-if="p.extra_data && p.extra_data.bestSellerRank" class="text-xs text-tertiary mt-0.5 font-medium" :title="'Best Sellers Rank'">BSR #{{ p.extra_data.bestSellerRank }}</p>
+                                        <p v-if="p.extra_data && p.extra_data.estimatedSales" class="text-xs text-on-surface-variant mt-0.5">{{ p.extra_data.estimatedSales }}</p>
                                     </td>
                                     <td class="px-4 py-3 text-center">
                                         <button v-if="p.description || (p.features && p.features.length) || (p.extra_data && Object.keys(p.extra_data).length)"
                                             @click.stop="showFeedDescription(buildFeedDetailText(p))"
-                                            class="text-blue-500 hover:text-blue-700 transition" title="查看详情">
+                                            class="text-primary hover:text-primary transition" title="查看详情">
                                             <i class="fas fa-info-circle text-lg"></i>
                                         </button>
-                                        <span v-else class="text-gray-300">-</span>
+                                        <span v-else class="text-on-surface-variant">-</span>
                                     </td>
                                     <td class="px-4 py-3">
                                         <div v-if="p.images && p.images.length > 1" class="flex flex-wrap gap-1">
                                             <img v-for="(img, i) in p.images.slice(0, 4)" :key="i" :src="img"
                                                 class="w-10 h-10 rounded border object-cover" :alt="p.title + ' ' + (i+1)">
-                                            <span v-if="p.images.length > 4" class="text-xs text-gray-400 self-center">+{{ p.images.length - 4 }}</span>
+                                            <span v-if="p.images.length > 4" class="text-xs text-on-surface-variant self-center">+{{ p.images.length - 4 }}</span>
                                         </div>
-                                        <span v-else class="text-gray-300 text-xs">-</span>
+                                        <span v-else class="text-on-surface-variant text-xs">-</span>
                                     </td>
                                 </tr>
                             </tbody>
@@ -3712,73 +3883,73 @@ pipelineStatuses[siteId].demo_importing = false;
 
                 <!-- Description Modal -->
                 <div v-if="showFeedDescModal" class="modal-overlay modal-overlay" @click.self="showFeedDescModal = false">
-                    <div class="bg-white rounded-xl card-shadow w-full max-w-3xl max-h-[85vh] p-6 fade-in flex flex-col">
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 w-full max-w-3xl max-h-[85vh] p-6 fade-in flex flex-col">
                         <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-lg font-semibold text-gray-800"><i class="fas fa-info-circle mr-2 text-blue-500"></i>产品详情</h3>
-                            <button @click="showFeedDescModal = false" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times text-xl"></i></button>
+                            <h3 class="text-lg font-semibold text-on-surface"><i class="fas fa-info-circle mr-2 text-primary"></i>产品详情</h3>
+                            <button @click="showFeedDescModal = false" class="text-on-surface-variant hover:text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
                         </div>
-                        <div class="overflow-y-auto flex-1 text-sm text-gray-700 whitespace-pre-wrap">{{ feedDescContent }}</div>
+                        <div class="overflow-y-auto flex-1 text-sm text-on-surface whitespace-pre-wrap">{{ feedDescContent }}</div>
                     </div>
                 </div>
             </div>
 
             <!-- WooCommerce 产品 -->
-            <div v-if="currentPage === 'woocommerce-products'" class="p-8 fade-in">
+            <div v-if="currentPage === 'woocommerce-products'" class="fade-in">
                 <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
-                    <h3 class="font-semibold text-gray-800">
-                        <i class="fas fa-shopping-cart mr-2 text-blue-500"></i>WooCommerce 产品
-                        <span v-if="wooProducts.length" class="text-sm text-gray-500 ml-2">({{ wooProducts.length }} 件商品)</span>
+                    <h3 class="font-semibold text-on-surface">
+                        <i class="fas fa-shopping-cart mr-2 text-primary"></i>WooCommerce 产品
+                        <span v-if="wooProducts.length" class="text-sm text-on-surface-variant ml-2">({{ wooProducts.length }} 件商品)</span>
                     </h3>
                     <div class="flex items-center gap-3">
                         <!-- Site selector -->
-                        <select v-model="wooSyncSiteId" class="border rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-300">
+                        <select v-model="wooSyncSiteId" class="border rounded-lg px-3 py-2 text-sm bg-surface-container-lowest focus:ring-2 focus:ring-blue-300">
                             <option :value="null">-- 选择站点 --</option>
                             <option v-for="site in sites" :key="site.id" :value="site.id">{{ site.site_name }} ({{ site.url }})</option>
                         </select>
                         <button @click="syncWooToSite" :disabled="!wooSyncSiteId || syncingWoo || !wooProducts.length"
-                            class="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 transition whitespace-nowrap">
+                            class="px-4 py-2 bg-primary-container text-on-primary rounded-lg text-sm hover:bg-primary disabled:opacity-50 transition whitespace-nowrap">
                             <i class="fas fa-cloud-upload-alt mr-1"></i>{{ syncingWoo ? '同步中...' : '同步' }}
                         </button>
                         <button @click="cleanWooFromSite" :disabled="!wooSyncSiteId || syncingWoo"
-                            class="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm hover:bg-orange-600 disabled:opacity-50 transition whitespace-nowrap">
+                            class="px-4 py-2 bg-tertiary-container text-on-primary rounded-lg text-sm hover:bg-tertiary disabled:opacity-50 transition whitespace-nowrap">
                             <i class="fas fa-broom mr-1"></i>清理
                         </button>
                         <button @click="generateFeedFromWoo" :disabled="wooGeneratingFeed || !wooProducts.length"
-                            class="px-4 py-2 bg-green-500 text-white rounded-lg text-sm hover:bg-green-600 disabled:opacity-50 transition whitespace-nowrap">
+                            class="px-4 py-2 bg-[#146c2e] text-on-primary rounded-lg text-sm hover:bg-[#146c2e]/80 disabled:opacity-50 transition whitespace-nowrap">
                             <i class="fas fa-file-export mr-1"></i>{{ wooGeneratingFeed ? '生成中...' : '生成 Feed' }}
                         </button>
-                        <span v-if="wooConvertProgress" class="text-xs text-gray-500">{{ wooConvertProgress }}</span>
+                        <span v-if="wooConvertProgress" class="text-xs text-on-surface-variant">{{ wooConvertProgress }}</span>
                     </div>
                 </div>
 
                 <!-- Empty state -->
-                <div v-if="!wooProducts.length" class="bg-white rounded-xl card-shadow p-12 text-center">
+                <div v-if="!wooProducts.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center">
                     <div class="w-20 h-20 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                        <i class="fas fa-shopping-cart text-blue-500 text-3xl"></i>
+                        <i class="fas fa-shopping-cart text-primary text-3xl"></i>
                     </div>
-                    <h3 class="text-lg font-semibold text-gray-700 mb-2">WooCommerce 产品</h3>
-                    <p class="text-gray-400 mb-1">暂无 WooCommerce 产品</p>
-                    <p class="text-xs text-gray-300">在商品来源页面使用「爆品导入」搜索产品后点击「生成 Woo 产品」</p>
+                    <h3 class="text-lg font-semibold text-on-surface mb-2">WooCommerce 产品</h3>
+                    <p class="text-on-surface-variant mb-1">暂无 WooCommerce 产品</p>
+                    <p class="text-xs text-on-surface-variant">在商品来源页面使用「爆品导入」搜索产品后点击「生成 Woo 产品」</p>
                 </div>
 
                 <!-- WooCommerce product table -->
-                <div v-else class="bg-white rounded-xl card-shadow overflow-hidden">
-                    <div class="px-6 py-3 bg-gray-50 border-b flex items-center justify-between text-xs text-gray-500">
+                <div v-else class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
+                    <div class="px-6 py-3 bg-surface-container-low border-b flex items-center justify-between text-xs text-on-surface-variant">
                         <span>共 {{ wooProducts.length }} 件产品</span>
                         <div class="flex items-center gap-3">
-                            <label class="flex items-center gap-1 cursor-pointer hover:text-gray-700">
+                            <label class="flex items-center gap-1 cursor-pointer hover:text-on-surface">
                                 <input type="checkbox" :checked="wooSelectedIndices.size === wooProducts.length" @change="selectAllWoo" class="accent-blue-500">
                                 全选
                             </label>
                             <button @click="deleteSelectedWooProducts" :disabled="!wooSelectedIndices.size"
-                                class="px-4 py-1.5 bg-red-500 text-white rounded text-xs font-medium hover:bg-red-600 disabled:opacity-50 transition">
+                                class="px-4 py-1.5 bg-error text-on-primary rounded text-xs font-medium hover:bg-error disabled:opacity-50 transition">
                                 <i class="fas fa-trash mr-1"></i>删除 ({{ wooSelectedIndices.size }})
                             </button>
                         </div>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="w-full text-sm">
-                            <thead class="bg-gray-50 text-left text-xs text-gray-500 uppercase border-b">
+                            <thead class="bg-surface-container-low text-left text-xs text-on-surface-variant uppercase border-b">
                                 <tr>
                                     <th class="px-4 py-3 w-10"></th>
                                     <th class="px-4 py-3 min-w-[200px] max-w-[300px]">产品名称</th>
@@ -3791,45 +3962,45 @@ pipelineStatuses[siteId].demo_importing = false;
                             </thead>
                             <tbody class="divide-y">
                                 <tr v-for="(p, idx) in wooProducts" :key="p.id"
-                                    :class="['hover:bg-gray-50 transition cursor-pointer', wooSelectedIndices.has(idx) ? 'bg-blue-50' : '']"
+                                    :class="['hover:bg-surface-container-low transition cursor-pointer', wooSelectedIndices.has(idx) ? 'bg-blue-50' : '']"
                                     @click="toggleWooSelect(idx)">
                                     <td class="px-4 py-3">
                                         <input type="checkbox" :checked="wooSelectedIndices.has(idx)" class="accent-blue-500 pointer-events-none">
                                     </td>
                                     <td class="px-4 py-3 max-w-[300px]">
                                         <a v-if="p.source_url" :href="p.source_url" target="_blank" @click.stop
-                                            class="font-semibold text-gray-800 hover:text-blue-600 transition line-clamp-1 block" :title="p.name">
+                                            class="font-semibold text-on-surface hover:text-primary transition line-clamp-1 block" :title="p.name">
                                             {{ (p.name || '').slice(0, 20) }}{{ (p.name || '').length > 20 ? '...' : '' }}
                                         </a>
-                                        <span v-else class="font-semibold text-gray-800 line-clamp-1 block" :title="p.name">{{ (p.name || '').slice(0, 20) }}{{ (p.name || '').length > 20 ? '...' : '' }}</span>
-                                        <div class="text-xs text-gray-400 mt-0.5 line-clamp-1" :title="p.short_description">{{ (p.short_description || '').slice(0, 20) }}{{ (p.short_description || '').length > 20 ? '...' : '' }}</div>
+                                        <span v-else class="font-semibold text-on-surface line-clamp-1 block" :title="p.name">{{ (p.name || '').slice(0, 20) }}{{ (p.name || '').length > 20 ? '...' : '' }}</span>
+                                        <div class="text-xs text-on-surface-variant mt-0.5 line-clamp-1" :title="p.short_description">{{ (p.short_description || '').slice(0, 20) }}{{ (p.short_description || '').length > 20 ? '...' : '' }}</div>
                                     </td>
-                                    <td class="px-4 py-3 font-mono text-xs text-gray-500">{{ p.sku || '-' }}</td>
+                                    <td class="px-4 py-3 font-mono text-xs text-on-surface-variant">{{ p.sku || '-' }}</td>
                                     <td class="px-4 py-3">
-                                        <p class="font-bold text-green-600" v-if="p.regular_price">{{ p.regular_price }}</p>
-                                        <p v-else class="text-gray-400 text-xs">-</p>
-                                        <p v-if="p.sale_price" class="text-xs text-red-500 line-through">{{ p.sale_price }}</p>
+                                        <p class="font-bold text-[#146c2e]" v-if="p.regular_price">{{ p.regular_price }}</p>
+                                        <p v-else class="text-on-surface-variant text-xs">-</p>
+                                        <p v-if="p.sale_price" class="text-xs text-error line-through">{{ p.sale_price }}</p>
                                     </td>
                                     <td class="px-4 py-3">
                                         <span :class="['px-2 py-0.5 rounded-full text-xs font-medium',
-                                            p.stock_status === 'instock' ? 'bg-green-100 text-green-700' :
-                                            p.stock_status === 'outofstock' ? 'bg-red-100 text-red-700' :
+                                            p.stock_status === 'instock' ? 'bg-[#146c2e]/10 text-[#146c2e]' :
+                                            p.stock_status === 'outofstock' ? 'bg-error-container text-error' :
                                             'bg-yellow-100 text-yellow-700']">
                                             {{ p.stock_status === 'instock' ? '有货' : p.stock_status === 'outofstock' ? '缺货' : '预售' }}
                                         </span>
                                     </td>
-                                    <td class="px-4 py-3 text-xs text-gray-500">
+                                    <td class="px-4 py-3 text-xs text-on-surface-variant">
                                         <span v-if="p.categories" class="line-clamp-2" :title="p.categories">{{ p.categories }}</span>
                                         <span v-else>-</span>
-                                        <span v-if="p.tags" class="block text-gray-400 text-[10px] mt-0.5">{{ p.tags }}</span>
+                                        <span v-if="p.tags" class="block text-on-surface-variant text-[10px] mt-0.5">{{ p.tags }}</span>
                                     </td>
                                     <td class="px-4 py-3">
                                         <div v-if="p.images" class="flex gap-1">
                                             <img v-for="(img, i) in p.images.split('|').slice(0, 3)" :key="i" :src="img"
                                                 class="w-8 h-8 rounded border object-cover" :alt="p.name">
-                                            <span v-if="p.images.split('|').length > 3" class="text-xs text-gray-400 self-center">+{{ p.images.split('|').length - 3 }}</span>
+                                            <span v-if="p.images.split('|').length > 3" class="text-xs text-on-surface-variant self-center">+{{ p.images.split('|').length - 3 }}</span>
                                         </div>
-                                        <span v-else class="text-gray-400 text-xs">-</span>
+                                        <span v-else class="text-on-surface-variant text-xs">-</span>
                                     </td>
                                 </tr>
                             </tbody>
@@ -3839,71 +4010,71 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- Settings (Tabbed) -->
-            <div v-if="currentPage === 'settings'" class="p-8 fade-in">
-                <div class="max-w-6xl">
-                    <div class="bg-white rounded-xl card-shadow">
+            <div v-if="currentPage === 'settings'" class="fade-in">
+                <div>
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1">
                         <!-- Tab Navigation -->
-                        <div class="flex border-b border-gray-200 overflow-x-auto">
+                        <div class="flex border-b border-outline-variant overflow-x-auto">
                             <button v-for="tab in settingsTabs" :key="tab.key"
                                 @click="settingsActiveTab = tab.key"
                                 :class="['px-4 py-3 text-sm font-medium whitespace-nowrap transition border-b-2',
-                                         settingsActiveTab === tab.key ? 'text-blue-700 border-blue-700' : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300']">
+                                         settingsActiveTab === tab.key ? 'text-primary border-blue-700' : 'text-on-surface-variant border-transparent hover:text-on-surface hover:border-outline']">
                                 {{ tab.label }}
                             </button>
                         </div>
                         <div class="p-6 space-y-4">
                             <!-- Tab: WordPress -->
                             <div v-if="settingsActiveTab === 'wordpress'">
-                                <div><label class="block text-sm font-medium text-gray-700 mb-1">默认管理员用户名</label><input v-model="globalConfig.default_admin_name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500"></div>
-                                <div class="mt-4"><label class="block text-sm font-medium text-gray-700 mb-1">默认管理员密码</label><input v-model="globalConfig.default_admin_password" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500"><p class="text-xs text-gray-500 mt-1">应用于所有新创建的WordPress站点</p></div>
-                                <div class="mt-4"><label class="block text-sm font-medium text-gray-700 mb-1">默认数据库服务</label><select v-model="globalConfig.db_service" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500"><option value="mariadb">MariaDB</option><option value="mysql">MySQL</option></select></div>
+                                <div><label class="block text-sm font-medium text-on-surface mb-1">默认管理员用户名</label><input v-model="globalConfig.default_admin_name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary"></div>
+                                <div class="mt-4"><label class="block text-sm font-medium text-on-surface mb-1">默认管理员密码</label><input v-model="globalConfig.default_admin_password" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary"><p class="text-xs text-on-surface-variant mt-1">应用于所有新创建的WordPress站点</p></div>
+                                <div class="mt-4"><label class="block text-sm font-medium text-on-surface mb-1">默认数据库服务</label><select v-model="globalConfig.db_service" class="w-full px-4 py-2 border rounded-lg focus:border-primary"><option value="mariadb">MariaDB</option><option value="mysql">MySQL</option></select></div>
                             </div>
                             <!-- Tab: 1Panel 环境 -->
                             <div v-else-if="settingsActiveTab === 'panel'" @vue:mounted="loadPanelEnvironments()">
                                 <div class="flex items-center justify-between mb-4">
-                                    <h4 class="text-sm font-semibold text-gray-700"><i class="fas fa-server mr-2 text-blue-500"></i>已保存的 1Panel 环境</h4>
-                                    <button @click="openPanelEnvModal(null)" class="btn-primary text-white px-3 py-1.5 rounded-lg text-sm"><i class="fas fa-plus mr-1"></i>添加环境</button>
+                                    <h4 class="text-sm font-semibold text-on-surface"><span class="material-symbols-outlined">dns</span>已保存的 1Panel 环境</h4>
+                                    <button @click="openPanelEnvModal(null)" class="btn-primary text-on-primary px-3 py-1.5 rounded-lg text-sm"><i class="fas fa-plus mr-1"></i>添加环境</button>
                                 </div>
-                                <div v-if="!panelEnvironments.length" class="text-center py-8 text-sm text-gray-400">
+                                <div v-if="!panelEnvironments.length" class="text-center py-8 text-sm text-on-surface-variant">
                                     <i class="fas fa-inbox text-2xl mb-2 block"></i>暂未配置 1Panel 环境
                                 </div>
                                 <div v-else class="space-y-3">
-                                    <div v-for="env in panelEnvironments" :key="env.id" class="bg-gray-50 rounded-lg p-4 flex items-center justify-between">
+                                    <div v-for="env in panelEnvironments" :key="env.id" class="bg-surface-container-low rounded-lg p-4 flex items-center justify-between">
                                         <div class="flex-1">
                                             <div class="flex items-center gap-2">
-                                                <span class="font-medium text-gray-800">{{ env.name }}</span>
-                                                <span v-if="env.is_default" class="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">默认</span>
+                                                <span class="font-medium text-on-surface">{{ env.name }}</span>
+                                                <span v-if="env.is_default" class="text-xs bg-blue-100 text-primary px-2 py-0.5 rounded-full">默认</span>
                                             </div>
-                                            <p class="text-xs text-gray-500 mt-1">{{ env.host }}:{{ env.port }}</p>
-                                            <p v-if="env.cf_account_id" class="text-xs text-blue-500 mt-0.5">CF: {{ (cfAccounts.find(a => a.id === env.cf_account_id) || {}).name || env.cf_account_id }}</p>
+                                            <p class="text-xs text-on-surface-variant mt-1">{{ env.host }}:{{ env.port }}</p>
+                                            <p v-if="env.cf_account_id" class="text-xs text-primary mt-0.5">CF: {{ (cfAccounts.find(a => a.id === env.cf_account_id) || {}).name || env.cf_account_id }}</p>
                                         </div>
                                         <div class="flex gap-1">
-                                            <button v-if="!env.is_default" @click="handleSetDefaultPanelEnv(env)" class="text-xs text-gray-400 hover:text-blue-500 px-2 py-1" title="设为默认"><i class="fas fa-star"></i></button>
-                                            <button @click="openPanelEnvModal(env)" class="text-xs text-gray-400 hover:text-blue-500 px-2 py-1" title="编辑"><i class="fas fa-edit"></i></button>
-                                            <button @click="handleDeletePanelEnv(env)" class="text-xs text-gray-400 hover:text-red-500 px-2 py-1" title="删除"><i class="fas fa-trash"></i></button>
+                                            <button v-if="!env.is_default" @click="handleSetDefaultPanelEnv(env)" class="text-xs text-on-surface-variant hover:text-primary px-2 py-1" title="设为默认"><i class="fas fa-star"></i></button>
+                                            <button @click="openPanelEnvModal(env)" class="text-xs text-on-surface-variant hover:text-primary px-2 py-1" title="编辑"><span class="material-symbols-outlined">edit</span></button>
+                                            <button @click="handleDeletePanelEnv(env)" class="text-xs text-on-surface-variant hover:text-error px-2 py-1" title="删除"><span class="material-symbols-outlined">delete</span></button>
                                         </div>
                                     </div>
                                 </div>
                                 <!-- Panel Env Modal -->
                                 <div v-if="showPanelEnvModal" class="modal-overlay modal-overlay" @click.self="closePanelEnvModal">
-                                    <div class="bg-white rounded-xl card-shadow w-full max-w-md p-6 fade-in">
-                                        <h3 class="text-lg font-semibold text-gray-800 mb-4">{{ panelEnvEditId ? '编辑环境' : '添加 1Panel 环境' }}</h3>
+                                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 w-full max-w-md p-6 fade-in">
+                                        <h3 class="text-lg font-semibold text-on-surface mb-4">{{ panelEnvEditId ? '编辑环境' : '添加 1Panel 环境' }}</h3>
                                         <div class="space-y-4">
-                                            <div><label class="block text-sm font-medium text-gray-700 mb-1">环境名称</label><input v-model="panelEnvForm.name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500" placeholder="如：美国1Panel"></div>
-                                            <div><label class="block text-sm font-medium text-gray-700 mb-1">主机地址</label><input v-model="panelEnvForm.host" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500" placeholder="如：192.168.1.1"></div>
-                                            <div><label class="block text-sm font-medium text-gray-700 mb-1">端口</label><input v-model.number="panelEnvForm.port" type="number" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500" placeholder="3500"></div>
-                                            <div><label class="block text-sm font-medium text-gray-700 mb-1">API Key</label><input v-model="panelEnvForm.api_key" type="password" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500" placeholder="1Panel API Key"></div>
-                                            <div v-if="cfAccounts.length"><label class="block text-sm font-medium text-gray-700 mb-1">Cloudflare 账户</label>
-                                                <select v-model="panelEnvForm.cf_account_id" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500">
+                                            <div><label class="block text-sm font-medium text-on-surface mb-1">环境名称</label><input v-model="panelEnvForm.name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="如：美国1Panel"></div>
+                                            <div><label class="block text-sm font-medium text-on-surface mb-1">主机地址</label><input v-model="panelEnvForm.host" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="如：192.168.1.1"></div>
+                                            <div><label class="block text-sm font-medium text-on-surface mb-1">端口</label><input v-model.number="panelEnvForm.port" type="number" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="3500"></div>
+                                            <div><label class="block text-sm font-medium text-on-surface mb-1">API Key</label><input v-model="panelEnvForm.api_key" type="password" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="1Panel API Key"></div>
+                                            <div v-if="cfAccounts.length"><label class="block text-sm font-medium text-on-surface mb-1">Cloudflare 账户</label>
+                                                <select v-model="panelEnvForm.cf_account_id" class="w-full px-4 py-2 border rounded-lg focus:border-primary">
                                                     <option :value="null">使用默认账户</option>
-                                                    <option v-for="acct in cfAccounts" :key="acct.id" :value="acct.id">{{ acct.name }}<span v-if="acct.is_default" class="text-gray-400"> (默认)</span></option>
+                                                    <option v-for="acct in cfAccounts" :key="acct.id" :value="acct.id">{{ acct.name }}<span v-if="acct.is_default" class="text-on-surface-variant"> (默认)</span></option>
                                                 </select>
                                             </div>
-                                            <p v-if="panelEnvFormError" class="text-red-500 text-sm">{{ panelEnvFormError }}</p>
+                                            <p v-if="panelEnvFormError" class="text-error text-sm">{{ panelEnvFormError }}</p>
                                         </div>
                                         <div class="flex justify-end gap-2 mt-6">
-                                            <button @click="closePanelEnvModal" class="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">取消</button>
-                                            <button @click="handleSavePanelEnv" class="btn-primary text-white px-6 py-2 rounded-lg text-sm">{{ panelEnvEditId ? '保存' : '创建' }}</button>
+                                            <button @click="closePanelEnvModal" class="px-4 py-2 border rounded-lg text-sm hover:bg-surface-container-low">取消</button>
+                                            <button @click="handleSavePanelEnv" class="btn-primary text-on-primary px-6 py-2 rounded-lg text-sm">{{ panelEnvEditId ? '保存' : '创建' }}</button>
                                         </div>
                                     </div>
                                 </div>
@@ -3911,91 +4082,91 @@ pipelineStatuses[siteId].demo_importing = false;
                             <!-- Tab: DeepSeek -->
                             <div v-else-if="settingsActiveTab === 'deepseek'">
                                 <div class="flex items-center justify-between mb-3">
-                                    <span :class="deepseekConnected ? 'text-green-500' : 'text-red-500'"><i class="fas fa-circle text-xs mr-1"></i>{{ deepseekConnected ? '已连接' : '未连接' }}</span>
-                                    <a href="https://platform.deepseek.com/api_keys" target="_blank" class="text-xs text-blue-500 hover:underline"><i class="fas fa-external-link-alt mr-1"></i>来源</a>
+                                    <span :class="deepseekConnected ? 'text-[#146c2e]' : 'text-error'"><span class="material-symbols-outlined text-[10px]">circle</span>{{ deepseekConnected ? '已连接' : '未连接' }}</span>
+                                    <a href="https://platform.deepseek.com/api_keys" target="_blank" class="text-xs text-primary hover:underline"><i class="fas fa-external-link-alt mr-1"></i>来源</a>
                                 </div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">API Keys（支持多个，自动轮询）</label>
+                                <label class="block text-sm font-medium text-on-surface mb-2">API Keys（支持多个，自动轮询）</label>
                                 <div v-for="(key, idx) in deepseekApiKeys" :key="'ds'+idx" class="flex gap-2 mb-2 items-center">
                                     <div class="flex-1 relative">
-                                        <input v-model="deepseekApiKeys[idx]" :type="deepseekVisibleKeys[idx] ? 'text' : 'password'" placeholder="sk-..." class="w-full px-4 py-2 pr-10 border rounded-lg focus:border-blue-500" @input="delete deepseekKeyErrors[idx]">
-                                        <button @click="deepseekVisibleKeys[idx] = !deepseekVisibleKeys[idx]" class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" tabindex="-1"><i :class="deepseekVisibleKeys[idx] ? 'fas fa-eye-slash' : 'fas fa-eye'"></i></button>
+                                        <input v-model="deepseekApiKeys[idx]" :type="deepseekVisibleKeys[idx] ? 'text' : 'password'" placeholder="sk-..." class="w-full px-4 py-2 pr-10 border rounded-lg focus:border-primary" @input="delete deepseekKeyErrors[idx]">
+                                        <button @click="deepseekVisibleKeys[idx] = !deepseekVisibleKeys[idx]" class="absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface-variant" tabindex="-1"><i :class="deepseekVisibleKeys[idx] ? 'fas fa-eye-slash' : 'fas fa-eye'"></i></button>
                                     </div>
-                                    <span v-if="deepseekKeyErrors[idx]" class="text-red-500 text-xs whitespace-nowrap" :title="deepseekKeyErrors[idx]"><i class="fas fa-exclamation-circle mr-1"></i>{{ deepseekKeyErrors[idx] }}</span>
-                                    <span v-else-if="deepseekConnected && deepseekApiKeys[idx].trim()" class="text-green-500 text-xs"><i class="fas fa-check-circle"></i></span>
-                                    <button v-if="deepseekApiKeys.length > 1" @click="deepseekApiKeys.splice(idx, 1)" class="text-red-400 hover:text-red-600 px-2" title="删除"><i class="fas fa-times"></i></button>
+                                    <span v-if="deepseekKeyErrors[idx]" class="text-error text-xs whitespace-nowrap" :title="deepseekKeyErrors[idx]"><i class="fas fa-exclamation-circle mr-1"></i>{{ deepseekKeyErrors[idx] }}</span>
+                                    <span v-else-if="deepseekConnected && deepseekApiKeys[idx].trim()" class="text-[#146c2e] text-xs"><span class="material-symbols-outlined">check_circle</span></span>
+                                    <button v-if="deepseekApiKeys.length > 1" @click="deepseekApiKeys.splice(idx, 1)" class="text-red-400 hover:text-error px-2" title="删除"><span class="material-symbols-outlined">close</span></button>
                                 </div>
                                 <div class="flex gap-2 mt-3">
-                                    <button @click="deepseekApiKeys.push('')" class="text-sm text-blue-500 hover:text-blue-800 border border-dashed border-blue-300 rounded-lg px-4 py-2 hover:bg-blue-50"><i class="fas fa-plus mr-1"></i>添加密钥</button>
-                                    <button @click="deepseekVerify" :disabled="loading" class="btn-primary text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-check mr-2"></i>验证并保存</button>
+                                    <button @click="deepseekApiKeys.push('')" class="text-sm text-primary hover:text-primary border border-dashed border-blue-300 rounded-lg px-4 py-2 hover:bg-surface-container-low"><i class="fas fa-plus mr-1"></i>添加密钥</button>
+                                    <button @click="deepseekVerify" :disabled="loading" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><i class="fas fa-check mr-2"></i>验证并保存</button>
                                 </div>
                             </div>
                             <!-- Tab: Crawlbase -->
                             <div v-else-if="settingsActiveTab === 'crawlbase'">
                                 <div class="flex items-center justify-between mb-3">
-                                    <span :class="crawlbaseConnected ? 'text-green-500' : 'text-red-500'"><i class="fas fa-circle text-xs mr-1"></i>{{ crawlbaseConnected ? '已连接' : '未连接' }}</span>
-                                    <a href="https://crawlbase.com/dashboard/account" target="_blank" class="text-xs text-blue-500 hover:underline"><i class="fas fa-external-link-alt mr-1"></i>来源</a>
+                                    <span :class="crawlbaseConnected ? 'text-[#146c2e]' : 'text-error'"><span class="material-symbols-outlined text-[10px]">circle</span>{{ crawlbaseConnected ? '已连接' : '未连接' }}</span>
+                                    <a href="https://crawlbase.com/dashboard/account" target="_blank" class="text-xs text-primary hover:underline"><i class="fas fa-external-link-alt mr-1"></i>来源</a>
                                 </div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">API Tokens（支持多个，自动轮询）</label>
+                                <label class="block text-sm font-medium text-on-surface mb-2">API Tokens（支持多个，自动轮询）</label>
                                 <div v-for="(key, idx) in crawlbaseApiKeys" :key="'cb'+idx" class="flex gap-2 mb-2 items-center">
                                     <div class="flex-1 relative">
-                                        <input v-model="crawlbaseApiKeys[idx]" :type="crawlbaseVisibleKeys[idx] ? 'text' : 'password'" placeholder="输入 Crawlbase API Token" class="w-full px-4 py-2 pr-10 border rounded-lg focus:border-blue-500" @input="delete crawlbaseKeyErrors[idx]">
-                                        <button @click="crawlbaseVisibleKeys[idx] = !crawlbaseVisibleKeys[idx]" class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" tabindex="-1"><i :class="crawlbaseVisibleKeys[idx] ? 'fas fa-eye-slash' : 'fas fa-eye'"></i></button>
+                                        <input v-model="crawlbaseApiKeys[idx]" :type="crawlbaseVisibleKeys[idx] ? 'text' : 'password'" placeholder="输入 Crawlbase API Token" class="w-full px-4 py-2 pr-10 border rounded-lg focus:border-primary" @input="delete crawlbaseKeyErrors[idx]">
+                                        <button @click="crawlbaseVisibleKeys[idx] = !crawlbaseVisibleKeys[idx]" class="absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface-variant" tabindex="-1"><i :class="crawlbaseVisibleKeys[idx] ? 'fas fa-eye-slash' : 'fas fa-eye'"></i></button>
                                     </div>
-                                    <span v-if="crawlbaseKeyErrors[idx]" class="text-red-500 text-xs whitespace-nowrap" :title="crawlbaseKeyErrors[idx]"><i class="fas fa-exclamation-circle mr-1"></i>{{ crawlbaseKeyErrors[idx] }}</span>
-                                    <span v-else-if="crawlbaseConnected && crawlbaseApiKeys[idx].trim()" class="text-green-500 text-xs"><i class="fas fa-check-circle"></i></span>
-                                    <button v-if="crawlbaseApiKeys.length > 1" @click="crawlbaseApiKeys.splice(idx, 1)" class="text-red-400 hover:text-red-600 px-2" title="删除"><i class="fas fa-times"></i></button>
+                                    <span v-if="crawlbaseKeyErrors[idx]" class="text-error text-xs whitespace-nowrap" :title="crawlbaseKeyErrors[idx]"><i class="fas fa-exclamation-circle mr-1"></i>{{ crawlbaseKeyErrors[idx] }}</span>
+                                    <span v-else-if="crawlbaseConnected && crawlbaseApiKeys[idx].trim()" class="text-[#146c2e] text-xs"><span class="material-symbols-outlined">check_circle</span></span>
+                                    <button v-if="crawlbaseApiKeys.length > 1" @click="crawlbaseApiKeys.splice(idx, 1)" class="text-red-400 hover:text-error px-2" title="删除"><span class="material-symbols-outlined">close</span></button>
                                 </div>
                                 <div class="flex gap-2 mt-3">
-                                    <button @click="crawlbaseApiKeys.push('')" class="text-sm text-blue-500 hover:text-blue-800 border border-dashed border-blue-300 rounded-lg px-4 py-2 hover:bg-blue-50"><i class="fas fa-plus mr-1"></i>添加密钥</button>
-                                    <button @click="crawlbaseVerify" :disabled="loading" class="btn-primary text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-check mr-2"></i>验证并保存</button>
+                                    <button @click="crawlbaseApiKeys.push('')" class="text-sm text-primary hover:text-primary border border-dashed border-blue-300 rounded-lg px-4 py-2 hover:bg-surface-container-low"><i class="fas fa-plus mr-1"></i>添加密钥</button>
+                                    <button @click="crawlbaseVerify" :disabled="loading" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><i class="fas fa-check mr-2"></i>验证并保存</button>
                                 </div>
                             </div>
                             <!-- Tab: Cloudflare -->
                             <div v-else-if="settingsActiveTab === 'cloudflare'">
                                 <div class="flex items-center justify-between mb-3">
-                                    <span :class="cfConnected ? 'text-green-500' : 'text-red-500'"><i class="fas fa-circle text-xs mr-1"></i>{{ cfConnected ? '已连接' : '未连接' }}</span>
-                                    <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" class="text-xs text-blue-500 hover:underline"><i class="fas fa-external-link-alt mr-1"></i>来源</a>
+                                    <span :class="cfConnected ? 'text-[#146c2e]' : 'text-error'"><span class="material-symbols-outlined text-[10px]">circle</span>{{ cfConnected ? '已连接' : '未连接' }}</span>
+                                    <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" class="text-xs text-primary hover:underline"><i class="fas fa-external-link-alt mr-1"></i>来源</a>
                                 </div>
-                                <div v-if="cfAccounts.length" class="bg-gray-50 rounded-lg p-3 mb-4">
-                                    <h4 class="text-sm font-semibold text-gray-700 mb-2">已保存的账号</h4>
-                                    <div v-for="acc in cfAccounts" :key="acc.id" class="flex items-center justify-between py-2 border-b border-gray-200 last:border-b-0">
+                                <div v-if="cfAccounts.length" class="bg-surface-container-low rounded-lg p-3 mb-4">
+                                    <h4 class="text-sm font-semibold text-on-surface mb-2">已保存的账号</h4>
+                                    <div v-for="acc in cfAccounts" :key="acc.id" class="flex items-center justify-between py-2 border-b border-outline-variant last:border-b-0">
                                         <div class="flex items-center gap-2">
-                                            <i class="fas fa-cloud text-orange-500"></i>
+                                            <i class="fas fa-cloud text-tertiary"></i>
                                             <span class="text-sm font-medium">{{ acc.name }}</span>
-                                            <span v-if="acc.is_default" class="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">默认</span>
+                                            <span v-if="acc.is_default" class="text-xs bg-orange-100 text-tertiary px-2 py-0.5 rounded-full">默认</span>
                                         </div>
                                         <div class="flex gap-1">
-                                            <button v-if="!acc.is_default" @click="handleSetDefaultCfAccount(acc.id)" class="text-xs text-gray-400 hover:text-orange-500 px-2 py-1" title="设为默认"><i class="fas fa-star"></i></button>
-                                            <button @click="handleDeleteCfAccount(acc.id)" class="text-xs text-gray-400 hover:text-red-500 px-2 py-1" title="删除"><i class="fas fa-trash"></i></button>
+                                            <button v-if="!acc.is_default" @click="handleSetDefaultCfAccount(acc.id)" class="text-xs text-on-surface-variant hover:text-tertiary px-2 py-1" title="设为默认"><i class="fas fa-star"></i></button>
+                                            <button @click="handleDeleteCfAccount(acc.id)" class="text-xs text-on-surface-variant hover:text-error px-2 py-1" title="删除"><span class="material-symbols-outlined">delete</span></button>
                                         </div>
                                     </div>
                                 </div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">API Token</label>
-                                <div class="flex gap-2"><input v-model="cfToken" type="password" placeholder="输入Cloudflare API Token" class="flex-1 px-4 py-2 border rounded-lg focus:border-blue-500"><button @click="cfVerify" :disabled="loading" class="btn-primary text-white px-4 py-2 rounded-lg"><i class="fas fa-check mr-2"></i>验证并保存</button></div>
+                                <label class="block text-sm font-medium text-on-surface mb-1">API Token</label>
+                                <div class="flex gap-2"><input v-model="cfToken" type="password" placeholder="输入Cloudflare API Token" class="flex-1 px-4 py-2 border rounded-lg focus:border-primary"><button @click="cfVerify" :disabled="loading" class="btn-primary text-on-primary px-4 py-2 rounded-lg"><i class="fas fa-check mr-2"></i>验证并保存</button></div>
                             </div>
                             <!-- Tab: 谷歌账户 -->
                             <div v-else-if="settingsActiveTab === 'google_account'" @vue:mounted="loadGoogleAccounts()">
                                 <div class="flex items-center justify-between mb-3">
-                                    <h3 class="font-semibold text-gray-800"><i class="fab fa-google mr-2 text-blue-500"></i>谷歌账户池</h3>
-                                    <button @click="loadGoogleAccounts" class="text-xs text-blue-500 hover:text-blue-800"><i class="fas fa-sync-alt mr-1"></i>刷新</button>
+                                    <h3 class="font-semibold text-on-surface"><i class="fab fa-google mr-2 text-primary"></i>谷歌账户池</h3>
+                                    <button @click="loadGoogleAccounts" class="text-xs text-primary hover:text-primary"><span class="material-symbols-outlined">sync</span>刷新</button>
                                 </div>
-                                <p class="text-xs text-gray-400 mb-2"><i class="fas fa-info-circle mr-1"></i>用于 GMC 自动化时自动登录 Google（支持 TOTP 2FA）。格式: email|password|recovery_email|base32_secret|year|country</p>
-                                <div class="bg-white rounded-xl card-shadow p-4 mb-4">
-                                    <label class="block text-xs font-medium text-gray-600 mb-2">从 TXT 导入账户</label>
-                                    <textarea v-model="googleAccountsText" rows="6" class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:border-blue-500" placeholder="粘贴 TXT 内容..."></textarea>
+                                <p class="text-xs text-on-surface-variant mb-2"><i class="fas fa-info-circle mr-1"></i>用于 GMC 自动化时自动登录 Google（支持 TOTP 2FA）。格式: email|password|recovery_email|base32_secret|year|country</p>
+                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 mb-4">
+                                    <label class="block text-xs font-medium text-on-surface-variant mb-2">从 TXT 导入账户</label>
+                                    <textarea v-model="googleAccountsText" rows="6" class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:border-primary" placeholder="粘贴 TXT 内容..."></textarea>
                                     <div class="mt-2">
-                                        <button @click="handleImportGoogleAccounts" :disabled="importingGoogleAccounts" class="btn-primary text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+                                        <button @click="handleImportGoogleAccounts" :disabled="importingGoogleAccounts" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm disabled:opacity-50">
                                             <i v-if="importingGoogleAccounts" class="fas fa-spinner fa-spin mr-1"></i>
                                             {{ importingGoogleAccounts ? '导入中...' : '导入' }}
                                         </button>
                                     </div>
                                 </div>
-                                <div v-if="!googleAccounts.length" class="text-center py-6 text-sm text-gray-400">
+                                <div v-if="!googleAccounts.length" class="text-center py-6 text-sm text-on-surface-variant">
                                     <i class="fas fa-inbox text-2xl mb-2 block"></i>暂无 Google 账户
                                 </div>
-                                <div v-else class="overflow-x-auto max-h-96 overflow-y-auto bg-white rounded-xl card-shadow">
+                                <div v-else class="overflow-x-auto max-h-96 overflow-y-auto bg-surface-container-lowest rounded-xl shadow-level-1">
                                     <table class="w-full text-sm">
-                                        <thead class="bg-gray-50 text-xs text-gray-500 uppercase sticky top-0">
+                                        <thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase sticky top-0">
                                             <tr>
                                                 <th class="px-3 py-2 text-left">#</th>
                                                 <th class="px-3 py-2 text-left">Email</th>
@@ -4007,8 +4178,8 @@ pipelineStatuses[siteId].demo_importing = false;
                                                 <th class="px-3 py-2 text-left">操作</th>
                                             </tr>
                                         </thead>
-                                        <tbody class="divide-y divide-gray-100">
-                                            <tr v-for="ga in googleAccounts" :key="ga.id" class="hover:bg-gray-50">
+                                        <tbody class="divide-y divide-outline-variant">
+                                            <tr v-for="ga in googleAccounts" :key="ga.id" class="hover:bg-surface-container-low">
                                                 <td class="px-3 py-2 text-xs font-mono">#{{ ga.id }}</td>
                                                 <td class="px-3 py-2 text-xs font-mono">{{ ga.email }}</td>
                                                 <td class="px-3 py-2 text-xs font-mono">{{ ga.password || '***' }}</td>
@@ -4016,207 +4187,146 @@ pipelineStatuses[siteId].demo_importing = false;
                                                 <td class="px-3 py-2 text-xs">{{ ga.country || '—' }}</td>
                                                 <td class="px-3 py-2 text-xs">{{ ga.registration_year || '—' }}</td>
                                                 <td class="px-3 py-2">
-                                                    <span v-if="ga.occupied_kit_name" class="badge bg-red-100 text-red-700 font-semibold text-xs">被【{{ ga.occupied_kit_name }}】占用</span>
-                                                    <span v-else class="badge bg-green-100 text-green-700 font-semibold text-xs">可用</span>
+                                                    <span v-if="ga.occupied_kit_name" class="badge bg-error-container text-error font-semibold text-xs">被【{{ ga.occupied_kit_name }}】占用</span>
+                                                    <span v-else class="badge bg-[#146c2e]/10 text-[#146c2e] font-semibold text-xs">可用</span>
                                                 </td>
                                                 <td class="px-3 py-2">
-                                                    <button @click="handleDeleteGoogleAccount(ga.id)" class="text-xs text-gray-400 hover:text-red-500" title="删除"><i class="fas fa-trash"></i></button>
+                                                    <button @click="handleDeleteGoogleAccount(ga.id)" class="text-xs text-on-surface-variant hover:text-error" title="删除"><span class="material-symbols-outlined">delete</span></button>
                                                 </td>
                                             </tr>
                                         </tbody>
                                     </table>
                                 </div>
-                                <div class="mt-2 text-xs text-gray-400">
+                                <div class="mt-2 text-xs text-on-surface-variant">
                                     共 {{ googleAccounts.length }} 个账户 | 可用 {{ googleAccounts.filter(a => !a.occupied_kit_name).length }} | 已占用 {{ googleAccounts.filter(a => a.occupied_kit_name).length }}
                                 </div>
                             </div>
                             <!-- Tab: 指纹环境 -->
-                            <div v-else-if="settingsActiveTab === 'fingerprint'">
-                                <!-- 指纹环境总开关 -->
-                                <div class="bg-white rounded-xl card-shadow p-4 mb-4 flex items-center justify-between">
+                            <div v-else-if="settingsActiveTab === 'fingerprint'" @vue:mounted="loadFingerprintCategories(); loadCloakbrowserProfiles(); loadProfileCategories()">
+                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 mb-4 flex items-center justify-between">
                                     <div>
-                                        <p class="font-medium text-gray-800"><i class="fas fa-power-off mr-2 text-blue-500"></i>启用指纹环境</p>
-                                        <p class="text-xs text-gray-500 mt-1">开启后，建站和GMC注册将自动使用品牌套件关联的 CloakBrowser Profile</p>
+                                        <p class="font-medium text-on-surface"><i class="fas fa-power-off mr-2 text-primary"></i>启用指纹环境</p>
+                                        <p class="text-xs text-on-surface-variant mt-1">开启后，建站和GMC注册将自动使用品牌套件关联的 CloakBrowser Profile</p>
                                     </div>
                                     <button type="button" @click="fingerprintEnabled = !fingerprintEnabled"
                                         :class="['relative inline-flex items-center rounded-full transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2',
-                                                 fingerprintEnabled ? 'bg-blue-700' : 'bg-gray-200']"
+                                                 fingerprintEnabled ? 'bg-primary' : 'bg-surface-container-high']"
                                         style="width: 44px; height: 24px;">
-                                        <span :class="['inline-block w-5 h-5 bg-white rounded-full shadow transition duration-200 ease-in-out',
+                                        <span :class="['inline-block w-5 h-5 bg-surface-container-lowest rounded-full shadow transition duration-200 ease-in-out',
                                                        fingerprintEnabled ? 'translate-x-5' : 'translate-x-0.5']"></span>
                                     </button>
                                 </div>
-                                <!-- Proxy Provider Config -->
-                                <div class="bg-white rounded-xl card-shadow p-4 mb-4">
-                                    <h3 class="font-medium text-gray-800 mb-3"><i class="fas fa-plug mr-2 text-blue-500"></i>代理服务商</h3>
-                                    <div class="mb-3">
-                                        <label class="block text-xs text-gray-500 mb-1">服务商</label>
-                                        <select v-model="globalConfig.proxy_provider" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500">
-                                            <option value="decodo">decodo (SOCKS5)</option>
-                                            <option value="okkproxy">okkproxy (HTTP)</option>
-                                        </select>
+
+                                <!-- Category Tabs -->
+                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 mb-4">
+                                    <div class="flex items-end gap-2 mb-4">
+                                        <div class="flex-1">
+                                            <label class="block text-xs text-on-surface-variant mb-1">新建分类</label>
+                                            <input v-model="newCategoryName" type="text" placeholder="输入分类名称" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary" @keyup.enter="createFingerprintCategory">
+                                        </div>
+                                        <button @click="createFingerprintCategory" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm whitespace-nowrap">创建分类</button>
                                     </div>
-                                    <!-- decodo config -->
-                                    <div v-if="globalConfig.proxy_provider === 'decodo'" class="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label class="block text-xs text-gray-500 mb-1">用户名</label>
-                                            <input v-model="globalConfig.decodo_username" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500" placeholder="spx9vttaji">
-                                        </div>
-                                        <div>
-                                            <label class="block text-xs text-gray-500 mb-1">密码</label>
-                                            <input v-model="globalConfig.decodo_password" type="password" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500" placeholder="密码">
-                                        </div>
-                                        <div>
-                                            <label class="block text-xs text-gray-500 mb-1">主机地址</label>
-                                            <input v-model="globalConfig.decodo_host" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500" placeholder="dc.decodo.com">
-                                        </div>
-                                        <div class="flex gap-2">
-                                            <div class="flex-1">
-                                                <label class="block text-xs text-gray-500 mb-1">起始端口</label>
-                                                <input v-model="globalConfig.decodo_port_start" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500" placeholder="10001">
-                                            </div>
-                                            <div class="flex-1">
-                                                <label class="block text-xs text-gray-500 mb-1">结束端口</label>
-                                                <input v-model="globalConfig.decodo_port_end" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500" placeholder="10100">
-                                            </div>
-                                        </div>
+
+                                    <!-- Tab Cards -->
+                                    <div v-if="fingerprintCategories.length" class="flex gap-2 flex-wrap">
+                                        <button v-for="cat in fingerprintCategories" :key="cat.id"
+                                            @click="activeFingerprintCategory = cat.id"
+                                            :class="['px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap',
+                                                activeFingerprintCategory === cat.id
+                                                    ? 'bg-primary-container text-on-primary shadow-level-1'
+                                                    : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-low']">
+                                            {{ cat.name }}
+                                            <span class="ml-1.5 px-1.5 py-0.5 rounded-full text-xs opacity-80" :class="activeFingerprintCategory === cat.id ? 'bg-white/20' : 'bg-outline-variant/30'">
+                                                {{ getProfilesByCategory(cat.id).length }}
+                                            </span>
+                                            <span @click.stop="deleteFingerprintCategory(cat.id)" class="ml-1.5 text-on-surface-variant hover:text-error cursor-pointer text-lg leading-none" title="删除分类">&times;</span>
+                                        </button>
                                     </div>
-                                    <!-- okkproxy config -->
-                                    <div v-if="globalConfig.proxy_provider === 'okkproxy'">
-                                        <div class="mb-3">
-                                            <label class="block text-xs text-gray-500 mb-1">API 端点</label>
-                                            <input v-model="globalConfig.okkproxy_api_url" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500" placeholder="https://start.okkproxy.com/ip/balance/getProxyConfig/...">
-                                        </div>
-                                        <div>
-                                            <label class="block text-xs text-gray-500 mb-1">代理列表 <span class="text-gray-400">(IP:PORT:USERNAME:PASSWORD 每行一个)</span></label>
-                                            <textarea v-model="importingProxyText" rows="5" class="w-full px-3 py-2 border rounded-lg text-xs font-mono focus:border-blue-500" placeholder="49.51.189.254:9999:user:pass"></textarea>
-                                            <button @click="handleImportProxyText" :disabled="importingProxies" class="mt-2 text-xs px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-700 disabled:opacity-50">
-                                                <i v-if="importingProxies" class="fas fa-spinner fa-spin mr-1"></i>导入代理
-                                            </button>
-                                        </div>
+                                    <div v-else class="text-center py-6 text-sm text-on-surface-variant">
+                                        <i class="fas fa-inbox text-2xl mb-2 block"></i>暂无分类，请先创建
                                     </div>
-                                </div>
-                                <!-- Category Management -->
-                                <div class="flex items-end gap-2 mb-4">
-                                    <div class="flex-1">
-                                        <label class="block text-xs text-gray-500 mb-1">新建分类</label>
-                                        <input v-model="newCategoryName" type="text" placeholder="分类名称" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500" @keyup.enter="createFingerprintCategory">
-                                    </div>
-                                    <button @click="createFingerprintCategory" class="btn-primary text-white px-4 py-2 rounded-lg text-sm whitespace-nowrap"><i class="fas fa-plus mr-1"></i>创建</button>
-                                </div>
-                                <!-- Existing categories -->
-                                <div v-if="fingerprintCategories.length" class="flex flex-wrap gap-1 mb-4">
-                                    <span v-for="cat in fingerprintCategories" :key="cat.id" class="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-800 rounded text-xs">
-                                        {{ cat.name }}
-                                        <button @click="deleteFingerprintCategory(cat.id)" class="text-blue-400 hover:text-red-500 ml-0.5"><i class="fas fa-times"></i></button>
-                                    </span>
-                                </div>
-                                <!-- CloakBrowser Profile List -->
-                                <p class="text-xs text-gray-400 mb-2"><i class="fas fa-info-circle mr-1"></i>CloakBrowser 指纹环境 = 指纹环境。可通过 GMC 页面创建更多 Profile。</p>
-                                <div v-if="!cloakbrowserProfiles.length" class="text-center py-8 text-sm text-gray-400">
-                                    <i class="fas fa-inbox text-2xl mb-2 block"></i>暂无 CloakBrowser Profile
-                                </div>
-                                <div v-else class="overflow-x-auto">
-                                    <table class="w-full text-sm">
-                                        <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
-                                            <tr>
-                                                <th class="px-3 py-2 text-left">名称</th>
-                                                <th class="px-3 py-2 text-left">平台</th>
-                                                <th class="px-3 py-2 text-left">国家</th>
-                                                <th class="px-3 py-2 text-left">代理</th>
-                                                <th class="px-3 py-2 text-left">GPU</th>
-                                                <th class="px-3 py-2 text-left">分类</th>
-                                                <th class="px-3 py-2 text-left">状态</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody class="divide-y divide-gray-100">
-                                            <tr v-for="p in cloakbrowserProfiles" :key="p.name" class="hover:bg-gray-50">
-                                                <td class="px-3 py-2 font-mono text-xs">{{ p.name }}</td>
-                                                <td class="px-3 py-2 text-xs">{{ p.platform || p.config?.platform || '-' }}</td>
-                                                <td class="px-3 py-2 text-xs">{{ p.country || p.config?.country || '-' }}</td>
-                                                <td class="px-3 py-2 text-xs max-w-[120px] truncate" :title="p.proxy">{{ p.proxy || '-' }}</td>
-                                                <td class="px-3 py-2 text-xs max-w-[150px] truncate" :title="p.gpu || p.config?.gpu_renderer">{{ (p.gpu || p.config?.gpu_renderer || '-').substring(0, 30) }}</td>
-                                                <td class="px-3 py-2">
-                                                    <select @change="handleSetProfileCategory(p.name, $event.target.value === '' ? null : parseInt($event.target.value))" class="text-xs px-2 py-1 border rounded focus:border-blue-500">
-                                                        <option value="">未分类</option>
-                                                        <option v-for="cat in fingerprintCategories" :key="cat.id" :value="cat.id" :selected="profileCategories.some(pc => pc.profile_name === p.name && pc.category_id === cat.id)">{{ cat.name }}</option>
-                                                    </select>
-                                                </td>
-                                                <td class="px-3 py-2">
-                                                    <span v-if="brandKits.some(bk => bk.cloakbrowser_profile_name === p.name)" class="badge bg-green-100 text-green-700">使用中</span>
-                                                    <span v-else class="badge bg-gray-100 text-gray-600">可用</span>
-                                                </td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
                                 </div>
 
-                                <!-- Proxy Pool -->
-                                <div class="mt-8">
-                                    <div class="flex items-center justify-between mb-3">
-                                        <h3 class="font-semibold text-gray-800"><i class="fas fa-network-wired mr-2 text-blue-500"></i>代理池 ({{ globalConfig.proxy_provider === 'okkproxy' ? 'okkproxy' : 'decodo' }})</h3>
-                                        <button @click="loadProxies" class="text-xs text-blue-500 hover:text-blue-800"><i class="fas fa-sync-alt mr-1"></i>刷新</button>
+                                <!-- Active Category Content -->
+                                <div v-if="activeFingerprintCategory && fingerprintCategories.length">
+                                    <!-- Import Profiles -->
+                                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 mb-4">
+                                        <label class="block text-sm font-medium text-on-surface mb-1">导入指纹环境</label>
+                                        <p class="text-xs text-on-surface-variant mb-2">每行一个 Profile 名称</p>
+                                        <textarea v-model="importingFingerprintText" rows="4"
+                                            class="w-full px-3 py-2 border rounded-lg text-xs font-mono focus:border-primary"
+                                            placeholder="profile_alpha&#10;profile_beta&#10;profile_gamma"></textarea>
+                                        <button @click="importFingerprintProfiles" :disabled="importingFingerprints"
+                                            class="mt-2 btn-primary text-on-primary px-4 py-2 rounded-lg text-sm">
+                                            <i v-if="importingFingerprints" class="fas fa-spinner fa-spin mr-1"></i>
+                                            导入到 {{ fingerprintCategories.find(c => c.id === activeFingerprintCategory)?.name || '当前分类' }}
+                                        </button>
+                                        <p v-if="importFingerprintResult" :class="['text-xs mt-1', (importFingerprintResult.startsWith('成功') || importFingerprintResult.startsWith('所有')) ? 'text-[#146c2e]' : 'text-error']">
+                                            {{ importFingerprintResult }}
+                                        </p>
                                     </div>
-                                    <p class="text-xs text-gray-400 mb-2"><i class="fas fa-info-circle mr-1"></i>创建品牌套件时自动分配。{{ globalConfig.proxy_provider === 'okkproxy' ? '在左侧粘贴代理列表后点击导入。' : '基于内置IP列表生成。' }}</p>
-                                    <div v-if="!proxies.length" class="text-center py-6 text-sm text-gray-400">
-                                        <i class="fas fa-inbox text-2xl mb-2 block"></i>暂无代理数据
-                                        <div class="mt-2">
-                                            <button @click="handleImportProxies" class="text-xs text-blue-500 hover:text-blue-800 underline">生成代理池</button>
+
+                                    <!-- Profile List -->
+                                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
+                                        <div v-if="getProfilesByCategory(activeFingerprintCategory).length">
+                                            <table class="w-full text-sm">
+                                                <thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase">
+                                                    <tr>
+                                                        <th class="px-3 py-2 text-left">名称</th>
+                                                        <th class="px-3 py-2 text-left">平台</th>
+                                                        <th class="px-3 py-2 text-left">国家</th>
+                                                        <th class="px-3 py-2 text-left">代理</th>
+                                                        <th class="px-3 py-2 text-left">状态</th>
+                                                        <th class="px-3 py-2 text-right">操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-outline-variant">
+                                                    <tr v-for="p in getProfilesByCategory(activeFingerprintCategory)" :key="p.name" class="hover:bg-surface-container-low">
+                                                        <td class="px-3 py-2 font-mono text-xs">{{ p.name }}</td>
+                                                        <td class="px-3 py-2 text-xs">{{ p.platform || p.config?.platform || '-' }}</td>
+                                                        <td class="px-3 py-2 text-xs">{{ p.country || p.config?.country || '-' }}</td>
+                                                        <td class="px-3 py-2 text-xs max-w-[120px] truncate" :title="p.proxy">{{ p.proxy || '-' }}</td>
+                                                        <td class="px-3 py-2">
+                                                            <span v-if="brandKits.some(bk => bk.cloakbrowser_profile_name === p.name)" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">使用中</span>
+                                                            <span v-else class="badge bg-surface-container-high text-on-surface-variant text-xs">可用</span>
+                                                        </td>
+                                                        <td class="px-3 py-2 text-right">
+                                                            <button @click="removeProfileFromCategory(p.name)" class="text-xs text-error hover:text-error px-1 py-0.5" title="从分类移除">
+                                                                <span class="material-symbols-outlined text-sm">link_off</span>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div v-else class="text-center py-8 text-sm text-on-surface-variant">
+                                            <i class="fas fa-inbox text-2xl mb-2 block"></i>
+                                            请在上方输入区导入 Profile 名称
                                         </div>
                                     </div>
-                                    <div v-else class="overflow-x-auto max-h-96 overflow-y-auto">
-                                        <table class="w-full text-sm">
-                                            <thead class="bg-gray-50 text-xs text-gray-500 uppercase sticky top-0">
-                                                <tr>
-                                                    <th class="px-3 py-2 text-left">ID</th>
-                                                    <th class="px-3 py-2 text-left">类型</th>
-                                                    <th class="px-3 py-2 text-left">IP</th>
-                                                    <th class="px-3 py-2 text-left">端口</th>
-                                                    <th class="px-3 py-2 text-left">代理链接</th>
-                                                    <th class="px-3 py-2 text-left">状态</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody class="divide-y divide-gray-100">
-                                                <tr v-for="p in proxies" :key="p.id" class="hover:bg-gray-50">
-                                                    <td class="px-3 py-2 text-xs font-mono">#{{ p.id }}</td>
-                                                    <td class="px-3 py-2 text-xs">
-                                                        <span v-if="p.proxy_type === 'http'" class="badge bg-blue-100 text-blue-700">HTTP</span>
-                                                        <span v-else class="badge bg-blue-100 text-blue-800">SOCKS5</span>
-                                                    </td>
-                                                    <td class="px-3 py-2 text-xs font-mono">{{ p.ip }}</td>
-                                                    <td class="px-3 py-2 text-xs">{{ p.port }}</td>
-                                                    <td class="px-3 py-2 text-xs max-w-[200px] truncate" :title="p.proxy_url">{{ p.proxy_url.substring(0, 40) }}...</td>
-                                                    <td class="px-3 py-2">
-                                                        <span v-if="p.occupied_kit_name" class="badge bg-red-100 text-red-700 font-semibold text-xs">被【{{ p.occupied_kit_name }}】占用</span>
-                                                        <span v-else class="badge bg-green-100 text-green-700 font-semibold text-xs">可用</span>
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    <div class="mt-2 flex gap-2">
-                                        <button @click="handleImportProxies" :disabled="importingProxies" class="text-xs px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-50">
-                                            <i v-if="importingProxies" class="fas fa-spinner fa-spin mr-1"></i>{{ importingProxies ? '导入中...' : '重新生成代理池' }}
-                                        </button>
-                                        <span class="text-xs text-gray-400 self-center">{{ proxies.length }} 个代理 | 可用 {{ proxies.filter(p => !p.occupied_kit_name).length }}</span>
-                                    </div>
+                                </div>
+
+                                <!-- No category selected -->
+                                <div v-if="!activeFingerprintCategory && fingerprintCategories.length" class="text-center py-8 text-sm text-on-surface-variant bg-surface-container-lowest rounded-xl shadow-level-1">
+                                    <i class="fas fa-hand-pointer text-2xl mb-2 block"></i>
+                                    请选择上方的分类标签卡
                                 </div>
                             </div>
                         </div>
                     </div>
-                    <button @click="saveGlobalConfig" :disabled="loading" class="w-full btn-primary text-white py-3 rounded-lg font-semibold mt-4"><i class="fas fa-save mr-2"></i>保存设置</button>
+                    <button @click="saveGlobalConfig" :disabled="loading" class="w-full btn-primary text-on-primary py-3 rounded-lg font-semibold mt-4"><i class="fas fa-save mr-2"></i>保存设置</button>
                 </div>
             </div>
 
             <!-- User Management -->
-            <div v-if="currentPage === 'users'" class="p-8 fade-in">
+            <div v-if="currentPage === 'users'" class="fade-in">
                 <div class="flex items-center justify-between mb-6">
-                    <h3 class="font-semibold text-gray-800"><i class="fas fa-users mr-2 text-blue-500"></i>用户管理</h3>
-                    <button @click="openUserModal(null)" class="btn-primary text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus mr-2"></i>创建用户</button>
+                    <h3 class="font-semibold text-on-surface"><i class="fas fa-users mr-2 text-primary"></i>用户管理</h3>
+                    <button @click="openUserModal(null)" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus mr-2"></i>创建用户</button>
                 </div>
-                <div class="bg-white rounded-xl card-shadow overflow-hidden">
+                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                     <table class="w-full">
-                        <thead class="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <thead class="bg-surface-container-low text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
                             <tr>
                                 <th class="px-4 py-3">ID</th>
                                 <th class="px-4 py-3">用户名</th>
@@ -4226,17 +4336,17 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <th class="px-4 py-3 w-32">操作</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            <tr v-for="user in users" :key="user.id" class="hover:bg-gray-50">
-                                <td class="px-4 py-3 text-sm text-gray-500">#{{ user.id }}</td>
+                        <tbody class="divide-y divide-outline-variant">
+                            <tr v-for="user in users" :key="user.id" class="hover:bg-surface-container-low">
+                                <td class="px-4 py-3 text-sm text-on-surface-variant">#{{ user.id }}</td>
                                 <td class="px-4 py-3 font-medium">{{ user.username }}</td>
-                                <td class="px-4 py-3"><span :class="user.role === 'admin' ? 'bg-blue-100 text-blue-800' : 'bg-blue-100 text-blue-700'" class="badge">{{ user.role === 'admin' ? '管理员' : '运营' }}</span></td>
-                                <td class="px-4 py-3 text-xs text-gray-600">{{ user.panel_env_name || '—' }}</td>
-                                <td class="px-4 py-3 text-sm text-gray-400">{{ user.created_at }}</td>
+                                <td class="px-4 py-3"><span :class="user.role === 'admin' ? 'bg-blue-100 text-primary' : 'bg-blue-100 text-primary'" class="badge">{{ user.role === 'admin' ? '管理员' : '运营' }}</span></td>
+                                <td class="px-4 py-3 text-xs text-on-surface-variant">{{ user.panel_env_name || '—' }}</td>
+                                <td class="px-4 py-3 text-sm text-on-surface-variant">{{ user.created_at }}</td>
                                 <td class="px-4 py-3">
                                     <div class="flex gap-1">
-                                        <button @click="openUserModal(user)" class="text-xs text-blue-500 hover:text-blue-800 px-2 py-1" title="编辑"><i class="fas fa-edit"></i></button>
-                                        <button @click="handleDeleteUser(user)" class="text-xs text-gray-400 hover:text-red-500 px-2 py-1" title="删除"><i class="fas fa-trash"></i></button>
+                                        <button @click="openUserModal(user)" class="text-xs text-primary hover:text-primary px-2 py-1" title="编辑"><span class="material-symbols-outlined">edit</span></button>
+                                        <button @click="handleDeleteUser(user)" class="text-xs text-on-surface-variant hover:text-error px-2 py-1" title="删除"><span class="material-symbols-outlined">delete</span></button>
                                     </div>
                                 </td>
                             </tr>
@@ -4245,44 +4355,44 @@ pipelineStatuses[siteId].demo_importing = false;
                 </div>
                 <!-- User Modal -->
                 <div v-if="showUserModal" class="modal-overlay modal-overlay" @click.self="closeUserModal">
-                    <div class="bg-white rounded-xl card-shadow w-full max-w-md p-6 fade-in">
-                        <h3 class="text-lg font-semibold text-gray-800 mb-4">{{ userEditId ? '编辑用户' : '创建用户' }}</h3>
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 w-full max-w-md p-6 fade-in">
+                        <h3 class="text-lg font-semibold text-on-surface mb-4">{{ userEditId ? '编辑用户' : '创建用户' }}</h3>
                         <div class="space-y-4">
-                            <div><label class="block text-sm font-medium text-gray-700 mb-1">用户名</label><input v-model="userForm.username" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500" placeholder="请输入用户名"></div>
-                            <div><label class="block text-sm font-medium text-gray-700 mb-1">{{ userEditId ? '新密码（留空不修改）' : '密码' }}</label><input v-model="userForm.password" type="password" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500" placeholder="请输入密码"></div>
-                            <div><label class="block text-sm font-medium text-gray-700 mb-1">角色</label><select v-model="userForm.role" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500"><option value="operator">运营</option><option value="admin">管理员</option></select></div>
-                            <div v-if="userForm.role === 'operator'"><label class="block text-sm font-medium text-gray-700 mb-1">指定 1Panel 环境</label><select v-model="userForm.panel_environment_id" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500"><option :value="null">使用默认环境</option><option v-for="env in panelEnvironments" :key="env.id" :value="env.id">{{ env.name }} ({{ env.host }})</option></select><p class="text-xs text-gray-500 mt-1">运营人员登录后将使用指定的 1Panel 环境</p></div>
-                            <p v-if="userFormError" class="text-red-500 text-sm">{{ userFormError }}</p>
+                            <div><label class="block text-sm font-medium text-on-surface mb-1">用户名</label><input v-model="userForm.username" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="请输入用户名"></div>
+                            <div><label class="block text-sm font-medium text-on-surface mb-1">{{ userEditId ? '新密码（留空不修改）' : '密码' }}</label><input v-model="userForm.password" type="password" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="请输入密码"></div>
+                            <div><label class="block text-sm font-medium text-on-surface mb-1">角色</label><select v-model="userForm.role" class="w-full px-4 py-2 border rounded-lg focus:border-primary"><option value="operator">运营</option><option value="admin">管理员</option></select></div>
+                            <div v-if="userForm.role === 'operator'"><label class="block text-sm font-medium text-on-surface mb-1">指定 1Panel 环境</label><select v-model="userForm.panel_environment_id" class="w-full px-4 py-2 border rounded-lg focus:border-primary"><option :value="null">使用默认环境</option><option v-for="env in panelEnvironments" :key="env.id" :value="env.id">{{ env.name }} ({{ env.host }})</option></select><p class="text-xs text-on-surface-variant mt-1">运营人员登录后将使用指定的 1Panel 环境</p></div>
+                            <p v-if="userFormError" class="text-error text-sm">{{ userFormError }}</p>
                         </div>
                         <div class="flex justify-end gap-2 mt-6">
-                            <button @click="closeUserModal" class="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">取消</button>
-                            <button @click="handleSaveUser" class="btn-primary text-white px-6 py-2 rounded-lg text-sm">{{ userEditId ? '保存' : '创建' }}</button>
+                            <button @click="closeUserModal" class="px-4 py-2 border rounded-lg text-sm hover:bg-surface-container-low">取消</button>
+                            <button @click="handleSaveUser" class="btn-primary text-on-primary px-6 py-2 rounded-lg text-sm">{{ userEditId ? '保存' : '创建' }}</button>
                         </div>
                     </div>
                 </div>
             </div>
 
             <!-- Brand Kits List -->
-            <div v-if="currentPage === 'brand-kits'" class="p-8 fade-in">
+            <div v-if="currentPage === 'brand-kits'" class="fade-in">
                 <div class="flex items-center justify-between mb-6">
-                    <h3 class="font-semibold text-gray-800"><i class="fas fa-paint-brush mr-2 text-blue-500"></i>品牌套件</h3>
-                    <button @click="openBrandKitModal(null)" class="btn-primary text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus mr-2"></i>创建套件</button>
+                    <h3 class="font-semibold text-on-surface"><i class="fas fa-paint-brush mr-2 text-primary"></i>品牌套件</h3>
+                    <button @click="openBrandKitModal(null)" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus mr-2"></i>创建套件</button>
                 </div>
 
-                <div v-if="brandKitsLoading" class="text-center py-20"><i class="fas fa-spinner fa-spin text-3xl text-blue-500"></i></div>
+                <div v-if="brandKitsLoading" class="text-center py-20"><span class="spinner w-4 h-4 inline-block"></span></div>
 
-                <div v-else-if="!brandKits.length" class="bg-white rounded-xl card-shadow p-12 text-center">
+                <div v-else-if="!brandKits.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center">
                     <div class="w-20 h-20 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                        <i class="fas fa-paint-brush text-blue-500 text-3xl"></i>
+                        <i class="fas fa-paint-brush text-primary text-3xl"></i>
                     </div>
-                    <h3 class="text-lg font-semibold text-gray-700 mb-2">暂无品牌套件</h3>
-                    <p class="text-gray-400 mb-4">创建品牌套件，使用AI生成专属Logo和品牌资源</p>
-                    <button @click="openBrandKitModal(null)" class="btn-primary text-white px-6 py-2 rounded-lg"><i class="fas fa-plus mr-2"></i>创建第一个套件</button>
+                    <h3 class="text-lg font-semibold text-on-surface mb-2">暂无品牌套件</h3>
+                    <p class="text-on-surface-variant mb-4">创建品牌套件，使用AI生成专属Logo和品牌资源</p>
+                    <button @click="openBrandKitModal(null)" class="btn-primary text-on-primary px-6 py-2 rounded-lg"><i class="fas fa-plus mr-2"></i>创建第一个套件</button>
                 </div>
 
-                <div v-else class="bg-white rounded-xl card-shadow overflow-hidden">
+                <div v-else class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                     <table class="w-full">
-                        <thead class="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <thead class="bg-surface-container-low text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
                             <tr>
                                 <th class="px-4 py-3">logo</th>
                                 <th class="px-4 py-3">套件名称</th>
@@ -4293,50 +4403,50 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <th class="px-4 py-3 w-56">操作</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            <tr v-for="kit in brandKits" :key="kit.id" class="hover:bg-gray-50 transition cursor-pointer" @click="openBrandKitDetail(kit)">
+                        <tbody class="divide-y divide-outline-variant">
+                            <tr v-for="kit in brandKits" :key="kit.id" class="hover:bg-surface-container-low transition cursor-pointer" @click="openBrandKitDetail(kit)">
                                 <td class="px-4 py-3">
                                     <div v-if="kit.processed_svg || kit.raw_svg" v-html="kit.processed_svg || kit.raw_svg" class="w-8 h-8 svg-preview"></div>
-                                    <i v-else class="fas fa-paint-brush text-gray-300 text-lg"></i>
+                                    <i v-else class="fas fa-paint-brush text-on-surface-variant text-lg"></i>
                                 </td>
                                 <td class="px-4 py-3">
-                                    <p class="font-medium text-gray-800 text-sm">{{ kit.name }}</p>
+                                    <p class="font-medium text-on-surface text-sm">{{ kit.name }}</p>
                                 </td>
                                 <td class="px-4 py-3">
-                                    <span class="text-sm text-gray-600">{{ kit.brand_name || '—' }}</span>
+                                    <span class="text-sm text-on-surface-variant">{{ kit.brand_name || '—' }}</span>
                                 </td>
                                 <td class="px-4 py-3">
                                     <span class="font-body-md text-on-surface-variant font-medium">{{ kit.industry || '—' }}</span>
                                 </td>
                                 <td class="px-4 py-3">
                                     <span :class="['text-xs px-2 py-0.5 rounded-full',
-                                        kit.status === 'ready' ? 'bg-green-100 text-green-700' :
-                                        kit.status === 'generating' ? 'bg-blue-100 text-blue-700' :
-                                        kit.status === 'failed' ? 'bg-red-100 text-red-700' :
-                                        'bg-gray-100 text-gray-600']">
+                                        kit.status === 'ready' ? 'bg-[#146c2e]/10 text-[#146c2e]' :
+                                        kit.status === 'generating' ? 'bg-blue-100 text-primary' :
+                                        kit.status === 'failed' ? 'bg-error-container text-error' :
+                                        'bg-surface-container text-on-surface-variant']">
                                         {{ kit.status === 'ready' ? '已就绪' : kit.status === 'generating' ? '生成中' : kit.status === 'failed' ? '失败' : '草稿' }}
                                     </span>
                                 </td>
                                 <td class="px-4 py-3">
                                     <div v-if="kit.colors && kit.colors.length" class="flex gap-1">
-                                        <span v-for="(c, i) in kit.colors" :key="i" class="w-4 h-4 rounded-full border border-gray-300" :style="{ backgroundColor: c }" :title="c"></span>
+                                        <span v-for="(c, i) in kit.colors" :key="i" class="w-4 h-4 rounded-full border border-outline" :style="{ backgroundColor: c }" :title="c"></span>
                                     </div>
-                                    <span v-else class="text-xs text-gray-400">—</span>
+                                    <span v-else class="text-xs text-on-surface-variant">—</span>
                                 </td>
                                 <td class="px-4 py-3" @click.stop>
                                     <div class="flex gap-1.5">
-                                        <button @click="handleGenerateBrandKit(kit)" :disabled="brandKitGenerating[kit.id] && brandKitGenerating[kit.id].status === 'running'" class="px-2.5 py-1.5 bg-blue-500 text-white rounded text-xs hover:bg-blue-700 disabled:opacity-50 transition">
+                                        <button @click="handleGenerateBrandKit(kit)" :disabled="brandKitGenerating[kit.id] && brandKitGenerating[kit.id].status === 'running'" class="px-2.5 py-1.5 bg-primary-container text-on-primary rounded text-xs hover:bg-primary disabled:opacity-50 transition">
                                             <i :class="['fas mr-0.5', (brandKitGenerating[kit.id] && brandKitGenerating[kit.id].status === 'running') ? 'fa-spinner fa-spin' : 'fa-magic']"></i>
                                             {{ (brandKitGenerating[kit.id] && brandKitGenerating[kit.id].status === 'running') ? '生成中' : '生成' }}
                                         </button>
-                                        <button @click="openBrandKitModal(kit)" class="px-2.5 py-1.5 border rounded text-xs hover:bg-gray-50 transition"><i class="fas fa-edit"></i></button>
-                                        <button @click="handleDeleteBrandKit(kit)" class="px-2.5 py-1.5 border rounded text-xs text-red-400 hover:bg-red-50 transition"><i class="fas fa-trash"></i></button>
+                                        <button @click="openBrandKitModal(kit)" class="px-2.5 py-1.5 border rounded text-xs hover:bg-surface-container-low transition"><span class="material-symbols-outlined">edit</span></button>
+                                        <button @click="handleDeleteBrandKit(kit)" class="px-2.5 py-1.5 border rounded text-xs text-red-400 hover:bg-error-container transition"><span class="material-symbols-outlined">delete</span></button>
                                     </div>
                                     <div v-if="brandKitGenerating[kit.id] && brandKitGenerating[kit.id].status === 'running'" class="mt-2">
-                                        <div class="w-full bg-gray-200 rounded-full h-1">
-                                            <div class="bg-blue-500 h-1 rounded-full transition-all" :style="{ width: ((brandKitGenerating[kit.id].current / 4) * 100) + '%' }"></div>
+                                        <div class="w-full bg-surface-container-high rounded-full h-1">
+                                            <div class="bg-primary-container h-1 rounded-full transition-all" :style="{ width: ((brandKitGenerating[kit.id].current / 4) * 100) + '%' }"></div>
                                         </div>
-                                        <p class="text-xs text-gray-500 mt-0.5">{{ brandKitGenerating[kit.id].steps[brandKitGenerating[kit.id].current] || '' }}</p>
+                                        <p class="text-xs text-on-surface-variant mt-0.5">{{ brandKitGenerating[kit.id].steps[brandKitGenerating[kit.id].current] || '' }}</p>
                                     </div>
                                 </td>
                             </tr>
@@ -4346,34 +4456,34 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- Google Merchant Center Automation -->
-            <div v-if="currentPage === 'mc-automation'" class="p-8 fade-in">
-                <div class="max-w-5xl mx-auto space-y-6">
-                    <div class="bg-white rounded-xl card-shadow p-6">
-                        <h3 class="font-semibold text-gray-800 mb-2"><i class="fab fa-google mr-2 text-blue-500"></i>Google Merchant Center 自动化</h3>
-                        <p class="text-sm text-gray-500 mb-4">注入站点验证标签（Google 将自动抓取验证）、通过指纹浏览器自动注册 MC 账号。Feed 生成由 <a href="#" @click.prevent="currentPage='shai-pin-feed'" class="text-blue-500 underline">筛品</a> 接管。</p>
-                        <div v-if="sites.length === 0" class="text-center py-12 text-gray-400"><i class="fas fa-inbox text-4xl mb-4"></i><p>暂无站点</p></div>
+            <div v-if="currentPage === 'mc-automation'" class="fade-in">
+                <div class="space-y-6">
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
+                        <h3 class="font-semibold text-on-surface mb-2"><i class="fab fa-google mr-2 text-primary"></i>Google Merchant Center 自动化</h3>
+                        <p class="text-sm text-on-surface-variant mb-4">注入站点验证标签（Google 将自动抓取验证）、通过指纹浏览器自动注册 MC 账号。Feed 生成由 <a href="#" @click.prevent="currentPage='shai-pin-feed'" class="text-primary underline">筛品</a> 接管。</p>
+                        <div v-if="sites.length === 0" class="text-center py-12 text-on-surface-variant"><i class="fas fa-inbox text-4xl mb-4"></i><p>暂无站点</p></div>
                         <div v-else class="overflow-x-auto">
                             <table class="w-full text-sm">
-                                <thead class="bg-gray-50"><tr><th class="px-4 py-3 text-left font-medium text-gray-600">站点</th><th class="px-4 py-3 text-left font-medium text-gray-600">Feed</th><th class="px-4 py-3 text-left font-medium text-gray-600">域名验证</th><th class="px-4 py-3 text-left font-medium text-gray-600">MC 账号</th><th class="px-4 py-3 text-right font-medium text-gray-600">操作</th></tr></thead>
+                                <thead class="bg-surface-container-low"><tr><th class="px-4 py-3 text-left font-medium text-on-surface-variant">站点</th><th class="px-4 py-3 text-left font-medium text-on-surface-variant">Feed</th><th class="px-4 py-3 text-left font-medium text-on-surface-variant">域名验证</th><th class="px-4 py-3 text-left font-medium text-on-surface-variant">MC 账号</th><th class="px-4 py-3 text-right font-medium text-on-surface-variant">操作</th></tr></thead>
                                 <tbody class="divide-y">
-                                    <tr v-for="site in sites" :key="site.id" class="hover:bg-gray-50">
-                                        <td class="px-4 py-3"><div class="font-medium text-gray-800">{{ site.site_name }}</div><div class="text-xs text-gray-500">{{ site.url }}</div><div v-if="fingerprintEnabled && site.cloakbrowser_profile_name" class="mt-1"><span class="badge bg-blue-100 text-blue-800"><i class="fas fa-fingerprint mr-0.5"></i>{{ site.cloakbrowser_profile_name }}</span></div></td>
+                                    <tr v-for="site in sites" :key="site.id" class="hover:bg-surface-container-low">
+                                        <td class="px-4 py-3"><div class="font-medium text-on-surface">{{ site.site_name }}</div><div class="text-xs text-on-surface-variant">{{ site.url }}</div><div v-if="fingerprintEnabled && site.cloakbrowser_profile_name" class="mt-1"><span class="badge bg-blue-100 text-primary"><i class="fas fa-fingerprint mr-0.5"></i>{{ site.cloakbrowser_profile_name }}</span></div></td>
                                         <td class="px-4 py-3">
-                                            <span v-if="mcFeedUrls[site.id]" class="text-green-600 text-xs"><i class="fas fa-check-circle mr-1"></i>已生成</span>
-                                            <span v-else class="text-gray-400 text-xs">未生成</span>
+                                            <span v-if="mcFeedUrls[site.id]" class="text-[#146c2e] text-xs"><i class="fas fa-check-circle mr-1"></i>已生成</span>
+                                            <span v-else class="text-on-surface-variant text-xs">未生成</span>
                                         </td>
                                         <td class="px-4 py-3">
-                                            <span v-if="site.google_verification_done" class="text-green-600 text-xs" title="验证标签已注入站点，Google 将自动抓取验证"><i class="fas fa-check-circle mr-1"></i>已注入</span>
-                                            <span v-else class="text-gray-400 text-xs">未注入</span>
+                                            <span v-if="site.google_verification_done" class="text-[#146c2e] text-xs" title="验证标签已注入站点，Google 将自动抓取验证"><i class="fas fa-check-circle mr-1"></i>已注入</span>
+                                            <span v-else class="text-on-surface-variant text-xs">未注入</span>
                                         </td>
                                         <td class="px-4 py-3">
-                                            <span v-if="site.google_mc_account_id" class="text-green-600 text-xs"><i class="fas fa-check-circle mr-1"></i>{{ site.google_mc_account_id }}</span>
-                                            <span v-else class="text-gray-400 text-xs">未注册</span>
+                                            <span v-if="site.google_mc_account_id" class="text-[#146c2e] text-xs"><i class="fas fa-check-circle mr-1"></i>{{ site.google_mc_account_id }}</span>
+                                            <span v-else class="text-on-surface-variant text-xs">未注册</span>
                                         </td>
                                         <td class="px-4 py-3 text-right">
                                             <div class="flex items-center justify-end gap-1">
-                                                <button v-if="!site.google_mc_account_id" @click="registerMCForSite(site)" :disabled="mcRegistering[site.id]" class="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600">{{ mcRegistering[site.id] === 'register' ? '注册中...' : '注册MC' }}</button>
-                                                <button v-if="fingerprintEnabled && !site.google_mc_account_id" @click="reconGmcFlow(site)" :disabled="mcRegistering[site.id]" class="px-2 py-1 text-xs bg-amber-500 text-white rounded hover:bg-amber-600" title="遍历GMC注册流程，导出每步DOM结构+截图到服务器/tmp/gmc_recon/">🔍 侦查</button>
+                                                <button v-if="!site.google_mc_account_id" @click="registerMCForSite(site)" :disabled="mcRegistering[site.id]" class="px-2 py-1 text-xs bg-primary-container text-on-primary rounded hover:bg-primary">{{ mcRegistering[site.id] === 'register' ? '注册中...' : '注册MC' }}</button>
+                                                <button v-if="fingerprintEnabled && !site.google_mc_account_id" @click="reconGmcFlow(site)" :disabled="mcRegistering[site.id]" class="px-2 py-1 text-xs bg-amber-500 text-on-primary rounded hover:bg-amber-600" title="遍历GMC注册流程，导出每步DOM结构+截图到服务器/tmp/gmc_recon/">🔍 侦查</button>
                                             </div>
                                         </td>
                                     </tr>
@@ -4385,18 +4495,18 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- Brand Kit Detail -->
-            <div v-if="currentPage === 'brand-kits-detail' && brandKitDetail" class="p-8 fade-in">
+            <div v-if="currentPage === 'brand-kits-detail' && brandKitDetail" class="fade-in">
                 <div class="mb-6">
-                    <button @click="currentPage = 'brand-kits'; loadBrandKits()" class="text-blue-500 hover:text-blue-800 text-sm mb-3 inline-block">
+                    <button @click="currentPage = 'brand-kits'; loadBrandKits()" class="text-primary hover:text-primary text-sm mb-3 inline-block">
                         <i class="fas fa-arrow-left mr-1"></i>返回列表
                     </button>
                     <div class="flex items-center justify-between">
                         <div>
                             <h2 class="page-title">{{ brandKitDetail.name }}</h2>
-                            <p v-if="brandKitDetail.brand_name" class="text-gray-500">{{ brandKitDetail.brand_name }}<span v-if="brandKitDetail.industry"> · {{ brandKitDetail.industry }}</span></p>
+                            <p v-if="brandKitDetail.brand_name" class="text-on-surface-variant">{{ brandKitDetail.brand_name }}<span v-if="brandKitDetail.industry"> · {{ brandKitDetail.industry }}</span></p>
                         </div>
                         <div class="flex gap-2">
-                            <button @click="handleGenerateBrandKit(brandKitDetail)" :disabled="brandKitGenerating[brandKitDetail.id] && brandKitGenerating[brandKitDetail.id].status === 'running'" class="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 transition">
+                            <button @click="handleGenerateBrandKit(brandKitDetail)" :disabled="brandKitGenerating[brandKitDetail.id] && brandKitGenerating[brandKitDetail.id].status === 'running'" class="px-4 py-2 bg-primary-container text-on-primary rounded-lg text-sm hover:bg-primary disabled:opacity-50 transition">
                                 <i :class="['fas mr-1', (brandKitGenerating[brandKitDetail.id] && brandKitGenerating[brandKitDetail.id].status === 'running') ? 'fa-spinner fa-spin' : 'fa-magic']"></i>
                                 {{ (brandKitGenerating[brandKitDetail.id] && brandKitGenerating[brandKitDetail.id].status === 'running') ? '生成中...' : '重新生成' }}
                             </button>
@@ -4405,48 +4515,48 @@ pipelineStatuses[siteId].demo_importing = false;
                 </div>
 
                 <!-- Generation Progress -->
-                <div v-if="brandKitGenerating[brandKitDetail.id] && brandKitGenerating[brandKitDetail.id].status === 'running'" class="bg-white rounded-xl card-shadow p-6 mb-6">
-                    <h3 class="font-semibold text-gray-800 mb-4"><i class="fas fa-spinner fa-spin mr-2 text-blue-500"></i>生成进度</h3>
+                <div v-if="brandKitGenerating[brandKitDetail.id] && brandKitGenerating[brandKitDetail.id].status === 'running'" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6 mb-6">
+                    <h3 class="font-semibold text-on-surface mb-4"><span class="spinner w-4 h-4 inline-block"></span>生成进度</h3>
                     <div class="space-y-3">
                         <div v-for="(step, i) in (brandKitGenerating[brandKitDetail.id].steps || [])" :key="i" class="flex items-center gap-3 px-4 py-3 rounded-lg"
-                            :class="i < (brandKitGenerating[brandKitDetail.id].current || 0) ? 'bg-green-50' : i === (brandKitGenerating[brandKitDetail.id].current || 0) ? 'bg-blue-50' : 'bg-gray-50'">
-                            <i v-if="i < (brandKitGenerating[brandKitDetail.id].current || 0)" class="fas fa-check-circle text-green-500"></i>
-                            <i v-else-if="i === (brandKitGenerating[brandKitDetail.id].current || 0)" class="fas fa-spinner fa-spin text-blue-500"></i>
-                            <i v-else class="fas fa-circle text-gray-300 text-xs"></i>
+                            :class="i < (brandKitGenerating[brandKitDetail.id].current || 0) ? 'bg-[#146c2e]/5' : i === (brandKitGenerating[brandKitDetail.id].current || 0) ? 'bg-blue-50' : 'bg-surface-container-low'">
+                            <i v-if="i < (brandKitGenerating[brandKitDetail.id].current || 0)" class="fas fa-check-circle text-[#146c2e]"></i>
+                            <i v-else-if="i === (brandKitGenerating[brandKitDetail.id].current || 0)" class="fas fa-spinner fa-spin text-primary"></i>
+                            <i v-else class="fas fa-circle text-on-surface-variant text-xs"></i>
                             <span class="text-sm">{{ step.label || step }}</span>
                         </div>
                     </div>
                 </div>
 
                 <!-- Error -->
-                <div v-if="brandKitDetail.status === 'failed' && brandKitDetail.error_message" class="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
-                    <p class="text-red-700 text-sm"><i class="fas fa-exclamation-circle mr-2"></i>{{ brandKitDetail.error_message }}</p>
+                <div v-if="brandKitDetail.status === 'failed' && brandKitDetail.error_message" class="bg-error-container border border-error/20 rounded-xl p-4 mb-6">
+                    <p class="text-error text-sm"><i class="fas fa-exclamation-circle mr-2"></i>{{ brandKitDetail.error_message }}</p>
                 </div>
 
                 <!-- Tab Navigation -->
                 <div class="flex border-b mb-6 gap-0">
                     <button @click="brandKitDetailTab = 'info'" :class="['px-4 py-2.5 text-sm font-medium border-b-2 transition',
-                        brandKitDetailTab === 'info' ? 'border-blue-500 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700']">
+                        brandKitDetailTab === 'info' ? 'border-primary-container text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface']">
                         <i class="fas fa-info-circle mr-1"></i>品牌信息
                     </button>
                     <button @click="brandKitDetailTab = 'store'; loadBrandKitConfigForms()" :class="['px-4 py-2.5 text-sm font-medium border-b-2 transition',
-                        brandKitDetailTab === 'store' ? 'border-blue-500 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700']">
+                        brandKitDetailTab === 'store' ? 'border-primary-container text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface']">
                         <i class="fas fa-store mr-1"></i>商店品牌
                     </button>
                     <button @click="brandKitDetailTab = 'footer'; loadBrandKitConfigForms()" :class="['px-4 py-2.5 text-sm font-medium border-b-2 transition',
-                        brandKitDetailTab === 'footer' ? 'border-blue-500 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700']">
+                        brandKitDetailTab === 'footer' ? 'border-primary-container text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface']">
                         <i class="fas fa-shoe-prints mr-1"></i>页脚配置
                     </button>
                     <button @click="brandKitDetailTab = 'taxshipping'; loadBrandKitConfigForms()" :class="['px-4 py-2.5 text-sm font-medium border-b-2 transition',
-                        brandKitDetailTab === 'taxshipping' ? 'border-blue-500 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700']">
+                        brandKitDetailTab === 'taxshipping' ? 'border-primary-container text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface']">
                         <i class="fas fa-truck mr-1"></i>税费/运费
                     </button>
                     <button @click="brandKitDetailTab = 'fingerprint'" :class="['px-4 py-2.5 text-sm font-medium border-b-2 transition',
-                        brandKitDetailTab === 'fingerprint' ? 'border-blue-500 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700']">
+                        brandKitDetailTab === 'fingerprint' ? 'border-primary-container text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface']">
                         <i class="fas fa-fingerprint mr-1"></i>指纹环境
                     </button>
                     <button @click="brandKitDetailTab = 'google'" :class="['px-4 py-2.5 text-sm font-medium border-b-2 transition',
-                        brandKitDetailTab === 'google' ? 'border-blue-500 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700']">
+                        brandKitDetailTab === 'google' ? 'border-primary-container text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface']">
                         <i class="fab fa-google mr-1"></i>谷歌账户
                     </button>
                 </div>
@@ -4454,12 +4564,12 @@ pipelineStatuses[siteId].demo_importing = false;
                 <!-- Tab 1: Brand Info -->
                 <div v-if="brandKitDetailTab === 'info'">
                     <!-- Logo Preview -->
-                    <div class="bg-white rounded-xl card-shadow p-6 mb-6">
-                        <h3 class="font-semibold text-gray-800 mb-4"><i class="fas fa-image mr-2 text-blue-500"></i>Logo 预览</h3>
-                        <div v-if="brandKitDetail.processed_svg || brandKitDetail.raw_svg" class="bg-gray-50 rounded-lg p-8 flex items-center justify-center" style="min-height: 200px;">
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6 mb-6">
+                        <h3 class="font-semibold text-on-surface mb-4"><i class="fas fa-image mr-2 text-primary"></i>Logo 预览</h3>
+                        <div v-if="brandKitDetail.processed_svg || brandKitDetail.raw_svg" class="bg-surface-container-low rounded-lg p-8 flex items-center justify-center" style="min-height: 200px;">
                             <div v-html="brandKitDetail.processed_svg || brandKitDetail.raw_svg" class="w-48 h-48 svg-preview"></div>
                         </div>
-                        <div v-else class="text-center py-12 text-gray-400">
+                        <div v-else class="text-center py-12 text-on-surface-variant">
                             <i class="fas fa-paint-brush text-4xl mb-3"></i>
                             <p>尚未生成Logo，请点击"生成"按钮</p>
                         </div>
@@ -4467,144 +4577,144 @@ pipelineStatuses[siteId].demo_importing = false;
 
                     <!-- Colors & Typography -->
                     <div v-if="(brandKitDetail.colors && brandKitDetail.colors.length) || (brandKitDetail.typography && Object.keys(brandKitDetail.typography).length)" class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                        <div v-if="brandKitDetail.colors && brandKitDetail.colors.length" class="bg-white rounded-xl card-shadow p-6">
-                            <h3 class="font-semibold text-gray-800 mb-4"><i class="fas fa-palette mr-2 text-blue-500"></i>品牌色彩</h3>
+                        <div v-if="brandKitDetail.colors && brandKitDetail.colors.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
+                            <h3 class="font-semibold text-on-surface mb-4"><i class="fas fa-palette mr-2 text-primary"></i>品牌色彩</h3>
                             <div class="flex flex-wrap gap-3">
                                 <div v-for="(c, i) in brandKitDetail.colors" :key="i" class="flex items-center gap-2">
-                                    <span class="w-10 h-10 rounded-lg border border-gray-300 shadow-sm" :style="{ backgroundColor: c }"></span>
-                                    <span class="text-sm font-mono text-gray-600">{{ c }}</span>
+                                    <span class="w-10 h-10 rounded-lg border border-outline shadow-sm" :style="{ backgroundColor: c }"></span>
+                                    <span class="text-sm font-mono text-on-surface-variant">{{ c }}</span>
                                 </div>
                             </div>
                         </div>
-                        <div v-if="brandKitDetail.typography && Object.keys(brandKitDetail.typography).length" class="bg-white rounded-xl card-shadow p-6">
-                            <h3 class="font-semibold text-gray-800 mb-4"><i class="fas fa-font mr-2 text-blue-500"></i>字体排版</h3>
+                        <div v-if="brandKitDetail.typography && Object.keys(brandKitDetail.typography).length" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
+                            <h3 class="font-semibold text-on-surface mb-4"><i class="fas fa-font mr-2 text-primary"></i>字体排版</h3>
                             <div class="space-y-3">
                                 <div v-if="brandKitDetail.typography.heading">
-                                    <p class="text-xs text-gray-500 mb-1">标题字体</p>
-                                    <p class="font-semibold text-gray-800">{{ brandKitDetail.typography.heading }}</p>
+                                    <p class="text-xs text-on-surface-variant mb-1">标题字体</p>
+                                    <p class="font-semibold text-on-surface">{{ brandKitDetail.typography.heading }}</p>
                                 </div>
                                 <div v-if="brandKitDetail.typography.body">
-                                    <p class="text-xs text-gray-500 mb-1">正文字体</p>
-                                    <p class="text-gray-800">{{ brandKitDetail.typography.body }}</p>
+                                    <p class="text-xs text-on-surface-variant mb-1">正文字体</p>
+                                    <p class="text-on-surface">{{ brandKitDetail.typography.body }}</p>
                                 </div>
                             </div>
                         </div>
                     </div>
 
                     <!-- CloakBrowser Profile badge -->
-                    <div class="bg-white rounded-xl card-shadow p-6 mb-6">
-                        <h3 class="font-semibold text-gray-800 mb-3"><i class="fas fa-fingerprint mr-2 text-blue-500"></i>指纹环境</h3>
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6 mb-6">
+                        <h3 class="font-semibold text-on-surface mb-3"><i class="fas fa-fingerprint mr-2 text-primary"></i>指纹环境</h3>
                         <div v-if="brandKitDetail.cloakbrowser_profile_name" class="flex items-center gap-3">
-                            <span class="text-sm text-gray-600 font-mono">{{ brandKitDetail.cloakbrowser_profile_name }}</span>
-                            <span class="badge bg-green-100 text-green-700">已绑定</span>
-                            <button @click="brandKitDetailTab = 'fingerprint'" class="text-xs text-blue-500 hover:text-blue-800">查看详情 →</button>
+                            <span class="text-sm text-on-surface-variant font-mono">{{ brandKitDetail.cloakbrowser_profile_name }}</span>
+                            <span class="badge bg-[#146c2e]/10 text-[#146c2e]">已绑定</span>
+                            <button @click="brandKitDetailTab = 'fingerprint'" class="text-xs text-primary hover:text-primary">查看详情 →</button>
                         </div>
-                        <p v-else class="text-sm text-gray-400">生成品牌套件时自动创建</p>
+                        <p v-else class="text-sm text-on-surface-variant">生成品牌套件时自动创建</p>
                     </div>
 
                     <!-- Google Account badge -->
-                    <div class="bg-white rounded-xl card-shadow p-6 mb-6">
-                        <h3 class="font-semibold text-gray-800 mb-3"><i class="fab fa-google mr-2 text-blue-500"></i>Google 账户</h3>
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6 mb-6">
+                        <h3 class="font-semibold text-on-surface mb-3"><i class="fab fa-google mr-2 text-primary"></i>Google 账户</h3>
                         <div v-if="brandKitDetail.google_account_email" class="flex items-center gap-3">
-                            <span class="text-sm text-gray-600 font-mono">{{ brandKitDetail.google_account_email }}</span>
-                            <span class="badge bg-green-100 text-green-700">已绑定</span>
-                            <button @click="brandKitDetailTab = 'google'" class="text-xs text-blue-500 hover:text-blue-800">查看详情 →</button>
+                            <span class="text-sm text-on-surface-variant font-mono">{{ brandKitDetail.google_account_email }}</span>
+                            <span class="badge bg-[#146c2e]/10 text-[#146c2e]">已绑定</span>
+                            <button @click="brandKitDetailTab = 'google'" class="text-xs text-primary hover:text-primary">查看详情 →</button>
                         </div>
                         <div v-else-if="brandKitDetail.google_account_id" class="flex items-center gap-3">
-                            <span class="text-sm text-gray-600">账户 #{{ brandKitDetail.google_account_id }}</span>
-                            <span class="badge bg-green-100 text-green-700">已绑定</span>
-                            <button @click="brandKitDetailTab = 'google'" class="text-xs text-blue-500 hover:text-blue-800">查看详情 →</button>
+                            <span class="text-sm text-on-surface-variant">账户 #{{ brandKitDetail.google_account_id }}</span>
+                            <span class="badge bg-[#146c2e]/10 text-[#146c2e]">已绑定</span>
+                            <button @click="brandKitDetailTab = 'google'" class="text-xs text-primary hover:text-primary">查看详情 →</button>
                         </div>
-                        <p v-else class="text-sm text-gray-400">未绑定 Google 账户 — 可在编辑套件时关联</p>
+                        <p v-else class="text-sm text-on-surface-variant">未绑定 Google 账户 — 可在编辑套件时关联</p>
                     </div>
 
                     <!-- Download Files -->
-                    <div v-if="brandKitDetail.status === 'ready'" class="bg-white rounded-xl card-shadow p-6">
-                        <h3 class="font-semibold text-gray-800 mb-4"><i class="fas fa-download mr-2 text-green-500"></i>下载文件</h3>
+                    <div v-if="brandKitDetail.status === 'ready'" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
+                        <h3 class="font-semibold text-on-surface mb-4"><i class="fas fa-download mr-2 text-[#146c2e]"></i>下载文件</h3>
                         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                            <button v-if="brandKitDetail.png_256" @click="handleDownloadBrandKitFile(brandKitDetail.png_256)" class="flex items-center gap-2 px-4 py-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition text-sm">
-                                <i class="fas fa-file-image text-orange-500"></i><span>PNG 256</span><i class="fas fa-download text-gray-400 ml-auto"></i>
+                            <button v-if="brandKitDetail.png_256" @click="handleDownloadBrandKitFile(brandKitDetail.png_256)" class="flex items-center gap-2 px-4 py-3 bg-surface-container-low rounded-lg hover:bg-surface-container transition text-sm">
+                                <i class="fas fa-file-image text-tertiary"></i><span>PNG 256</span><i class="fas fa-download text-on-surface-variant ml-auto"></i>
                             </button>
-                            <button v-if="brandKitDetail.png_512" @click="handleDownloadBrandKitFile(brandKitDetail.png_512)" class="flex items-center gap-2 px-4 py-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition text-sm">
-                                <i class="fas fa-file-image text-orange-500"></i><span>PNG 512</span><i class="fas fa-download text-gray-400 ml-auto"></i>
+                            <button v-if="brandKitDetail.png_512" @click="handleDownloadBrandKitFile(brandKitDetail.png_512)" class="flex items-center gap-2 px-4 py-3 bg-surface-container-low rounded-lg hover:bg-surface-container transition text-sm">
+                                <i class="fas fa-file-image text-tertiary"></i><span>PNG 512</span><i class="fas fa-download text-on-surface-variant ml-auto"></i>
                             </button>
-                            <button v-if="brandKitDetail.png_1024" @click="handleDownloadBrandKitFile(brandKitDetail.png_1024)" class="flex items-center gap-2 px-4 py-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition text-sm">
-                                <i class="fas fa-file-image text-orange-500"></i><span>PNG 1024</span><i class="fas fa-download text-gray-400 ml-auto"></i>
+                            <button v-if="brandKitDetail.png_1024" @click="handleDownloadBrandKitFile(brandKitDetail.png_1024)" class="flex items-center gap-2 px-4 py-3 bg-surface-container-low rounded-lg hover:bg-surface-container transition text-sm">
+                                <i class="fas fa-file-image text-tertiary"></i><span>PNG 1024</span><i class="fas fa-download text-on-surface-variant ml-auto"></i>
                             </button>
-                            <button v-if="brandKitDetail.ico" @click="handleDownloadBrandKitFile(brandKitDetail.ico)" class="flex items-center gap-2 px-4 py-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition text-sm">
-                                <i class="fas fa-star text-yellow-500"></i><span>ICO 图标</span><i class="fas fa-download text-gray-400 ml-auto"></i>
+                            <button v-if="brandKitDetail.ico" @click="handleDownloadBrandKitFile(brandKitDetail.ico)" class="flex items-center gap-2 px-4 py-3 bg-surface-container-low rounded-lg hover:bg-surface-container transition text-sm">
+                                <i class="fas fa-star text-yellow-500"></i><span>ICO 图标</span><i class="fas fa-download text-on-surface-variant ml-auto"></i>
                             </button>
-                            <button v-if="brandKitDetail.webp" @click="handleDownloadBrandKitFile(brandKitDetail.webp)" class="flex items-center gap-2 px-4 py-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition text-sm">
-                                <i class="fas fa-file-image text-blue-500"></i><span>WebP</span><i class="fas fa-download text-gray-400 ml-auto"></i>
+                            <button v-if="brandKitDetail.webp" @click="handleDownloadBrandKitFile(brandKitDetail.webp)" class="flex items-center gap-2 px-4 py-3 bg-surface-container-low rounded-lg hover:bg-surface-container transition text-sm">
+                                <i class="fas fa-file-image text-primary"></i><span>WebP</span><i class="fas fa-download text-on-surface-variant ml-auto"></i>
                             </button>
-                            <button v-if="brandKitDetail.og_image" @click="handleDownloadBrandKitFile(brandKitDetail.og_image)" class="flex items-center gap-2 px-4 py-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition text-sm">
-                                <i class="fas fa-share-alt text-blue-500"></i><span>OG 图片</span><i class="fas fa-download text-gray-400 ml-auto"></i>
+                            <button v-if="brandKitDetail.og_image" @click="handleDownloadBrandKitFile(brandKitDetail.og_image)" class="flex items-center gap-2 px-4 py-3 bg-surface-container-low rounded-lg hover:bg-surface-container transition text-sm">
+                                <i class="fas fa-share-alt text-primary"></i><span>OG 图片</span><i class="fas fa-download text-on-surface-variant ml-auto"></i>
                             </button>
-                            <button v-if="brandKitDetail.brand_md" @click="handleDownloadBrandKitFile(brandKitDetail.brand_md)" class="flex items-center gap-2 px-4 py-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition text-sm">
-                                <i class="fas fa-file-alt text-gray-500"></i><span>BRAND.md</span><i class="fas fa-download text-gray-400 ml-auto"></i>
+                            <button v-if="brandKitDetail.brand_md" @click="handleDownloadBrandKitFile(brandKitDetail.brand_md)" class="flex items-center gap-2 px-4 py-3 bg-surface-container-low rounded-lg hover:bg-surface-container transition text-sm">
+                                <i class="fas fa-file-alt text-on-surface-variant"></i><span>BRAND.md</span><i class="fas fa-download text-on-surface-variant ml-auto"></i>
                             </button>
                         </div>
-                        <div v-if="brandKitDetail.directory" class="mt-2 text-xs text-gray-500">路径: {{ brandKitDetail.directory }}</div>
+                        <div v-if="brandKitDetail.directory" class="mt-2 text-xs text-on-surface-variant">路径: {{ brandKitDetail.directory }}</div>
                     </div>
                 </div>
 
                 <!-- Tab 2: Store Brand (WooCommerce) -->
-                <div v-if="brandKitDetailTab === 'store'" class="bg-white rounded-xl card-shadow p-6">
-                    <h3 class="font-semibold text-gray-800 mb-4"><i class="fas fa-store mr-2 text-blue-500"></i>WooCommerce 商店配置</h3>
-                    <p class="text-xs text-gray-500 mb-4">此配置将在应用品牌套件时自动保存到WooCommerce商店</p>
+                <div v-if="brandKitDetailTab === 'store'" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
+                    <h3 class="font-semibold text-on-surface mb-4"><i class="fas fa-store mr-2 text-primary"></i>WooCommerce 商店配置</h3>
+                    <p class="text-xs text-on-surface-variant mb-4">此配置将在应用品牌套件时自动保存到WooCommerce商店</p>
                     <div class="space-y-3">
                         <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-1">地址</label>
-                            <input v-model="brandKitWooForm.address" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500" placeholder="街道地址">
+                            <label class="block text-xs font-medium text-on-surface-variant mb-1">地址</label>
+                            <input v-model="brandKitWooForm.address" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary" placeholder="街道地址">
                         </div>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <label class="block text-xs font-medium text-gray-600 mb-1">城市</label>
-                                <input v-model="brandKitWooForm.city" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500" placeholder="城市名称">
+                                <label class="block text-xs font-medium text-on-surface-variant mb-1">城市</label>
+                                <input v-model="brandKitWooForm.city" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary" placeholder="城市名称">
                             </div>
                             <div>
-                                <label class="block text-xs font-medium text-gray-600 mb-1">邮编</label>
-                                <input v-model="brandKitWooForm.postcode" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500" placeholder="邮政编码">
+                                <label class="block text-xs font-medium text-on-surface-variant mb-1">邮编</label>
+                                <input v-model="brandKitWooForm.postcode" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary" placeholder="邮政编码">
                             </div>
                         </div>
                         <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-1">国家/地区</label>
-                            <input v-model="brandKitWooForm.country_state" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500" placeholder="例如：US:IL">
-                            <p class="text-xs text-gray-400 mt-0.5">格式：国家代码:州代码</p>
+                            <label class="block text-xs font-medium text-on-surface-variant mb-1">国家/地区</label>
+                            <input v-model="brandKitWooForm.country_state" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary" placeholder="例如：US:IL">
+                            <p class="text-xs text-on-surface-variant mt-0.5">格式：国家代码:州代码</p>
                         </div>
                         <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-1">销售地点</label>
-                            <input v-model="brandKitWooForm.allowed_countries" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500" placeholder="例如：US,CA">
-                            <p class="text-xs text-gray-400 mt-0.5">默认所有国家，填写后仅限指定国家</p>
+                            <label class="block text-xs font-medium text-on-surface-variant mb-1">销售地点</label>
+                            <input v-model="brandKitWooForm.allowed_countries" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary" placeholder="例如：US,CA">
+                            <p class="text-xs text-on-surface-variant mt-0.5">默认所有国家，填写后仅限指定国家</p>
                         </div>
                     </div>
-                    <button @click="saveBrandKitConfig('woo')" :disabled="brandKitConfigSaving" class="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">
+                    <button @click="saveBrandKitConfig('woo')" :disabled="brandKitConfigSaving" class="mt-4 px-4 py-2 bg-primary-container text-on-primary rounded-lg text-sm hover:bg-primary disabled:opacity-50">
                         <i :class="['fas mr-1', brandKitConfigSaving ? 'fa-spinner fa-spin' : 'fa-save']"></i>
                         {{ brandKitConfigSaving ? '保存中...' : '保存商店配置' }}
                     </button>
                 </div>
 
                 <!-- Tab 3: Footer Config -->
-                <div v-if="brandKitDetailTab === 'footer'" class="bg-white rounded-xl card-shadow p-6">
-                    <h3 class="font-semibold text-gray-800 mb-4"><i class="fas fa-shoe-prints mr-2 text-orange-500"></i>页脚配置</h3>
-                    <p class="text-xs text-gray-500 mb-4">此配置将在应用品牌套件时自动保存到网站页脚</p>
+                <div v-if="brandKitDetailTab === 'footer'" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
+                    <h3 class="font-semibold text-on-surface mb-4"><i class="fas fa-shoe-prints mr-2 text-tertiary"></i>页脚配置</h3>
+                    <p class="text-xs text-on-surface-variant mb-4">此配置将在应用品牌套件时自动保存到网站页脚</p>
                     <div class="space-y-3">
                         <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-1">地址</label>
+                            <label class="block text-xs font-medium text-on-surface-variant mb-1">地址</label>
                             <input v-model="brandKitFooterForm.address" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-orange-500" placeholder="公司地址">
                         </div>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <label class="block text-xs font-medium text-gray-600 mb-1">电话</label>
+                                <label class="block text-xs font-medium text-on-surface-variant mb-1">电话</label>
                                 <input v-model="brandKitFooterForm.phone" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-orange-500" placeholder="联系电话">
                             </div>
                             <div>
-                                <label class="block text-xs font-medium text-gray-600 mb-1">邮箱</label>
+                                <label class="block text-xs font-medium text-on-surface-variant mb-1">邮箱</label>
                                 <input v-model="brandKitFooterForm.email" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-orange-500" placeholder="联系邮箱">
                             </div>
                         </div>
                     </div>
-                    <button @click="saveBrandKitConfig('footer')" :disabled="brandKitConfigSaving" class="mt-4 px-4 py-2 bg-orange-500 text-white rounded-lg text-sm hover:bg-orange-600 disabled:opacity-50">
+                    <button @click="saveBrandKitConfig('footer')" :disabled="brandKitConfigSaving" class="mt-4 px-4 py-2 bg-tertiary-container text-on-primary rounded-lg text-sm hover:bg-tertiary disabled:opacity-50">
                         <i :class="['fas mr-1', brandKitConfigSaving ? 'fa-spinner fa-spin' : 'fa-save']"></i>
                         {{ brandKitConfigSaving ? '保存中...' : '保存页脚配置' }}
                     </button>
@@ -4613,72 +4723,72 @@ pipelineStatuses[siteId].demo_importing = false;
                 <!-- Tab 4: Tax & Shipping -->
                 <div v-if="brandKitDetailTab === 'taxshipping'" class="space-y-6">
                     <!-- Tax config -->
-                    <div class="bg-white rounded-xl card-shadow p-6">
-                        <h3 class="font-semibold text-gray-800 mb-4"><i class="fas fa-percent mr-2 text-green-500"></i>税费配置</h3>
-                        <p class="text-xs text-gray-500 mb-4">此配置将在应用品牌套件时自动配置到WooCommerce</p>
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
+                        <h3 class="font-semibold text-on-surface mb-4"><i class="fas fa-percent mr-2 text-[#146c2e]"></i>税费配置</h3>
+                        <p class="text-xs text-on-surface-variant mb-4">此配置将在应用品牌套件时自动配置到WooCommerce</p>
                         <div class="space-y-3">
                             <div class="flex items-center gap-3">
                                 <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="checkbox" v-model="brandKitTaxForm.tax_enabled" class="rounded text-green-500">
-                                    <span class="text-sm text-gray-700">启用税率</span>
+                                    <input type="checkbox" v-model="brandKitTaxForm.tax_enabled" class="rounded text-[#146c2e]">
+                                    <span class="text-sm text-on-surface">启用税率</span>
                                 </label>
                                 <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="checkbox" v-model="brandKitTaxForm.prices_include_tax" class="rounded text-green-500">
-                                    <span class="text-sm text-gray-700">价格含税</span>
+                                    <input type="checkbox" v-model="brandKitTaxForm.prices_include_tax" class="rounded text-[#146c2e]">
+                                    <span class="text-sm text-on-surface">价格含税</span>
                                 </label>
                             </div>
                             <div class="border-t pt-3">
-                                <p class="text-xs font-medium text-gray-600 mb-2">标准税率</p>
+                                <p class="text-xs font-medium text-on-surface-variant mb-2">标准税率</p>
                                 <div class="grid grid-cols-2 gap-3">
                                     <div>
-                                        <label class="block text-xs font-medium text-gray-600 mb-1">税率名称</label>
+                                        <label class="block text-xs font-medium text-on-surface-variant mb-1">税率名称</label>
                                         <input v-model="brandKitTaxForm.tax_rate_name" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-green-500" placeholder="如：US State Tax">
                                     </div>
                                     <div>
-                                        <label class="block text-xs font-medium text-gray-600 mb-1">税率 (%)</label>
+                                        <label class="block text-xs font-medium text-on-surface-variant mb-1">税率 (%)</label>
                                         <input v-model="brandKitTaxForm.tax_rate" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-green-500" placeholder="如：8.25">
                                     </div>
                                 </div>
                                 <div class="grid grid-cols-2 gap-3 mt-2">
                                     <div>
-                                        <label class="block text-xs font-medium text-gray-600 mb-1">国家代码</label>
+                                        <label class="block text-xs font-medium text-on-surface-variant mb-1">国家代码</label>
                                         <input v-model="brandKitTaxForm.tax_rate_country" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-green-500" placeholder="US">
                                     </div>
                                     <div>
-                                        <label class="block text-xs font-medium text-gray-600 mb-1">州代码（可选）</label>
+                                        <label class="block text-xs font-medium text-on-surface-variant mb-1">州代码（可选）</label>
                                         <input v-model="brandKitTaxForm.tax_rate_state" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-green-500" placeholder="如：NY">
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        <button @click="saveBrandKitConfig('tax')" :disabled="brandKitConfigSaving" class="mt-4 px-4 py-2 bg-green-500 text-white rounded-lg text-sm hover:bg-green-600 disabled:opacity-50">
+                        <button @click="saveBrandKitConfig('tax')" :disabled="brandKitConfigSaving" class="mt-4 px-4 py-2 bg-[#146c2e] text-on-primary rounded-lg text-sm hover:bg-[#146c2e]/80 disabled:opacity-50">
                             <i :class="['fas mr-1', brandKitConfigSaving ? 'fa-spinner fa-spin' : 'fa-save']"></i>
                             {{ brandKitConfigSaving ? '保存中...' : '保存税费配置' }}
                         </button>
                     </div>
 
                     <!-- Shipping config -->
-                    <div class="bg-white rounded-xl card-shadow p-6">
-                        <h3 class="font-semibold text-gray-800 mb-4"><i class="fas fa-truck mr-2 text-blue-500"></i>运费配置</h3>
-                        <p class="text-xs text-gray-500 mb-4">此配置将在应用品牌套件时自动创建免费配送区域</p>
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
+                        <h3 class="font-semibold text-on-surface mb-4"><i class="fas fa-truck mr-2 text-primary"></i>运费配置</h3>
+                        <p class="text-xs text-on-surface-variant mb-4">此配置将在应用品牌套件时自动创建免费配送区域</p>
                         <div class="space-y-3">
                             <div>
-                                <label class="block text-xs font-medium text-gray-600 mb-1">配送区域名称</label>
-                                <input v-model="brandKitShippingForm.zone_name" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500" placeholder="Free Shipping">
+                                <label class="block text-xs font-medium text-on-surface-variant mb-1">配送区域名称</label>
+                                <input v-model="brandKitShippingForm.zone_name" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary" placeholder="Free Shipping">
                             </div>
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">适用国家</label>
-                                    <input v-model="brandKitShippingForm.country" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500" placeholder="US">
-                                    <p class="text-xs text-gray-400 mt-0.5">多个国家用逗号分隔</p>
+                                    <label class="block text-xs font-medium text-on-surface-variant mb-1">适用国家</label>
+                                    <input v-model="brandKitShippingForm.country" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary" placeholder="US">
+                                    <p class="text-xs text-on-surface-variant mt-0.5">多个国家用逗号分隔</p>
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">最低订单金额（可选）</label>
-                                    <input v-model="brandKitShippingForm.min_amount" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500" placeholder="留空即无条件免邮">
+                                    <label class="block text-xs font-medium text-on-surface-variant mb-1">最低订单金额（可选）</label>
+                                    <input v-model="brandKitShippingForm.min_amount" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary" placeholder="留空即无条件免邮">
                                 </div>
                             </div>
                         </div>
-                        <button @click="saveBrandKitConfig('shipping')" :disabled="brandKitConfigSaving" class="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50">
+                        <button @click="saveBrandKitConfig('shipping')" :disabled="brandKitConfigSaving" class="mt-4 px-4 py-2 bg-primary-container text-on-primary rounded-lg text-sm hover:bg-primary disabled:opacity-50">
                             <i :class="['fas mr-1', brandKitConfigSaving ? 'fa-spinner fa-spin' : 'fa-save']"></i>
                             {{ brandKitConfigSaving ? '保存中...' : '保存运费配置' }}
                         </button>
@@ -4687,55 +4797,55 @@ pipelineStatuses[siteId].demo_importing = false;
 
                 <!-- Tab 5: 指纹环境 -->
                 <div v-if="brandKitDetailTab === 'fingerprint'" class="space-y-6">
-                    <div v-if="brandKitDetail.cloakbrowser_profile_name" class="bg-white rounded-xl card-shadow p-6">
-                        <h3 class="font-semibold text-gray-800 mb-4"><i class="fas fa-fingerprint mr-2 text-blue-500"></i>指纹环境</h3>
+                    <div v-if="brandKitDetail.cloakbrowser_profile_name" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
+                        <h3 class="font-semibold text-on-surface mb-4"><i class="fas fa-fingerprint mr-2 text-primary"></i>指纹环境</h3>
                         <div class="grid grid-cols-2 gap-4">
                             <div>
-                                <p class="text-xs text-gray-500 mb-1">Profile 名称</p>
-                                <p class="font-mono text-sm font-medium text-gray-800">{{ brandKitDetail.cloakbrowser_profile_name }}</p>
+                                <p class="text-xs text-on-surface-variant mb-1">Profile 名称</p>
+                                <p class="font-mono text-sm font-medium text-on-surface">{{ brandKitDetail.cloakbrowser_profile_name }}</p>
                             </div>
                             <div v-if="brandKitDetail.profile_info?.platform">
-                                <p class="text-xs text-gray-500 mb-1">平台</p>
-                                <p class="text-sm text-gray-800">{{ {win:'Windows',mac:'macOS',linux:'Linux'}[brandKitDetail.profile_info.platform] || brandKitDetail.profile_info.platform }}</p>
+                                <p class="text-xs text-on-surface-variant mb-1">平台</p>
+                                <p class="text-sm text-on-surface">{{ {win:'Windows',mac:'macOS',linux:'Linux'}[brandKitDetail.profile_info.platform] || brandKitDetail.profile_info.platform }}</p>
                             </div>
                             <div v-if="brandKitDetail.profile_info?.country">
-                                <p class="text-xs text-gray-500 mb-1">国家</p>
-                                <p class="text-sm text-gray-800">{{ brandKitDetail.profile_info.country }}</p>
+                                <p class="text-xs text-on-surface-variant mb-1">国家</p>
+                                <p class="text-sm text-on-surface">{{ brandKitDetail.profile_info.country }}</p>
                             </div>
                             <div v-if="brandKitDetail.profile_info?.gpu">
-                                <p class="text-xs text-gray-500 mb-1">GPU</p>
-                                <p class="text-sm text-gray-800 truncate" :title="brandKitDetail.profile_info.gpu">{{ brandKitDetail.profile_info.gpu.substring(0, 40) }}</p>
+                                <p class="text-xs text-on-surface-variant mb-1">GPU</p>
+                                <p class="text-sm text-on-surface truncate" :title="brandKitDetail.profile_info.gpu">{{ brandKitDetail.profile_info.gpu.substring(0, 40) }}</p>
                             </div>
                             <div v-if="brandKitDetail.profile_info?.screen">
-                                <p class="text-xs text-gray-500 mb-1">屏幕分辨率</p>
-                                <p class="text-sm text-gray-800">{{ brandKitDetail.profile_info.screen }}</p>
+                                <p class="text-xs text-on-surface-variant mb-1">屏幕分辨率</p>
+                                <p class="text-sm text-on-surface">{{ brandKitDetail.profile_info.screen }}</p>
                             </div>
                             <div v-if="brandKitDetail.profile_info?.timezone">
-                                <p class="text-xs text-gray-500 mb-1">时区</p>
-                                <p class="text-sm text-gray-800">{{ brandKitDetail.profile_info.timezone }}</p>
+                                <p class="text-xs text-on-surface-variant mb-1">时区</p>
+                                <p class="text-sm text-on-surface">{{ brandKitDetail.profile_info.timezone }}</p>
                             </div>
                             <div v-if="brandKitDetail.profile_info?.proxy">
-                                <p class="text-xs text-gray-500 mb-1">代理</p>
-                                <p class="text-sm text-gray-800 truncate" :title="brandKitDetail.profile_info.proxy">{{ brandKitDetail.profile_info.proxy.substring(0, 30) }}</p>
+                                <p class="text-xs text-on-surface-variant mb-1">代理</p>
+                                <p class="text-sm text-on-surface truncate" :title="brandKitDetail.profile_info.proxy">{{ brandKitDetail.profile_info.proxy.substring(0, 30) }}</p>
                             </div>
                             <div v-if="brandKitDetail.profile_info?.dir">
-                                <p class="text-xs text-gray-500 mb-1">目录</p>
-                                <p class="font-mono text-xs text-gray-600 truncate" :title="brandKitDetail.profile_info.dir">{{ brandKitDetail.profile_info.dir }}</p>
+                                <p class="text-xs text-on-surface-variant mb-1">目录</p>
+                                <p class="font-mono text-xs text-on-surface-variant truncate" :title="brandKitDetail.profile_info.dir">{{ brandKitDetail.profile_info.dir }}</p>
                             </div>
                         </div>
-                        <div v-if="globalConfig.fingerprint_enabled === 'true'" class="mt-4 bg-green-50 border border-green-200 rounded-lg p-3">
-                            <p class="text-green-700 text-sm"><i class="fas fa-check-circle mr-2"></i>指纹环境已启用 — 建站和GMC注册将自动使用此Profile</p>
+                        <div v-if="globalConfig.fingerprint_enabled === 'true'" class="mt-4 bg-[#146c2e]/5 border border-[#146c2e]/20 rounded-lg p-3">
+                            <p class="text-[#146c2e] text-sm"><i class="fas fa-check-circle mr-2"></i>指纹环境已启用 — 建站和GMC注册将自动使用此Profile</p>
                         </div>
                         <div v-else class="mt-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                             <p class="text-yellow-700 text-sm"><i class="fas fa-info-circle mr-2"></i>指纹环境未启用 — 请在系统设置中开启以自动注入</p>
                         </div>
                     </div>
-                    <div v-else class="bg-white rounded-xl card-shadow p-6 text-center py-12">
-                        <i class="fas fa-fingerprint text-4xl text-gray-300 mb-4 block"></i>
-                        <p class="text-gray-500 mb-2">尚未创建指纹环境</p>
-                        <p class="text-sm text-gray-400">请先生成品牌套件，系统将在第6步自动创建 CloakBrowser Profile</p>
-                        <p v-if="brandKitDetail.proxy" class="text-xs text-gray-500 mt-2">代理: {{ brandKitDetail.proxy }}</p>
-                        <button v-if="brandKitDetail.status !== 'ready'" @click="handleGenerateBrandKit(brandKitDetail)" :disabled="brandKitGenerating[brandKitDetail.id] && brandKitGenerating[brandKitDetail.id].status === 'running'" class="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 transition">
+                    <div v-else class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6 text-center py-12">
+                        <i class="fas fa-fingerprint text-4xl text-on-surface-variant mb-4 block"></i>
+                        <p class="text-on-surface-variant mb-2">尚未创建指纹环境</p>
+                        <p class="text-sm text-on-surface-variant">请先生成品牌套件，系统将在第6步自动创建 CloakBrowser Profile</p>
+                        <p v-if="brandKitDetail.proxy" class="text-xs text-on-surface-variant mt-2">代理: {{ brandKitDetail.proxy }}</p>
+                        <button v-if="brandKitDetail.status !== 'ready'" @click="handleGenerateBrandKit(brandKitDetail)" :disabled="brandKitGenerating[brandKitDetail.id] && brandKitGenerating[brandKitDetail.id].status === 'running'" class="mt-4 px-4 py-2 bg-primary-container text-on-primary rounded-lg text-sm hover:bg-primary disabled:opacity-50 transition">
                             <i :class="['fas mr-1', (brandKitGenerating[brandKitDetail.id] && brandKitGenerating[brandKitDetail.id].status === 'running') ? 'fa-spinner fa-spin' : 'fa-magic']"></i>
                             {{ (brandKitGenerating[brandKitDetail.id] && brandKitGenerating[brandKitDetail.id].status === 'running') ? '生成中...' : '立即生成' }}
                         </button>
@@ -4744,97 +4854,98 @@ pipelineStatuses[siteId].demo_importing = false;
 
                 <!-- Tab: Google Account -->
                 <div v-if="brandKitDetailTab === 'google'" class="space-y-6">
-                    <div v-if="brandKitDetail.google_account_email" class="bg-white rounded-xl card-shadow p-6">
-                        <h3 class="font-semibold text-gray-800 mb-4"><i class="fab fa-google mr-2 text-blue-500"></i>Google 账户</h3>
+                    <div v-if="brandKitDetail.google_account_email" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
+                        <h3 class="font-semibold text-on-surface mb-4"><i class="fab fa-google mr-2 text-primary"></i>Google 账户</h3>
                         <div class="grid grid-cols-2 gap-4">
                             <div>
-                                <p class="text-xs text-gray-500 mb-1">邮箱</p>
-                                <p class="text-sm font-medium text-gray-800">{{ brandKitDetail.google_account_email }}</p>
+                                <p class="text-xs text-on-surface-variant mb-1">邮箱</p>
+                                <p class="text-sm font-medium text-on-surface">{{ brandKitDetail.google_account_email }}</p>
                             </div>
                             <div>
-                                <p class="text-xs text-gray-500 mb-1">密码</p>
-                                <p class="text-sm font-mono text-gray-800">{{ brandKitDetail.google_account_password || '—' }}</p>
+                                <p class="text-xs text-on-surface-variant mb-1">密码</p>
+                                <p class="text-sm font-mono text-on-surface">{{ brandKitDetail.google_account_password || '—' }}</p>
                             </div>
                             <div>
-                                <p class="text-xs text-gray-500 mb-1">恢复邮箱</p>
-                                <p class="text-sm text-gray-800">{{ brandKitDetail.google_account_recovery || '—' }}</p>
+                                <p class="text-xs text-on-surface-variant mb-1">恢复邮箱</p>
+                                <p class="text-sm text-on-surface">{{ brandKitDetail.google_account_recovery || '—' }}</p>
                             </div>
                             <div>
-                                <p class="text-xs text-gray-500 mb-1">TOTP 安全凭证 (Base32)</p>
-                                <p class="text-sm font-mono text-gray-800 break-all">{{ brandKitDetail.google_account_totp || '—' }}</p>
+                                <p class="text-xs text-on-surface-variant mb-1">TOTP 安全凭证 (Base32)</p>
+                                <p class="text-sm font-mono text-on-surface break-all">{{ brandKitDetail.google_account_totp || '—' }}</p>
                             </div>
                             <div>
-                                <p class="text-xs text-gray-500 mb-1">注册年份</p>
-                                <p class="text-sm text-gray-800">{{ brandKitDetail.google_account_year || '—' }}</p>
+                                <p class="text-xs text-on-surface-variant mb-1">注册年份</p>
+                                <p class="text-sm text-on-surface">{{ brandKitDetail.google_account_year || '—' }}</p>
                             </div>
                             <div>
-                                <p class="text-xs text-gray-500 mb-1">国家</p>
-                                <p class="text-sm text-gray-800">{{ brandKitDetail.google_account_country || '—' }}</p>
+                                <p class="text-xs text-on-surface-variant mb-1">国家</p>
+                                <p class="text-sm text-on-surface">{{ brandKitDetail.google_account_country || '—' }}</p>
                             </div>
                         </div>
-                        <div class="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
-                            <p class="text-blue-700 text-sm"><i class="fas fa-check-circle mr-2"></i>Google 账户已绑定 — GMC 自动化将使用此账户登录</p>
+                        <div class="mt-4 bg-blue-50 border border-primary-container/20 rounded-lg p-3">
+                            <p class="text-primary text-sm"><i class="fas fa-check-circle mr-2"></i>Google 账户已绑定 — GMC 自动化将使用此账户登录</p>
                         </div>
                     </div>
-                    <div v-else class="bg-white rounded-xl card-shadow p-6 text-center py-12">
-                        <i class="fab fa-google text-4xl text-gray-300 mb-4 block"></i>
-                        <p class="text-gray-500 mb-2">未绑定 Google 账户</p>
-                        <p class="text-sm text-gray-400">可在编辑套件时关联 Google 账户，用于 GMC 自动化登录</p>
-                        <button @click="openBrandKitModal(brandKitDetail)" class="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-700 transition">
+                    <div v-else class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6 text-center py-12">
+                        <i class="fab fa-google text-4xl text-on-surface-variant mb-4 block"></i>
+                        <p class="text-on-surface-variant mb-2">未绑定 Google 账户</p>
+                        <p class="text-sm text-on-surface-variant">可在编辑套件时关联 Google 账户，用于 GMC 自动化登录</p>
+                        <button @click="openBrandKitModal(brandKitDetail)" class="mt-4 px-4 py-2 bg-primary-container text-on-primary rounded-lg text-sm hover:bg-primary transition">
                             <i class="fas fa-edit mr-1"></i>编辑套件
                         </button>
                     </div>
                 </div>
+            </div>
             </div>
 
         </main>
 
         <!-- Create Site Wizard Modal -->
         <div v-if="wizardOpen" class="modal-overlay modal-overlay">
-            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto fade-in">
+            <div class="bg-surface-container-lowest rounded-2xl shadow-level-3 w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto fade-in">
                 <div class="p-6 border-b flex items-center justify-between">
                     <h2 class="text-lg font-bold">创建WordPress站点</h2>
-                    <button @click="closeWizard" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times text-xl"></i></button>
+                    <button @click="closeWizard" class="text-on-surface-variant hover:text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
                 </div>
 
                 <div class="p-6 space-y-4">
                     <!-- Cloudflare DNS -->
-                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-2"><p class="text-blue-700 text-sm"><i class="fas fa-info-circle mr-2"></i>站点创建时将<strong>自动创建DNS解析</strong>（指向1Panel服务器，开启Cloudflare代理）。</p></div>
+                    <div class="bg-blue-50 border border-primary-container/20 rounded-lg p-4 mb-2"><p class="text-primary text-sm"><i class="fas fa-info-circle mr-2"></i>站点创建时将<strong>自动创建DNS解析</strong>（指向1Panel服务器，开启Cloudflare代理）。</p></div>
                     <div v-if="!cfConnected" class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-2">
                         <p class="text-yellow-700 text-sm mb-3"><i class="fas fa-exclamation-triangle mr-2"></i>Cloudflare未授权。请在下方输入API Token或前往系统设置中配置。</p>
-                        <div class="flex gap-2"><input v-model="cfToken" type="password" placeholder="输入Cloudflare API Token" class="flex-1 px-3 py-2 border rounded-lg text-sm focus:border-blue-500"><button @click="cfVerify" :disabled="loading" class="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-orange-600"><i class="fas fa-check mr-1"></i>验证并保存</button></div>
-                        <p class="text-xs text-gray-500 mt-2">Cloudflare控制台 → My Profile → API Tokens → 创建Token（需Zone:DNS:Edit权限）</p>
+                        <div class="flex gap-2"><input v-model="cfToken" type="password" placeholder="输入Cloudflare API Token" class="flex-1 px-3 py-2 border rounded-lg text-sm focus:border-primary"><button @click="cfVerify" :disabled="loading" class="bg-tertiary-container text-on-primary px-4 py-2 rounded-lg text-sm hover:bg-tertiary"><i class="fas fa-check mr-1"></i>验证并保存</button></div>
+                        <p class="text-xs text-on-surface-variant mt-2">Cloudflare控制台 → My Profile → API Tokens → 创建Token（需Zone:DNS:Edit权限）</p>
                     </div>
                     <div v-else class="space-y-4">
-                        <div class="bg-green-50 border border-green-200 rounded-lg p-4"><p class="text-green-700 text-sm"><i class="fab fa-cloudflare mr-2"></i>Cloudflare已连接 — DNS将在创建站点时自动配置</p></div>
-                        <div v-if="cfAccounts.length"><label class="block text-sm font-medium text-gray-700 mb-1">选择Cloudflare账号</label><select v-model="cfSelectedAccountId" class="w-full px-4 py-3 border rounded-lg focus:border-blue-500"><option value="">默认账号</option><option v-for="acc in cfAccounts" :key="acc.id" :value="acc.id">{{ acc.name }} <span v-if="acc.is_default" class="text-xs text-orange-500">（默认）</span></option></select><p class="text-xs text-gray-500 mt-1">DNS解析将使用所选账号自动创建</p></div>
-                        <div v-else class="bg-gray-50 rounded-lg p-4 text-center text-gray-400"><p>暂无已保存的Cloudflare账号</p></div>
+                        <div class="bg-[#146c2e]/5 border border-[#146c2e]/20 rounded-lg p-4"><p class="text-[#146c2e] text-sm"><i class="fab fa-cloudflare mr-2"></i>Cloudflare已连接 — DNS将在创建站点时自动配置</p></div>
+                        <div v-if="cfAccounts.length"><label class="block text-sm font-medium text-on-surface mb-1">选择Cloudflare账号</label><select v-model="cfSelectedAccountId" class="w-full px-4 py-3 border rounded-lg focus:border-primary"><option value="">默认账号</option><option v-for="acc in cfAccounts" :key="acc.id" :value="acc.id">{{ acc.name }} <span v-if="acc.is_default" class="text-xs text-tertiary">（默认）</span></option></select><p class="text-xs text-on-surface-variant mt-1">DNS解析将使用所选账号自动创建</p></div>
+                        <div v-else class="bg-surface-container-low rounded-lg p-4 text-center text-on-surface-variant"><p>暂无已保存的Cloudflare账号</p></div>
                     </div>
 
                     <!-- Brand Kit selection -->
                     <div class="border-t pt-4 mt-2">
-                        <label class="block text-sm font-medium text-gray-700 mb-1"><i class="fas fa-paint-brush mr-1 text-blue-400"></i>选择品牌套件（可选）</label>
-                        <select v-model.number="wizardBrandKitId" class="w-full px-4 py-3 border rounded-lg focus:border-blue-500 text-sm">
+                        <label class="block text-sm font-medium text-on-surface mb-1"><i class="fas fa-paint-brush mr-1 text-primary"></i>选择品牌套件（可选）</label>
+                        <select v-model.number="wizardBrandKitId" class="w-full px-4 py-3 border rounded-lg focus:border-primary text-sm">
                             <option :value="null">— 不使用品牌套件 —</option>
                             <option v-for="k in brandKitsForWizard" :key="k.id" :value="k.id">{{ k.name }}{{ k.brand_name ? ' (' + k.brand_name + ')' : '' }}<span v-if="k.industry"> · {{ k.industry }}</span></option>
                         </select>
-                        <p class="text-xs text-gray-500 mt-1">选择后将自动使用套件的品牌名、WooCommerce和页脚配置</p>
+                        <p class="text-xs text-on-surface-variant mt-1">选择后将自动使用套件的品牌名、WooCommerce和页脚配置</p>
                         <!-- Display associated profile when fingerprint is enabled -->
-                        <div v-if="fingerprintEnabled && wizardBrandKitId" class="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                        <div v-if="fingerprintEnabled && wizardBrandKitId" class="mt-2 bg-blue-50 border border-primary-container/20 rounded-lg p-3">
                             <div class="flex items-center justify-between">
-                                <p class="text-sm text-blue-800">
+                                <p class="text-sm text-primary">
                                     <i class="fas fa-fingerprint mr-1"></i>
                                     <span v-if="brandKitsForWizard.find(k=>k.id===wizardBrandKitId)?.cloakbrowser_profile_name">
                                         指纹环境: <strong>{{ brandKitsForWizard.find(k=>k.id===wizardBrandKitId).cloakbrowser_profile_name }}</strong>
                                     </span>
-                                    <span v-else class="text-blue-500">该套件暂未关联指纹环境</span>
+                                    <span v-else class="text-primary">该套件暂未关联指纹环境</span>
                                 </p>
                                 <button v-if="brandKitsForWizard.find(k=>k.id===wizardBrandKitId)?.cloakbrowser_profile_name"
                                     @click="testProfileForWizard" :disabled="profileTestState.testing"
                                     class="px-3 py-1 text-xs rounded"
-                                    :class="profileTestState.result === true ? 'bg-green-100 text-green-700 border border-green-300' :
-                                           profileTestState.result === false ? 'bg-red-100 text-red-700 border border-red-300' :
-                                           'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200'">
+                                    :class="profileTestState.result === true ? 'bg-[#146c2e]/10 text-[#146c2e] border border-green-300' :
+                                           profileTestState.result === false ? 'bg-error-container text-error border border-red-300' :
+                                           'bg-blue-100 text-primary border border-blue-300 hover:bg-blue-200'">
                                     <i v-if="profileTestState.testing" class="fas fa-spinner fa-spin mr-1"></i>
                                     <i v-else-if="profileTestState.result === true" class="fas fa-check-circle mr-1"></i>
                                     <i v-else-if="profileTestState.result === false" class="fas fa-times-circle mr-1"></i>
@@ -4842,36 +4953,36 @@ pipelineStatuses[siteId].demo_importing = false;
                                     {{ profileTestState.testing ? '测试中...' : profileTestState.result === true ? '已通过' : profileTestState.result === false ? '失败' : '测试环境' }}
                                 </button>
                             </div>
-                            <p v-if="profileTestState.result === false" class="mt-2 text-xs text-red-600">{{ profileTestState.message }}</p>
-                            <p v-if="profileTestState.result === true" class="mt-2 text-xs text-green-600">{{ profileTestState.message }}</p>
+                            <p v-if="profileTestState.result === false" class="mt-2 text-xs text-error">{{ profileTestState.message }}</p>
+                            <p v-if="profileTestState.result === true" class="mt-2 text-xs text-[#146c2e]">{{ profileTestState.message }}</p>
                         </div>
                     </div>
 
                     <!-- Domain / Site Name -->
                     <div class="border-t pt-4 mt-2">
                         <div class="flex items-center gap-2 mb-1">
-                            <label class="block text-sm font-medium text-gray-700"><i class="fas fa-globe mr-1 text-blue-400"></i>域名 / 站点名称</label>
-                            <span class="text-xs text-gray-400">（标签: 模板独立站）</span>
+                            <label class="block text-sm font-medium text-on-surface"><span class="material-symbols-outlined">language</span>域名 / 站点名称</label>
+                            <span class="text-xs text-on-surface-variant">（标签: 模板独立站）</span>
                         </div>
                         <div v-if="wizardMode === 'single'">
-                            <input v-model="createForm.site_name" type="text" placeholder="例如: site1.example.com" class="w-full px-4 py-3 border rounded-lg focus:border-blue-500">
-                            <p class="text-xs text-gray-500 mt-1">将作为WordPress站点的主域名</p>
+                            <input v-model="createForm.site_name" type="text" placeholder="例如: site1.example.com" class="w-full px-4 py-3 border rounded-lg focus:border-primary">
+                            <p class="text-xs text-on-surface-variant mt-1">将作为WordPress站点的主域名</p>
                         </div>
                         <div v-if="wizardMode === 'batch'">
-                            <textarea v-model="createForm.domains" rows="5" placeholder="site1.example.com&#10;site2.example.com&#10;site3.example.com" class="w-full px-4 py-3 border rounded-lg focus:border-blue-500"></textarea>
-                            <p class="text-xs text-gray-500 mt-1">每行输入一个域名，将批量创建多个WordPress站点</p>
+                            <textarea v-model="createForm.domains" rows="5" placeholder="site1.example.com&#10;site2.example.com&#10;site3.example.com" class="w-full px-4 py-3 border rounded-lg focus:border-primary"></textarea>
+                            <p class="text-xs text-on-surface-variant mt-1">每行输入一个域名，将批量创建多个WordPress站点</p>
                         </div>
                     </div>
 
                     <!-- 1Panel status hint -->
-                    <div v-if="!panelConnected" class="bg-red-50 border border-red-200 rounded-lg p-3"><p class="text-red-700 text-sm"><i class="fas fa-exclamation-triangle mr-2"></i>1Panel未连接，站点将仅保存到本地。</p></div>
-                    <div v-else class="bg-green-50 border border-green-200 rounded-lg p-3"><p class="text-green-700 text-sm"><i class="fas fa-check-circle mr-2"></i>1Panel已连接，将通过API实际安装WordPress。</p></div>
+                    <div v-if="!panelConnected" class="bg-error-container border border-error/20 rounded-lg p-3"><p class="text-error text-sm"><i class="fas fa-exclamation-triangle mr-2"></i>1Panel未连接，站点将仅保存到本地。</p></div>
+                    <div v-else class="bg-[#146c2e]/5 border border-[#146c2e]/20 rounded-lg p-3"><p class="text-[#146c2e] text-sm"><i class="fas fa-check-circle mr-2"></i>1Panel已连接，将通过API实际安装WordPress。</p></div>
                 </div>
 
                 <!-- Wizard Footer -->
                 <div class="p-6 border-t flex gap-3 justify-end">
-                    <button @click="closeWizard" class="px-6 py-2 border rounded-lg hover:bg-gray-50">取消</button>
-                    <button @click="wizardCreateSite" :disabled="loading || envTestBlocking" class="btn-primary text-white px-6 py-2 rounded-lg" :title="envTestBlocking ? '请等待环境测试完成' : ''">
+                    <button @click="closeWizard" class="px-6 py-2 border rounded-lg hover:bg-surface-container-low">取消</button>
+                    <button @click="wizardCreateSite" :disabled="loading || envTestBlocking" class="btn-primary text-on-primary px-6 py-2 rounded-lg" :title="envTestBlocking ? '请等待环境测试完成' : ''">
                         <i v-if="loading" class="fas fa-spinner fa-spin mr-2"></i>
                         <i v-else class="fas fa-rocket mr-2"></i>
                         {{ wizardMode === 'batch' ? '批量创建' : '创建站点' }}
@@ -4882,31 +4993,31 @@ pipelineStatuses[siteId].demo_importing = false;
 
         <!-- Deploy Progress Overlay -->
         <div v-if="deployOverlay.show" class="modal-overlay modal-overlay">
-            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 p-6 fade-in max-h-[92vh] overflow-y-auto">
+            <div class="bg-surface-container-lowest rounded-2xl shadow-level-3 w-full max-w-2xl mx-4 p-6 fade-in max-h-[92vh] overflow-y-auto">
 
-                <h3 class="text-lg font-bold mb-3"><i class="fas fa-rocket mr-2 text-blue-500"></i>站点部署</h3>
+                <h3 class="text-lg font-bold mb-3"><i class="fas fa-rocket mr-2 text-primary"></i>站点部署</h3>
                 <div class="mb-3">
-                    <div class="flex items-center justify-between text-xs text-gray-500 mb-1">
+                    <div class="flex items-center justify-between text-xs text-on-surface-variant mb-1">
                         <span>{{ deployOverlay.message }}</span>
                         <span class="font-medium">{{ currentProgressPct }}%</span>
                     </div>
-                    <div class="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
-                        <div class="bg-blue-500 h-2.5 rounded-full transition-all duration-500" :style="{ width: currentProgressPct + '%' }"></div>
+                    <div class="w-full bg-surface-container-high rounded-full h-2.5 overflow-hidden">
+                        <div class="bg-primary-container h-2.5 rounded-full transition-all duration-500" :style="{ width: currentProgressPct + '%' }"></div>
                     </div>
                 </div>
                 <div class="space-y-2 max-h-72 overflow-y-auto">
                     <div v-for="d in deployOverlay.domains" :key="d.domain" class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
-                        :class="d.status === 'installed' ? 'bg-green-50' : d.status === 'failed' ? 'bg-red-50' : d.status === 'installing' || d.status === 'deploying' ? 'bg-blue-50' : 'bg-gray-50'">
-                        <i v-if="d.status === 'installed'" class="fas fa-check-circle text-green-500"></i>
-                        <i v-else-if="d.status === 'failed'" class="fas fa-times-circle text-red-500"></i>
-                        <i v-else-if="d.status === 'pending'" class="fas fa-clock text-gray-300"></i>
-                        <i v-else class="fas fa-spinner fa-spin text-blue-500"></i>
-                        <span class="flex-1 truncate font-medium" :class="d.status === 'failed' ? 'text-red-700' : 'text-gray-800'">{{ d.domain }}</span>
-                        <span class="text-xs truncate max-w-[200px]" :class="d.status === 'failed' ? 'text-red-500' : 'text-gray-500'">{{ d.message }}</span>
+                        :class="d.status === 'installed' ? 'bg-[#146c2e]/5' : d.status === 'failed' ? 'bg-error-container' : d.status === 'installing' || d.status === 'deploying' ? 'bg-blue-50' : 'bg-surface-container-low'">
+                        <i v-if="d.status === 'installed'" class="fas fa-check-circle text-[#146c2e]"></i>
+                        <i v-else-if="d.status === 'failed'" class="fas fa-times-circle text-error"></i>
+                        <i v-else-if="d.status === 'pending'" class="fas fa-clock text-on-surface-variant"></i>
+                        <i v-else class="fas fa-spinner fa-spin text-primary"></i>
+                        <span class="flex-1 truncate font-medium" :class="d.status === 'failed' ? 'text-error' : 'text-on-surface'">{{ d.domain }}</span>
+                        <span class="text-xs truncate max-w-[200px]" :class="d.status === 'failed' ? 'text-error' : 'text-on-surface-variant'">{{ d.message }}</span>
                     </div>
                 </div>
                 <div v-if="deployOverlay.done" class="mt-4 text-center">
-                    <button @click="deployOverlay.show = false; loadSites();" class="btn-primary text-white px-6 py-2 rounded-lg">
+                    <button @click="deployOverlay.show = false; loadSites();" class="btn-primary text-on-primary px-6 py-2 rounded-lg">
                         <i class="fas fa-check mr-2"></i>完成 — 返回站点列表
                     </button>
                 </div>
@@ -4916,65 +5027,65 @@ pipelineStatuses[siteId].demo_importing = false;
 
         <!-- Edit Modal -->
         <div v-if="showEditModal" class="modal-overlay modal-overlay">
-            <div class="bg-white rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto w-full max-w-2xl mx-4 fade-in">
-                <div class="p-6 border-b flex items-center justify-between"><h2 class="text-lg font-bold">编辑站点</h2><button @click="showEditModal = false" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times text-xl"></i></button></div>
+            <div class="bg-surface-container-lowest rounded-2xl shadow-level-3 max-h-[90vh] overflow-y-auto w-full max-w-2xl mx-4 fade-in">
+                <div class="p-6 border-b flex items-center justify-between"><h2 class="text-lg font-bold">编辑站点</h2><button @click="showEditModal = false" class="text-on-surface-variant hover:text-on-surface-variant"><span class="material-symbols-outlined">close</span></button></div>
                 <div class="p-6 space-y-4">
-                    <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-medium text-gray-700 mb-1">站点名称</label><input v-model="editForm.site_name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">URL</label><input v-model="editForm.url" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500"></div></div>
-                    <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-medium text-gray-700 mb-1">管理员</label><input v-model="editForm.admin_name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">管理员密码</label><input v-model="editForm.admin_password" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500"></div></div>
-                    <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-medium text-gray-700 mb-1">标签</label><input v-model="editForm.tag" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">安全ID</label><input v-model="editForm.security_id" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500"></div></div>
-                    <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-medium text-gray-700 mb-1">HTTP 用户名</label><input v-model="editForm.http_username" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-1">HTTP 密码</label><input v-model="editForm.http_password" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500"></div></div>
+                    <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-medium text-on-surface mb-1">站点名称</label><input v-model="editForm.site_name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary"></div><div><label class="block text-sm font-medium text-on-surface mb-1">URL</label><input v-model="editForm.url" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary"></div></div>
+                    <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-medium text-on-surface mb-1">管理员</label><input v-model="editForm.admin_name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary"></div><div><label class="block text-sm font-medium text-on-surface mb-1">管理员密码</label><input v-model="editForm.admin_password" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary"></div></div>
+                    <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-medium text-on-surface mb-1">标签</label><input v-model="editForm.tag" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary"></div><div><label class="block text-sm font-medium text-on-surface mb-1">安全ID</label><input v-model="editForm.security_id" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary"></div></div>
+                    <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-medium text-on-surface mb-1">HTTP 用户名</label><input v-model="editForm.http_username" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary"></div><div><label class="block text-sm font-medium text-on-surface mb-1">HTTP 密码</label><input v-model="editForm.http_password" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary"></div></div>
                 </div>
-                <div class="p-6 border-t flex gap-3 justify-end"><button @click="showEditModal = false" class="px-6 py-2 border rounded-lg hover:bg-gray-50">取消</button><button @click="submitEdit" :disabled="loading" class="btn-primary text-white px-6 py-2 rounded-lg"><i v-if="loading" class="fas fa-spinner fa-spin mr-2"></i>保存更改</button></div>
+                <div class="p-6 border-t flex gap-3 justify-end"><button @click="showEditModal = false" class="px-6 py-2 border rounded-lg hover:bg-surface-container-low">取消</button><button @click="submitEdit" :disabled="loading" class="btn-primary text-on-primary px-6 py-2 rounded-lg"><i v-if="loading" class="fas fa-spinner fa-spin mr-2"></i>保存更改</button></div>
             </div>
         </div>
 
         <!-- Feed Product Edit Modal -->
         <div v-if="showFeedProductModal" class="modal-overlay modal-overlay">
-            <div class="bg-white rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto w-full max-w-2xl mx-4 fade-in">
-                <div class="p-6 border-b flex items-center justify-between"><h2 class="text-lg font-bold">{{ feedEditId ? '编辑商品' : '添加商品' }}</h2><button @click="closeFeedProductModal" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times text-xl"></i></button></div>
+            <div class="bg-surface-container-lowest rounded-2xl shadow-level-3 max-h-[90vh] overflow-y-auto w-full max-w-2xl mx-4 fade-in">
+                <div class="p-6 border-b flex items-center justify-between"><h2 class="text-lg font-bold">{{ feedEditId ? '编辑商品' : '添加商品' }}</h2><button @click="closeFeedProductModal" class="text-on-surface-variant hover:text-on-surface-variant"><span class="material-symbols-outlined">close</span></button></div>
                 <div class="p-6 space-y-4">
-                    <div><label class="block text-sm font-medium text-gray-700 mb-1">商品标题 <span class="text-red-500">*</span></label><input v-model="feedEditForm.title" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
-                    <div><label class="block text-sm font-medium text-gray-700 mb-1">描述</label><textarea v-model="feedEditForm.description" rows="2" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></textarea></div>
+                    <div><label class="block text-sm font-medium text-on-surface mb-1">商品标题 <span class="text-error">*</span></label><input v-model="feedEditForm.title" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
+                    <div><label class="block text-sm font-medium text-on-surface mb-1">描述</label><textarea v-model="feedEditForm.description" rows="2" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></textarea></div>
                     <div class="grid grid-cols-3 gap-4">
-                        <div><label class="block text-sm font-medium text-gray-700 mb-1">价格</label><input v-model="feedEditForm.price" placeholder="29.99 USD" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
-                        <div><label class="block text-sm font-medium text-gray-700 mb-1">币种</label><select v-model="feedEditForm.currency" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="CNY">CNY</option></select></div>
-                        <div><label class="block text-sm font-medium text-gray-700 mb-1">库存状态</label><select v-model="feedEditForm.availability" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"><option value="in_stock">有货 (in_stock)</option><option value="out_of_stock">缺货 (out_of_stock)</option><option value="preorder">预定 (preorder)</option></select></div>
+                        <div><label class="block text-sm font-medium text-on-surface mb-1">价格</label><input v-model="feedEditForm.price" placeholder="29.99 USD" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
+                        <div><label class="block text-sm font-medium text-on-surface mb-1">币种</label><select v-model="feedEditForm.currency" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="CNY">CNY</option></select></div>
+                        <div><label class="block text-sm font-medium text-on-surface mb-1">库存状态</label><select v-model="feedEditForm.availability" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"><option value="in_stock">有货 (in_stock)</option><option value="out_of_stock">缺货 (out_of_stock)</option><option value="preorder">预定 (preorder)</option></select></div>
                     </div>
                     <div class="grid grid-cols-3 gap-4">
-                        <div><label class="block text-sm font-medium text-gray-700 mb-1">品牌</label><input v-model="feedEditForm.brand" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
-                        <div><label class="block text-sm font-medium text-gray-700 mb-1">GTIN</label><input v-model="feedEditForm.gtin" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
-                        <div><label class="block text-sm font-medium text-gray-700 mb-1">MPN</label><input v-model="feedEditForm.mpn" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
+                        <div><label class="block text-sm font-medium text-on-surface mb-1">品牌</label><input v-model="feedEditForm.brand" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
+                        <div><label class="block text-sm font-medium text-on-surface mb-1">GTIN</label><input v-model="feedEditForm.gtin" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
+                        <div><label class="block text-sm font-medium text-on-surface mb-1">MPN</label><input v-model="feedEditForm.mpn" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
                     </div>
-                    <div><label class="block text-sm font-medium text-gray-700 mb-1">Google 商品类别</label><input v-model="feedEditForm.google_product_category" placeholder="Apparel & Accessories > Clothing > ..." type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
+                    <div><label class="block text-sm font-medium text-on-surface mb-1">Google 商品类别</label><input v-model="feedEditForm.google_product_category" placeholder="Apparel & Accessories > Clothing > ..." type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
                     <div class="grid grid-cols-2 gap-4">
-                        <div><label class="block text-sm font-medium text-gray-700 mb-1">商品类型</label><input v-model="feedEditForm.product_type" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
-                        <div><label class="block text-sm font-medium text-gray-700 mb-1">状态</label><select v-model="feedEditForm.condition" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"><option value="new">全新 (new)</option><option value="used">二手 (used)</option><option value="refurbished">翻新 (refurbished)</option></select></div>
+                        <div><label class="block text-sm font-medium text-on-surface mb-1">商品类型</label><input v-model="feedEditForm.product_type" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
+                        <div><label class="block text-sm font-medium text-on-surface mb-1">状态</label><select v-model="feedEditForm.condition" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"><option value="new">全新 (new)</option><option value="used">二手 (used)</option><option value="refurbished">翻新 (refurbished)</option></select></div>
                     </div>
                     <div class="grid grid-cols-2 gap-4">
-                        <div><label class="block text-sm font-medium text-gray-700 mb-1">图片 URL</label><input v-model="feedEditForm.image_url" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
-                        <div><label class="block text-sm font-medium text-gray-700 mb-1">商品链接</label><input v-model="feedEditForm.link" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
+                        <div><label class="block text-sm font-medium text-on-surface mb-1">图片 URL</label><input v-model="feedEditForm.image_url" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
+                        <div><label class="block text-sm font-medium text-on-surface mb-1">商品链接</label><input v-model="feedEditForm.link" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
                     </div>
-                    <div><label class="block text-sm font-medium text-gray-700 mb-1">运费</label><input v-model="feedEditForm.shipping" placeholder="US:0.00 USD" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
+                    <div><label class="block text-sm font-medium text-on-surface mb-1">运费</label><input v-model="feedEditForm.shipping" placeholder="US:0.00 USD" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-green-500"></div>
                 </div>
-                <div class="p-6 border-t flex gap-3 justify-end"><button @click="closeFeedProductModal" class="px-6 py-2 border rounded-lg hover:bg-gray-50">取消</button><button @click="handleSaveFeedProduct" class="bg-green-500 text-white px-6 py-2 rounded-lg hover:bg-green-600"><i class="fas fa-check mr-2"></i>{{ feedEditId ? '更新' : '添加' }}</button></div>
+                <div class="p-6 border-t flex gap-3 justify-end"><button @click="closeFeedProductModal" class="px-6 py-2 border rounded-lg hover:bg-surface-container-low">取消</button><button @click="handleSaveFeedProduct" class="bg-[#146c2e] text-on-primary px-6 py-2 rounded-lg hover:bg-[#146c2e]/80"><i class="fas fa-check mr-2"></i>{{ feedEditId ? '更新' : '添加' }}</button></div>
             </div>
         </div>
 
         <!-- Brand Kit Create/Edit Modal -->
         <div v-if="showBrandKitModal" class="modal-overlay modal-overlay">
-            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 fade-in">
+            <div class="bg-surface-container-lowest rounded-2xl shadow-level-3 w-full max-w-lg mx-4 fade-in">
                 <div class="p-6 border-b flex items-center justify-between">
                     <h2 class="text-lg font-bold">{{ brandKitEditId ? '编辑套件' : '创建品牌套件' }}</h2>
-                    <button @click="closeBrandKitModal" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times text-xl"></i></button>
+                    <button @click="closeBrandKitModal" class="text-on-surface-variant hover:text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
                 </div>
                 <div class="p-6 space-y-4">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">套件名称 <span class="text-red-500">*</span></label>
-                        <input v-model="brandKitForm.name" type="text" placeholder="例如：我的品牌套件" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500">
+                        <label class="block text-sm font-medium text-on-surface mb-1">套件名称 <span class="text-error">*</span></label>
+                        <input v-model="brandKitForm.name" type="text" placeholder="例如：我的品牌套件" class="w-full px-4 py-2 border rounded-lg focus:border-primary">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">行业</label>
-                        <select v-model="brandKitForm.industry" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500">
+                        <label class="block text-sm font-medium text-on-surface mb-1">行业</label>
+                        <select v-model="brandKitForm.industry" class="w-full px-4 py-2 border rounded-lg focus:border-primary">
                             <option value="">通用</option>
                             <option value="服装时尚">服装时尚</option>
                             <option value="电子产品">电子产品</option>
@@ -4989,60 +5100,60 @@ pipelineStatuses[siteId].demo_importing = false;
                         </select>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">代理IP <span class="text-red-500">*</span></label>
-                        <select v-model="brandKitForm.proxy_id" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500">
+                        <label class="block text-sm font-medium text-on-surface mb-1">代理IP <span class="text-error">*</span></label>
+                        <select v-model="brandKitForm.proxy_id" class="w-full px-4 py-2 border rounded-lg focus:border-primary">
                             <option :value="null" disabled>请选择代理IP</option>
                             <option v-for="p in availableProxies" :key="p.id" :value="p.id" :disabled="p.occupied_kit_id && p.occupied_kit_id !== brandKitEditId" :style="{ color: p.occupied_kit_name ? '#dc2626' : '#10b981' }">[{{ p.occupied_kit_name ? '占用' : '可用' }}] {{ p.proxy_type === 'http' ? 'HTTP' : 'S5' }} {{ p.ip }} (端口{{ p.port }}){{ p.occupied_kit_name ? ' — ' + p.occupied_kit_name : '' }}</option>
                             <option v-if="brandKitEditId && brandKitForm.proxy_id" :value="brandKitForm.proxy_id" selected hidden>{{ brandKitForm.proxy }}</option>
                         </select>
-                        <p class="text-xs text-gray-500 mt-1">从代理池中选择，生成品牌套件时将自动配置指纹环境代理</p>
+                        <p class="text-xs text-on-surface-variant mt-1">从代理池中选择，生成品牌套件时将自动配置指纹环境代理</p>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Google 账户 <span class="text-xs text-gray-400">(可选)</span></label>
-                        <select v-model="brandKitForm.google_account_id" class="w-full px-4 py-2 border rounded-lg focus:border-blue-500">
+                        <label class="block text-sm font-medium text-on-surface mb-1">Google 账户 <span class="text-xs text-on-surface-variant">(可选)</span></label>
+                        <select v-model="brandKitForm.google_account_id" class="w-full px-4 py-2 border rounded-lg focus:border-primary">
                             <option :value="null">不使用 Google 账户</option>
                             <option v-for="ga in availableGoogleAccounts" :key="ga.id" :value="ga.id" :disabled="ga.occupied_kit_id && ga.occupied_kit_id !== brandKitEditId" :style="{ color: ga.occupied_kit_name ? '#dc2626' : '#10b981' }">[{{ ga.occupied_kit_name ? '占用' : '可用' }}] {{ ga.email }} ({{ ga.country || '未知' }}){{ ga.occupied_kit_name ? ' — ' + ga.occupied_kit_name : '' }}</option>
                             <option v-if="brandKitEditId && brandKitForm.google_account_id" :value="brandKitForm.google_account_id" selected hidden>已选择</option>
                         </select>
-                        <p class="text-xs text-gray-500 mt-1">GMC 注册时将使用此账户自动登录 Google（支持 TOTP 2FA）</p>
+                        <p class="text-xs text-on-surface-variant mt-1">GMC 注册时将使用此账户自动登录 Google（支持 TOTP 2FA）</p>
                     </div>
                 </div>
                 <div class="p-6 border-t flex gap-3 justify-end">
-                    <button @click="closeBrandKitModal" class="px-6 py-2 border rounded-lg hover:bg-gray-50">取消</button>
-                    <button @click="handleSaveBrandKit" class="btn-primary text-white px-6 py-2 rounded-lg"><i class="fas fa-check mr-2"></i>{{ brandKitEditId ? '更新' : '创建' }}</button>
+                    <button @click="closeBrandKitModal" class="px-6 py-2 border rounded-lg hover:bg-surface-container-low">取消</button>
+                    <button @click="handleSaveBrandKit" class="btn-primary text-on-primary px-6 py-2 rounded-lg"><i class="fas fa-check mr-2"></i>{{ brandKitEditId ? '更新' : '创建' }}</button>
                 </div>
             </div>
         </div>
 
         <!-- GMC Task Log Viewer Modal -->
         <div v-if="taskLogVisible" class="modal-overlay modal-overlay">
-            <div class="bg-gray-900 rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col fade-in">
+            <div class="bg-gray-900 rounded-2xl shadow-level-3 w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col fade-in">
                 <!-- Header -->
                 <div class="flex items-center justify-between px-5 py-3 border-b border-gray-700">
                     <div class="flex items-center gap-2">
-                        <i :class="['fas text-sm', taskLogStatus === 'running' ? 'fa-spinner fa-spin text-blue-400' : taskLogStatus === 'success' ? 'fa-check-circle text-green-400' : 'fa-times-circle text-red-400']"></i>
-                        <span class="text-white font-medium text-sm">{{ taskLogTitle }}</span>
-                        <span :class="['badge ml-2', taskLogStatus === 'running' ? 'bg-blue-600 text-blue-100' : taskLogStatus === 'success' ? 'bg-green-600 text-green-100' : 'bg-red-600 text-red-100']">
+                        <i :class="['fas text-sm', taskLogStatus === 'running' ? 'fa-spinner fa-spin text-primary' : taskLogStatus === 'success' ? 'fa-check-circle text-green-400' : 'fa-times-circle text-red-400']"></i>
+                        <span class="inline-flex items-center gap-xs text-on-primary font-medium text-sm">{{ taskLogTitle }}</span>
+                        <span :class="['badge ml-2', taskLogStatus === 'running' ? 'bg-primary text-blue-100' : taskLogStatus === 'success' ? 'bg-green-600 text-green-100' : 'bg-error text-red-100']">
                             {{ taskLogStatus === 'running' ? '运行中' : taskLogStatus === 'success' ? '成功' : '失败' }}
                         </span>
                     </div>
-                    <button @click="closeTaskLog" class="text-gray-400 hover:text-white text-lg leading-none">&times;</button>
+                    <button @click="closeTaskLog" class="text-on-surface-variant hover:text-on-primary text-lg leading-none">&times;</button>
                 </div>
                 <!-- Log lines -->
                 <div ref="taskLogRef" class="flex-1 overflow-y-auto p-4 font-mono text-xs leading-relaxed space-y-0.5" style="max-height: 55vh; background: #1a1a2e;">
-                    <div v-if="taskLogLines.length === 0" class="text-gray-500 text-center py-8">
-                        <i class="fas fa-spinner fa-spin text-2xl mb-2 block"></i>等待日志...
+                    <div v-if="taskLogLines.length === 0" class="text-on-surface-variant text-center py-8">
+                        <span class="spinner w-4 h-4 inline-block"></span>等待日志...
                     </div>
                     <div v-for="line in taskLogLines" :key="line.i" class="flex gap-2">
-                        <span class="text-gray-500 shrink-0">{{ line.t }}</span>
-                        <span v-if="line.step" class="text-gray-600 shrink-0">[{{ line.step }}]</span>
-                        <span :class="{'text-blue-300': line.level === 'info', 'text-yellow-300': line.level === 'warning', 'text-red-400': line.level === 'error', 'text-gray-400': line.level !== 'info' && line.level !== 'warning' && line.level !== 'error'}">{{ line.msg }}</span>
+                        <span class="text-on-surface-variant shrink-0">{{ line.t }}</span>
+                        <span v-if="line.step" class="text-on-surface-variant shrink-0">[{{ line.step }}]</span>
+                        <span :class="{'text-blue-300': line.level === 'info', 'text-yellow-300': line.level === 'warning', 'text-red-400': line.level === 'error', 'text-on-surface-variant': line.level !== 'info' && line.level !== 'warning' && line.level !== 'error'}">{{ line.msg }}</span>
                     </div>
                 </div>
                 <!-- Footer -->
                 <div class="px-5 py-3 border-t border-gray-700 flex items-center justify-between">
-                    <span class="text-gray-500 text-xs">{{ taskLogLines.length }} 条日志</span>
-                    <button @click="closeTaskLog" :class="['px-4 py-1.5 rounded text-sm font-medium', taskLogStatus === 'running' ? 'bg-gray-600 text-gray-300 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-700']" :disabled="taskLogStatus === 'running'">
+                    <span class="text-on-surface-variant text-xs">{{ taskLogLines.length }} 条日志</span>
+                    <button @click="closeTaskLog" :class="['px-4 py-1.5 rounded text-sm font-medium', taskLogStatus === 'running' ? 'bg-surface-container-highest text-on-surface-variant cursor-not-allowed' : 'bg-primary-container text-on-primary hover:bg-primary']" :disabled="taskLogStatus === 'running'">
                         {{ taskLogStatus === 'running' ? '请等待完成...' : '关闭' }}
                     </button>
                 </div>
@@ -5051,16 +5162,16 @@ pipelineStatuses[siteId].demo_importing = false;
 
         <!-- Confirm Modal -->
         <div v-if="modal.show" class="modal-overlay modal-overlay">
-            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 fade-in">
-                <div class="p-6"><h2 class="text-lg font-bold text-gray-800 mb-2">{{ modal.title }}</h2><p class="text-gray-600">{{ modal.content }}</p></div>
-                <div v-if="modal.progress" class="px-6 pb-2"><p class="text-sm text-blue-600"><i class="fas fa-spinner fa-spin mr-2"></i>{{ modal.progress }}</p></div>
-                <div class="p-6 border-t flex gap-3 justify-end"><button @click="modal.show = false" :disabled="modal.loading" class="px-6 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50">取消</button><button @click="modal.onConfirm()" :disabled="modal.loading" class="bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"><i v-if="modal.loading" class="fas fa-spinner fa-spin mr-2"></i>{{ modal.loading ? '删除中...' : '删除' }}</button></div>
+            <div class="bg-surface-container-lowest rounded-2xl shadow-level-3 w-full max-w-md mx-4 fade-in">
+                <div class="p-6"><h2 class="text-lg font-bold text-on-surface mb-2">{{ modal.title }}</h2><p class="text-on-surface-variant">{{ modal.content }}</p></div>
+                <div v-if="modal.progress" class="px-6 pb-2"><p class="text-sm text-primary"><span class="spinner w-4 h-4 inline-block"></span>{{ modal.progress }}</p></div>
+                <div class="p-6 border-t flex gap-3 justify-end"><button @click="modal.show = false" :disabled="modal.loading" class="px-6 py-2 border rounded-lg hover:bg-surface-container-low disabled:opacity-50">取消</button><button @click="modal.onConfirm()" :disabled="modal.loading" class="bg-error text-on-primary px-6 py-2 rounded-lg hover:bg-error disabled:opacity-50 disabled:cursor-not-allowed"><i v-if="modal.loading" class="fas fa-spinner fa-spin mr-2"></i>{{ modal.loading ? '删除中...' : '删除' }}</button></div>
             </div>
         </div>
 
         <!-- Toast -->
         <div v-if="toast.show" class="toast fade-in">
-            <div :class="['rounded-lg shadow-lg px-6 py-4 flex items-center gap-3', toast.type === 'success' ? 'bg-green-500 text-white' : toast.type === 'error' ? 'bg-red-500 text-white' : 'bg-blue-500 text-white']">
+            <div :class="['rounded-lg shadow-level-2 px-6 py-4 flex items-center gap-3', toast.type === 'success' ? 'bg-[#146c2e] text-on-primary' : toast.type === 'error' ? 'bg-error text-on-primary' : 'bg-primary-container text-on-primary']">
                 <i :class="toast.type === 'success' ? 'fas fa-check-circle' : toast.type === 'error' ? 'fas fa-exclamation-circle' : 'fas fa-info-circle'"></i><span>{{ toast.message }}</span>
             </div>
         </div>
