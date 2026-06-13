@@ -2985,6 +2985,10 @@ def register_routes(app):
             alias = site.get("nginx_alias", domain.replace(".", "-"))
             remote_dir = f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index"
             pc = OnePanelClient(host=env["host"], port=env["port"], api_key=env["api_key"])
+            # Delete 1Panel defaults first
+            for df in ["index.html", "404.html"]:
+                try: pc.delete_file(f"{remote_dir}/{df}")
+                except: pass
             for root, dirs, files in os.walk(local_tmp):
                 for fname in files:
                     local_path = os.path.join(root, fname)
