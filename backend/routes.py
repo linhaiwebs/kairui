@@ -2948,14 +2948,9 @@ def register_routes(app):
             website_id = site_data.get("website_id")
             logger.info(f"1Panel static site created: id={website_id} dir={site_dir}")
 
-            # Fallback directory pattern if 1Panel doesn't return it
-            if not site_dir:
-                site_dir = f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index"
-
             # Ensure index directory exists
             _get_panel_client().create_file(site_dir, is_dir=True)
-            assets_dir = site_dir.rstrip("/") + "/assets"
-            _get_panel_client().create_file(assets_dir, is_dir=True)
+            _get_panel_client().create_file(site_dir.rstrip("/") + "/assets", is_dir=True)
 
             # Step 2: Prepare and upload files
             files = {}

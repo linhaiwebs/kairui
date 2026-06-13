@@ -513,7 +513,7 @@ class OnePanelClient:
 
         Returns siteDir path on success (e.g. /opt/1panel/apps/openresty/openresty/www/sites/{alias}/index).
         """
-        import uuid
+        import uuid, time as _time
         task_id = str(uuid.uuid4())
         body = {
             "primaryDomain": domain,
@@ -567,18 +567,25 @@ class OnePanelClient:
         }
         resp = self._request("POST", "/websites", body)
         if resp.get("code") == 200:
-            # Find the created website to get its siteDir
-            ws = self.search_websites(name=domain)
-            if ws.get("code") == 200:
-                items = (ws.get("data") or {}).get("items") or []
-                for w in items:
-                    if w.get("primaryDomain") == domain or w.get("alias") == alias:
-                        resp["data"] = {
-                            "website_id": w.get("id"),
-                            "site_dir": w.get("siteDir", ""),
-                            "alias": w.get("alias", alias),
-                        }
-                        break
+            # Site directory follows 1Panel's static site pattern
+            site_dir = f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index"
+            resp["data"] = {"website_id": None, "site_dir": site_dir, "alias": alias}
+
+            # Try to get actual website_id from search (retry up to 3 times)
+            for attempt in range(3):
+                _time.sleep(1 if attempt == 0 else 2)
+                ws = self.search_websites(name=domain)
+                if ws.get("code") == 200:
+                    items = (ws.get("data") or {}).get("items") or []
+                    for w in items:
+                        if w.get("primaryDomain") == domain or w.get("alias") == alias:
+                            resp["data"]["website_id"] = w.get("id")
+                            actual_dir = w.get("siteDir", "")
+                            if actual_dir:
+                                resp["data"]["site_dir"] = actual_dir
+                            break
+                if resp["data"].get("website_id"):
+                    break
         return resp
 
     def reload_openresty(self):
