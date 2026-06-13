@@ -2399,78 +2399,130 @@ def register_routes(app):
     @app.route("/api/sites/<int:site_id>", methods=["DELETE"])
     @jwt_required()
     def remove_site(site_id):
+        """Delete a site and all associated server resources.
+
+        Cleanup order (all site types):
+        1. Delete 1Panel app install (WordPress Docker container, etc.) — first,
+           because deleting the website with delete_app=True may cascade-delete
+           the app before we get a chance to clean up volumes properly.
+        2. Delete 1Panel website (reverse proxy entry + nginx config).
+        3. Delete manual nginx proxy config & site directory via delete_nginx_proxy_config.
+        4. For static sites: delete OpenResty site files + local temp directory.
+        5. Delete DB record.
+        """
         try:
             site = get_site(site_id)
             if not site:
                 return jsonify({"code": 404, "message": "站点不存在"}), 404
 
-            nginx_alias = site.get("nginx_alias", "")
+            domain = site.get("url", "")
+            alias = site.get("nginx_alias", domain.replace(".", "-"))
+            cleanup_errors = []
 
-            # Static site: delete 1Panel website + directory + local files
+            # ---- Step 1: Delete 1Panel app install (Docker container, etc.) ----
+            if site.get("panel_app_install_id"):
+                try:
+                    _get_panel_client().operate_installed(
+                        site["panel_app_install_id"], "delete",
+                        force_delete=True, delete_backup=True, delete_db=False,
+                    )
+                    logger.info(f"Deleted 1Panel app install {site['panel_app_install_id']}")
+                except Exception as e:
+                    msg = f"应用删除失败: {str(e)[:80]}"
+                    logger.warning(msg)
+                    cleanup_errors.append(msg)
+
+            # ---- Step 2: Delete 1Panel website (reverse proxy entry) ----
+            pid = site.get("panel_website_id")
+            if not pid and domain:
+                # Search by domain name (handles sites where panel_website_id was not saved)
+                try:
+                    ws = _get_panel_client().search_websites(name=domain)
+                    if ws.get("code") == 200:
+                        for w in (ws.get("data") or {}).get("items", []) or []:
+                            if w.get("primaryDomain") == domain or w.get("alias") == alias:
+                                pid = w.get("id")
+                                break
+                except Exception as e:
+                    logger.warning(f"Search website by domain failed: {e}")
+
+            if pid:
+                try:
+                    _get_panel_client().delete_website(
+                        pid,
+                        delete_app=False,  # app already deleted in step 1
+                        delete_backup=True,
+                        force_delete=True,
+                        delete_db=False,
+                    )
+                    logger.info(f"Deleted 1Panel website {pid}")
+                except Exception as e:
+                    msg = f"网站删除失败: {str(e)[:80]}"
+                    logger.warning(msg)
+                    cleanup_errors.append(msg)
+
+            # ---- Step 3: Clean up manual nginx proxy config & site directory ----
+            # WordPress sites have a manually-created nginx proxy config at
+            # /opt/1panel/www/conf.d/{alias}.conf and directory at
+            # /opt/1panel/www/sites/{alias}/ that are NOT managed by 1Panel's
+            # website API and therefore not removed by delete_website().
+            if alias:
+                try:
+                    result = _get_panel_client().delete_nginx_proxy_config(alias, domain)
+                    if result.get("code") == 200:
+                        logger.info(f"Cleaned up nginx proxy config for {alias}")
+                    elif result.get("code") == 207:
+                        logger.warning(f"Partial nginx cleanup for {alias}: {result.get('message', '')}")
+                except Exception as e:
+                    msg = f"nginx配置清理失败: {str(e)[:80]}"
+                    logger.warning(msg)
+                    cleanup_errors.append(msg)
+
+            # ---- Step 4: Static site extra cleanup ----
             if site.get("site_type") == "static":
-                domain = site.get("url", "")
-                alias = site.get("nginx_alias", domain.replace(".", "-"))
-
-                # Delete 1Panel website (search by domain if panel_website_id is missing)
-                pid = site.get("panel_website_id")
-                if not pid:
+                # 4a. Delete OpenResty site files (use static_dir from DB for correct path)
+                static_dir = site.get("static_dir", "")
+                if static_dir:
+                    # static_dir is like "/www/sites/{alias}/index"
+                    # Full 1Panel path: /opt/1panel/apps/openresty/openresty{static_dir}
+                    # Delete the parent site directory (strip trailing /index if present)
+                    if static_dir.endswith("/index"):
+                        static_dir = static_dir[:-6]  # remove "/index"
+                    site_path_1panel = f"/opt/1panel/apps/openresty/openresty{static_dir}"
                     try:
-                        ws = _get_panel_client().search_websites(name=domain)
-                        if ws.get("code") == 200:
-                            for w in (ws.get("data") or {}).get("items", []) or []:
-                                if w.get("primaryDomain") == domain:
-                                    pid = w.get("id")
-                                    break
+                        _get_panel_client().delete_file(site_path_1panel)
+                        logger.info(f"Deleted static site dir on 1Panel: {site_path_1panel}")
+                    except Exception as e:
+                        logger.warning(f"Failed to delete static site dir: {e}")
+                else:
+                    # Fallback: construct path from alias
+                    try:
+                        _get_panel_client().delete_file(
+                            f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}"
+                        )
                     except Exception:
                         pass
-                if pid:
-                    try:
-                        _get_panel_client().delete_website(pid, delete_app=False,
-                            delete_backup=True, force_delete=True, delete_db=False)
-                        logger.info(f"Deleted 1Panel website {pid}")
-                    except Exception as e:
-                        logger.warning(f"Failed to delete 1Panel website: {e}")
 
-                # Delete 1Panel site directory
-                try:
-                    _get_panel_client().delete_file(f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}")
-                except Exception:
-                    pass
-
-                # Delete local temp files
+                # 4b. Delete local temp files
                 local_dir = f"/app/backend/static-sites/{domain}"
                 try:
                     import shutil
                     if os.path.isdir(local_dir):
                         shutil.rmtree(local_dir)
-                except Exception:
-                    pass
-
-            # WordPress site (legacy)
-            elif site.get("panel_website_id"):
-                try:
-                    _get_panel_client().delete_website(
-                        site["panel_website_id"],
-                        delete_app=True, delete_backup=True, force_delete=True,
-                        delete_db=False,
-                    )
-                    logger.info(f"Deleted 1Panel deployment website {site['panel_website_id']}")
+                        logger.info(f"Deleted local static dir: {local_dir}")
                 except Exception as e:
-                    logger.warning(f"Failed to delete 1Panel website: {e}")
-
-                if site.get("panel_app_install_id"):
-                    try:
-                        _get_panel_client().operate_installed(
-                            site["panel_app_install_id"], "delete",
-                            force_delete=True, delete_backup=True, delete_db=False,
-                        )
-                        logger.info(f"Deleted 1Panel app install {site['panel_app_install_id']}")
-                    except Exception as e:
-                        logger.warning(f"Failed to delete 1Panel app: {e}")
+                    logger.warning(f"Failed to delete local static dir: {e}")
 
             # Cloudflare DNS: skip deletion — keep DNS for reuse
 
+            # ---- Step 5: Delete DB record ----
             delete_site(site_id)
+
+            if cleanup_errors:
+                return jsonify({
+                    "code": 207,
+                    "message": f"站点已删除，但部分服务器资源清理失败: {'; '.join(cleanup_errors)}",
+                })
             return jsonify({"code": 200, "message": "站点已删除（DNS 记录已保留）"})
         except Exception as e:
             logger.error(f"Failed to delete site {site_id}: {e}")
@@ -3022,8 +3074,14 @@ def register_routes(app):
                 if rel_path.endswith(".css") or rel_path.endswith(".js"):
                     continue
                 remote_path = f"{site_dir_1panel}/{rel_path}"
+                # Delete existing path (might be a dir from previous deploy)
+                _get_pc().delete_file(remote_path)
+                # Create parent directories
                 parent_dir = os.path.dirname(remote_path)
                 _get_pc().create_file(parent_dir, is_dir=True)
+                # Create empty file first
+                _get_pc().create_file(remote_path, is_dir=False)
+                # Upload content via multipart
                 ts = str(int(time.time()))
                 token = hashlib.md5(("1panel" + panel_api_key + ts).encode()).hexdigest()
                 http_requests.post(
