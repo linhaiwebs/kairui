@@ -3036,39 +3036,49 @@ def register_routes(app):
             site_resp = _get_pc().create_static_website(domain=domain, alias=alias)
             site_data = site_resp.get("data", {}) if site_resp.get("code") == 200 else {}
             site_dir_1panel = site_data.get("site_dir", f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}")
+            logger.info(f"Deploy static site: domain={domain} site_dir_1panel={site_dir_1panel} website_id={site_data.get('website_id')}")
 
             # Step 2: Generate files locally
             from static_store_engine import render_site_to_dict
             files = render_site_to_dict(domain, brand_kit or {}, [])
+            logger.info(f"Generated {len(files)} files for {domain}: {sorted(files.keys())[:5]}...")
 
-            # Upload to 1Panel via multipart (all content in memory, no disk writes)
+            # Step 3: Upload to 1Panel via save_file API (create + save)
             update_bg_task(task_id, status="deploying", message="正在上传商城文件到1Panel...")
-            _get_pc().delete_file(f"{site_dir_1panel}/index.html")
+            pc = _get_pc()
             uploaded = 0
+            created_dirs = set()
+
             for rel_path, content in files.items():
                 if rel_path.endswith(".css") or rel_path.endswith(".js"):
-                    continue
+                    continue  # CSS/JS already inlined in HTML
                 remote_path = f"{site_dir_1panel}/{rel_path}"
-                # Delete existing path (might be a dir from previous deploy)
-                _get_pc().delete_file(remote_path)
-                # Create parent directories
                 parent_dir = os.path.dirname(remote_path)
-                _get_pc().create_file(parent_dir, is_dir=True)
-                # Create empty file first
-                _get_pc().create_file(remote_path, is_dir=False)
-                # Upload content via multipart
-                ts = str(int(time.time()))
-                token = hashlib.md5(("1panel" + panel_api_key + ts).encode()).hexdigest()
-                http_requests.post(
-                    f"http://{panel_host}:{panel_port}/api/v1/files/upload",
-                    data={"path": remote_path},
-                    files={"file": (os.path.basename(rel_path), _io.BytesIO(content.encode("utf-8")), "text/html")},
-                    headers={"1Panel-Token": token, "1Panel-Timestamp": ts},
-                    timeout=30,
-                )
-                uploaded += 1
 
-            _get_pc().reload_openresty()
+                # Ensure parent directory exists (only once per dir)
+                if parent_dir not in created_dirs:
+                    result = pc.create_file(parent_dir, is_dir=True)
+                    if result.get("code") in (200, 500):  # 500 = already exists
+                        created_dirs.add(parent_dir)
+                    else:
+                        logger.warning(f"Failed to create dir {parent_dir}: {result.get('message','')[:80]}")
+                        continue
+
+                # Delete previous file if exists (may be a dir from old deploy)
+                pc.delete_file(remote_path)
+
+                # Create file and write content via save_file
+                create_res = pc.create_file(remote_path, is_dir=False)
+                if create_res.get("code") in (200, 500):
+                    save_res = pc.save_file(remote_path, content)
+                    if save_res.get("code") == 200:
+                        uploaded += 1
+                    else:
+                        logger.warning(f"Failed to save {rel_path}: {save_res.get('message','')[:80]}")
+                else:
+                    logger.warning(f"Failed to create file {rel_path}: {create_res.get('message','')[:80]}")
+
+            pc.reload_openresty()
             logger.info(f"Uploaded {uploaded} files to 1Panel for {domain}")
 
             update_site_fields(site_id, {
