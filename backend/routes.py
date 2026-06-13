@@ -2920,127 +2920,72 @@ def register_routes(app):
 
     def _bg_deploy_static(task_id, site_id, alias, domain,
                          brand_kit=None, panel_host="", panel_port=3500, panel_api_key=""):
-        """Deploy a static e-commerce site to 1Panel/OpenResty.
+        """Deploy a static site — files go to /app/backend/static-sites/ (Docker volume).
 
-        Steps:
-        1. Create directory structure + OpenResty config via 1Panel API
-        2. Upload brand kit HTML files via 1Panel file API
-        3. Reload OpenResty
-        4. Update site status to active
+        Nginx on host uses a catch-all config:
+          root /root/kairui/backend/static-sites;
+          try_files /$host/$uri /$host/$uri.html /$host/index.html =404;
+
+        So new sites work immediately without nginx reload.
         """
-        _get_panel_client = lambda: OnePanelClient(
-            host=panel_host, port=panel_port, api_key=panel_api_key
-        )
+        STATIC_ROOT = "/app/backend/static-sites"
 
         try:
-            update_bg_task(task_id, status="deploying", message="正在创建站点目录和OpenResty配置...")
+            update_bg_task(task_id, status="deploying", message="正在创建站点目录...")
 
-            # Step 1: Create site structure + OpenResty config
-            config_resp = _get_panel_client().create_static_site_config(
-                alias=alias, domain=domain
-            )
-            if config_resp.get("code") not in (200, 207):
-                update_bg_task(task_id, status="failed",
-                              message=f"创建站点配置失败: {config_resp.get('message', '')}")
-                update_site_fields(site_id, {"status": "error"})
-                return
-            logger.info(f"Static site config created for {domain}: {config_resp.get('data', {})}")
+            site_dir = os.path.join(STATIC_ROOT, domain)
+            products_dir = os.path.join(site_dir, "products")
+            assets_dir = os.path.join(site_dir, "assets")
+            os.makedirs(products_dir, exist_ok=True)
+            os.makedirs(assets_dir, exist_ok=True)
 
-            # Step 2: Upload brand kit HTML files
+            files_written = 0
             if brand_kit and brand_kit.get("html_site"):
-                update_bg_task(task_id, status="deploying", message="正在上传品牌页面文件...")
+                update_bg_task(task_id, status="deploying", message="正在写入品牌页面...")
 
                 html_site = brand_kit["html_site"]
                 if isinstance(html_site, str):
-                    try:
-                        html_site = json.loads(html_site)
-                    except (json.JSONDecodeError, TypeError):
-                        html_site = {}
+                    html_site = json.loads(html_site) if html_site else {}
 
-                # Prepare files for upload
-                files = {}
-                page_order = [
-                    "index.html", "about.html", "contact.html",
-                    "privacy.html", "terms.html", "shipping.html",
-                    "returns.html", "product.html", "robots.txt",
-                ]
-                for page_name in page_order:
+                for page_name in ["index.html", "about.html", "contact.html",
+                                  "privacy.html", "terms.html", "shipping.html",
+                                  "returns.html", "robots.txt"]:
                     content = html_site.get(page_name, "")
                     if content:
-                        files[page_name] = content
+                        with open(os.path.join(site_dir, page_name), "w", encoding="utf-8") as f:
+                            f.write(content)
+                        files_written += 1
 
-                # CSS separately
                 css_content = html_site.get("css", "")
                 if css_content:
-                    files["assets/style.css"] = css_content
+                    with open(os.path.join(assets_dir, "style.css"), "w", encoding="utf-8") as f:
+                        f.write(css_content)
+                    files_written += 1
 
-                # Brand assets
-                if brand_kit.get("png_256"):
-                    png_path = brand_kit.get("png_256")
-                    if os.path.isfile(png_path):
-                        import base64
-                        with open(png_path, "rb") as f:
-                            logo_data = f.read()
-                        files["assets/logo.png"] = base64.b64encode(logo_data).decode("utf-8")
+                for asset_key, asset_name in [("png_256", "logo.png"), ("ico", "favicon.ico"), ("og_image", "og-image.png")]:
+                    src = brand_kit.get(asset_key, "")
+                    if src and os.path.isfile(src):
+                        import shutil
+                        shutil.copy(src, os.path.join(assets_dir, asset_name))
+                        files_written += 1
 
-                if brand_kit.get("ico"):
-                    ico_path = brand_kit.get("ico")
-                    if os.path.isfile(ico_path):
-                        import base64
-                        with open(ico_path, "rb") as f:
-                            ico_data = f.read()
-                        files["assets/favicon.ico"] = base64.b64encode(ico_data).decode("utf-8")
+            if files_written == 0:
+                with open(os.path.join(site_dir, "index.html"), "w", encoding="utf-8") as f:
+                    f.write(f"<!DOCTYPE html>\n<html><head><meta charset='UTF-8'><title>{domain}</title>"
+                            f"<style>body{{font-family:Arial;display:flex;align-items:center;justify-content:center;"
+                            f"height:100vh;margin:0;background:#f5f5f5}}h1{{color:#333}}</style></head>"
+                            f"<body><h1>{domain}</h1></body></html>")
+                files_written = 1
 
-                if brand_kit.get("og_image"):
-                    og_path = brand_kit.get("og_image")
-                    if os.path.isfile(og_path):
-                        import base64
-                        with open(og_path, "rb") as f:
-                            og_data = f.read()
-                        files["assets/og-image.png"] = base64.b64encode(og_data).decode("utf-8")
+            logger.info(f"Static site {domain}: {files_written} files written to {site_dir}")
 
-                if files:
-                    upload_resp = _get_panel_client().upload_static_site_files(
-                        alias=alias, files=files
-                    )
-                    if upload_resp.get("code") not in (200, 207):
-                        logger.warning(f"File upload issue: {upload_resp.get('message', '')}")
-                    else:
-                        logger.info(f"Uploaded {len(upload_resp.get('data', {}).get('uploaded', []))} files for {domain}")
-            else:
-                # No brand kit HTML — create a basic placeholder index.html
-                logger.info(f"No html_site in brand kit for {domain}, creating placeholder")
-                placeholder = f"""<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><title>{domain}</title>
-<style>body{{font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f5f5f5}}h1{{color:#333}}</style>
-</head>
-<body><h1>{domain} - Coming Soon</h1></body>
-</html>"""
-                _get_panel_client().upload_static_site_files(
-                    alias=alias, files={"index.html": placeholder}
-                )
-
-            # Step 3: Reload OpenResty
-            update_bg_task(task_id, status="deploying", message="正在重载OpenResty...")
-            reload_resp = _get_panel_client().reload_openresty()
-            if reload_resp.get("code") != 200:
-                update_bg_task(task_id, status="failed",
-                              message=f"重载OpenResty失败: {reload_resp.get('message', '')}")
-                return
-
-            # Step 4: Mark site as active
-            update_site_fields(site_id, {
-                "status": "active",
-                "static_dir": f"/www/sites/{alias}/index",
-            })
+            update_site_fields(site_id, {"status": "active", "static_dir": site_dir})
             update_bg_task(task_id, status="completed",
-                          message=f"站点 {domain} 部署完成 (静态站点)")
+                          message=f"站点 {domain} 部署完成 ({files_written} 个文件)")
 
         except Exception as e:
             logger.error(f"Static deployment failed for {domain}: {traceback.format_exc()}")
-            update_bg_task(task_id, status="failed",
-                          message=f"部署失败: {str(e)[:200]}")
+            update_bg_task(task_id, status="failed", message=f"部署失败: {str(e)[:200]}")
             update_site_fields(site_id, {"status": "error"})
 
     # ---- Static Site Deployment ----
