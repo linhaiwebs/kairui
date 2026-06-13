@@ -1449,11 +1449,16 @@ pipelineStatuses[siteId].demo_importing = false;
             // Fetch next available port
             try { const r = await API.getNextPort(); if (r.code === 200 && r.data) createForm.base_port = r.data.next_port; } catch (e) {}
             createProgress.show = false; createProgress.results = [];
-            cfSelectedAccountId.value = '';
             wizardBrandKitId.value = null;
             profileTestState.value = { testing: false, result: null, message: '' };
-            loadCfAccounts();
-            loadBrandKitsForWizard();
+            await loadCfAccounts();
+            await loadBrandKitsForWizard();
+            // Auto-select first CF account if available (for 1Panel + DNS auto-config)
+            if (cfAccounts.value.length > 0) {
+                cfSelectedAccountId.value = cfAccounts.value[0].id;
+            } else {
+                cfSelectedAccountId.value = '';
+            }
             wizardOpen.value = true;
         }
         function closeWizard() { wizardOpen.value = false; loadSites(); loadPanelData(); }
@@ -4940,7 +4945,7 @@ async function loadProfileCategories() {
         <div v-if="wizardOpen" class="modal-overlay modal-overlay">
             <div class="bg-surface-container-lowest rounded-2xl shadow-level-3 w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto fade-in">
                 <div class="p-6 border-b flex items-center justify-between">
-                    <h2 class="text-lg font-bold">创建WordPress站点</h2>
+                    <h2 class="text-lg font-bold">创建静态站点</h2>
                     <button @click="closeWizard" class="text-on-surface-variant hover:text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
                 </div>
 
