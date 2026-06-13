@@ -2458,25 +2458,14 @@ def register_routes(app):
                 except Exception as e:
                     logger.warning(f"Failed to delete database {db_name}: {e}")
 
-            # Clean up Cloudflare DNS record
-            cf_zone_id = site.get("cf_zone_id")
-            cf_dns_id = site.get("cf_dns_record_id")
-            if cf_zone_id and cf_dns_id:
-                try:
-                    from cloudflare_client import CloudflareClient
-                    cf_creds = _get_cf_credentials()
-                    if cf_creds.get("api_token"):
-                        cf = CloudflareClient(api_token=cf_creds["api_token"])
-                        cf.delete_dns_record(cf_zone_id, cf_dns_id)
-                        logger.info(f"Deleted Cloudflare DNS record {cf_dns_id} in zone {cf_zone_id}")
-                except Exception as e:
-                    logger.warning(f"Failed to delete DNS record: {e}")
+            # Cloudflare DNS: skip deletion — keep DNS for reuse
+            # (DNS records persist after site removal so domain can be repointed later)
 
             # Clean up unused Docker images via Docker socket
             _do_docker_image_cleanup(site_id)
 
             delete_site(site_id)
-            return jsonify({"code": 200, "message": "站点已删除"})
+            return jsonify({"code": 200, "message": "站点已删除（DNS 记录已保留）"})
         except Exception as e:
             logger.error(f"Failed to delete site {site_id}: {e}")
             return jsonify({"code": 500, "message": f"删除站点失败: {str(e)[:100]}"}), 500
