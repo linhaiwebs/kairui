@@ -3002,7 +3002,7 @@ def register_routes(app):
         brand_kit = get_brand_kit(brand_kit_id) if brand_kit_id else None
 
         # Write to local filesystem (served by puhuo nginx wildcard)
-        site_dir = f"/var/www/static-sites/{domain}"
+        site_dir = f"/app/backend/static-sites/{domain}"
         assets_dir = os.path.join(site_dir, "assets")
         os.makedirs(assets_dir, exist_ok=True)
 
@@ -3141,7 +3141,7 @@ body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;b
     def _bg_deploy_static(task_id, site_id, alias, domain,
                          brand_kit=None, panel_host="", panel_port=3500, panel_api_key=""):
         """Deploy a static site — write files locally, served by puhuo nginx wildcard."""
-        site_dir = f"/var/www/static-sites/{domain}"
+        site_dir = f"/app/backend/static-sites/{domain}"
         assets_dir = os.path.join(site_dir, "assets")
 
         try:
