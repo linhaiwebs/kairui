@@ -3008,7 +3008,7 @@ def register_routes(app):
         })
 
     def _regenerate_static_site_html(task_id_or_none, site_id):
-        """Regenerate static site files with current products."""
+        """Regenerate static site files and upload to 1Panel."""
         site = get_site(site_id)
         if not site or site.get("site_type") != "static":
             return
@@ -3016,10 +3016,52 @@ def register_routes(app):
         products = list_static_site_products(site_id)
         brand_kit_id = site.get("brand_kit_id")
         brand_kit = get_brand_kit(brand_kit_id) if brand_kit_id else {}
-        from static_store_engine import render_site
-        site_dir = site.get("static_dir") or f"/app/backend/static-sites/{domain}"
-        count = render_site(domain, brand_kit, products, site_dir)
-        logger.info(f"Regenerated {site_id} ({domain}) with {len(products)} products, {count} files")
+
+        # Generate files in memory
+        from static_store_engine import render_site_to_dict
+        files = render_site_to_dict(domain, brand_kit or {}, products or [])
+        logger.info(f"Regenerate: {domain} with {len(products)} products, {len(files)} files")
+
+        # Upload to 1Panel
+        static_dir = site.get("static_dir", "")
+        if static_dir:
+            import os
+            # static_dir is like /www/sites/domain/index (relative) or full path
+            if static_dir.startswith("/www/"):
+                site_dir_1panel = f"/opt/1panel/apps/openresty/openresty{static_dir}"
+            elif static_dir.startswith("/opt/"):
+                site_dir_1panel = static_dir
+            else:
+                site_dir_1panel = f"/opt/1panel/apps/openresty/openresty/www/sites/{site.get('nginx_alias', domain.replace('.', '-'))}/index"
+
+            # Get panel client for this site's user
+            try:
+                env = get_user_panel_environment(site.get("created_by") or 1)
+                if env:
+                    pc = OnePanelClient(host=env["host"], port=env["port"], api_key=env["api_key"])
+                else:
+                    pc = panel_client
+            except Exception:
+                pc = panel_client
+
+            uploaded = 0
+            created_dirs = set()
+            for rel_path, content in files.items():
+                if rel_path.endswith(".css") or rel_path.endswith(".js"):
+                    continue
+                remote_path = f"{site_dir_1panel}/{rel_path}"
+                parent_dir = os.path.dirname(remote_path)
+                if parent_dir not in created_dirs:
+                    pc.create_file(parent_dir, is_dir=True)
+                    created_dirs.add(parent_dir)
+                pc.delete_file(remote_path)
+                cr = pc.create_file(remote_path, is_dir=False)
+                if cr.get("code") in (200, 500):
+                    sr = pc.save_file(remote_path, content)
+                    if sr.get("code") == 200:
+                        uploaded += 1
+            pc.reload_openresty()
+            logger.info(f"Regenerate uploaded {uploaded} files to 1Panel for {domain}")
 
 # _generate_brand_pages removed — replaced by static_store_engine.render_site()
 
