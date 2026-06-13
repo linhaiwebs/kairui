@@ -2920,28 +2920,48 @@ def register_routes(app):
 
     def _bg_deploy_static(task_id, site_id, alias, domain,
                          brand_kit=None, panel_host="", panel_port=3500, panel_api_key=""):
-        """Deploy a static site — files go to /app/backend/static-sites/ (Docker volume).
+        """Deploy a static site via 1Panel API.
 
-        Nginx on host uses a catch-all config:
-          root /root/kairui/backend/static-sites;
-          try_files /$host/$uri /$host/$uri.html /$host/index.html =404;
-
-        So new sites work immediately without nginx reload.
+        1. Create static website in 1Panel → get siteDir
+        2. Upload HTML files via 1Panel file API
+        3. Reload OpenResty
         """
-        STATIC_ROOT = "/var/www/static-sites"
+        _get_panel_client = lambda: OnePanelClient(
+            host=panel_host, port=panel_port, api_key=panel_api_key
+        )
 
         try:
-            update_bg_task(task_id, status="deploying", message="正在创建站点目录...")
+            update_bg_task(task_id, status="deploying", message="1Panel正在创建静态网站...")
 
-            site_dir = os.path.join(STATIC_ROOT, domain)
-            products_dir = os.path.join(site_dir, "products")
-            assets_dir = os.path.join(site_dir, "assets")
-            os.makedirs(products_dir, exist_ok=True)
-            os.makedirs(assets_dir, exist_ok=True)
+            # Step 1: Create static website in 1Panel
+            site_resp = _get_panel_client().create_static_website(
+                domain=domain, alias=alias
+            )
+            if site_resp.get("code") != 200:
+                update_bg_task(task_id, status="failed",
+                              message=f"1Panel创建网站失败: {site_resp.get('message', '')}")
+                update_site_fields(site_id, {"status": "error"})
+                return
 
-            files_written = 0
+            site_data = site_resp.get("data", {})
+            site_dir = site_data.get("site_dir", "")
+            website_id = site_data.get("website_id")
+            logger.info(f"1Panel static site created: id={website_id} dir={site_dir}")
+
+            # Fallback directory pattern if 1Panel doesn't return it
+            if not site_dir:
+                site_dir = f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index"
+
+            # Ensure index directory exists
+            _get_panel_client().create_file(site_dir, is_dir=True)
+            assets_dir = site_dir.rstrip("/") + "/assets"
+            _get_panel_client().create_file(assets_dir, is_dir=True)
+
+            # Step 2: Prepare and upload files
+            files = {}
             if brand_kit and brand_kit.get("html_site"):
-                update_bg_task(task_id, status="deploying", message="正在写入品牌页面...")
+                update_bg_task(task_id, status="deploying", message="正在上传品牌页面...")
+                import base64 as _b64
 
                 html_site = brand_kit["html_site"]
                 if isinstance(html_site, str):
@@ -2952,36 +2972,46 @@ def register_routes(app):
                                   "returns.html", "robots.txt"]:
                     content = html_site.get(page_name, "")
                     if content:
-                        with open(os.path.join(site_dir, page_name), "w", encoding="utf-8") as f:
-                            f.write(content)
-                        files_written += 1
+                        files[page_name] = content
 
                 css_content = html_site.get("css", "")
                 if css_content:
-                    with open(os.path.join(assets_dir, "style.css"), "w", encoding="utf-8") as f:
-                        f.write(css_content)
-                    files_written += 1
+                    files["assets/style.css"] = css_content
 
                 for asset_key, asset_name in [("png_256", "logo.png"), ("ico", "favicon.ico"), ("og_image", "og-image.png")]:
                     src = brand_kit.get(asset_key, "")
                     if src and os.path.isfile(src):
-                        import shutil
-                        shutil.copy(src, os.path.join(assets_dir, asset_name))
-                        files_written += 1
+                        with open(src, "rb") as f:
+                            files[f"assets/{asset_name}"] = _b64.b64encode(f.read()).decode("utf-8")
 
-            if files_written == 0:
-                with open(os.path.join(site_dir, "index.html"), "w", encoding="utf-8") as f:
-                    f.write(f"<!DOCTYPE html>\n<html><head><meta charset='UTF-8'><title>{domain}</title>"
-                            f"<style>body{{font-family:Arial;display:flex;align-items:center;justify-content:center;"
-                            f"height:100vh;margin:0;background:#f5f5f5}}h1{{color:#333}}</style></head>"
-                            f"<body><h1>{domain}</h1></body></html>")
-                files_written = 1
+            if not files:
+                files["index.html"] = (
+                    f"<!DOCTYPE html>\n<html><head><meta charset='UTF-8'><title>{domain}</title>"
+                    f"<style>body{{font-family:Arial;display:flex;align-items:center;justify-content:center;"
+                    f"height:100vh;margin:0;background:#f5f5f5}}h1{{color:#333}}</style></head>"
+                    f"<body><h1>{domain}</h1></body></html>"
+                )
 
-            logger.info(f"Static site {domain}: {files_written} files written to {site_dir}")
+            upload_resp = _get_panel_client().upload_static_site_files(
+                alias=alias, files=files, website_dir=site_dir
+            )
+            if upload_resp.get("code") not in (200, 207):
+                logger.warning(f"File upload issue: {upload_resp.get('message', '')}")
 
-            update_site_fields(site_id, {"status": "active", "static_dir": site_dir})
+            # Step 3: Reload OpenResty
+            update_bg_task(task_id, status="deploying", message="正在重载OpenResty...")
+            reload_resp = _get_panel_client().reload_openresty()
+            if reload_resp.get("code") != 200:
+                logger.warning(f"OpenResty reload issue: {reload_resp.get('message', '')}")
+
+            # Success
+            update_site_fields(site_id, {
+                "status": "active",
+                "static_dir": site_dir,
+                "panel_website_id": website_id,
+            })
             update_bg_task(task_id, status="completed",
-                          message=f"站点 {domain} 部署完成 ({files_written} 个文件)")
+                          message=f"站点 {domain} 部署完成")
 
         except Exception as e:
             logger.error(f"Static deployment failed for {domain}: {traceback.format_exc()}")

@@ -508,6 +508,79 @@ class OnePanelClient:
         """Read file content via 1Panel file API."""
         return self._request("POST", "/files/read", {"path": path, "page": page, "pageSize": page_size})
 
+    def create_static_website(self, domain, alias, website_group_id=1):
+        """Create a static website in 1Panel (no app deployment, just directory + nginx).
+
+        Returns siteDir path on success (e.g. /opt/1panel/apps/openresty/openresty/www/sites/{alias}/index).
+        """
+        import uuid
+        task_id = str(uuid.uuid4())
+        body = {
+            "primaryDomain": domain,
+            "type": "static",
+            "alias": alias,
+            "appType": "new",
+            "webSiteGroupId": website_group_id,
+            "otherDomains": "",
+            "proxy": "",
+            "appinstall": {
+                "appId": 0,
+                "name": "",
+                "appDetailId": 0,
+                "params": {},
+                "version": "",
+                "appkey": "",
+                "advanced": False,
+                "cpuQuota": 0,
+                "memoryLimit": 0,
+                "memoryUnit": "MB",
+                "containerName": "",
+                "allowPort": False,
+                "format": "utf8mb4",
+                "collation": "",
+            },
+            "IPV6": False,
+            "enableFtp": False,
+            "ftpUser": "",
+            "ftpPassword": "",
+            "proxyType": "tcp",
+            "port": 80,
+            "proxyProtocol": "",
+            "proxyAddress": "",
+            "runtimeType": "",
+            "taskID": task_id,
+            "createDb": False,
+            "dbName": "",
+            "dbPassword": "",
+            "dbFormat": "utf8mb4",
+            "dbUser": "",
+            "dbType": "mysql",
+            "dbHost": "",
+            "enableSSL": False,
+            "domains": [{"domain": domain, "host": domain, "port": 80, "ssl": False}],
+            "siteDir": "",
+            "streamPorts": "",
+            "udp": False,
+            "name": "",
+            "algorithm": "",
+            "servers": [],
+        }
+        resp = self._request("POST", "/websites", body)
+        if resp.get("code") == 200:
+            # Find the created website to get its siteDir
+            ws = self.search_websites(name=domain)
+            if ws.get("code") == 200:
+                items = (ws.get("data") or {}).get("items") or []
+                for w in items:
+                    if w.get("primaryDomain") == domain or w.get("alias") == alias:
+                        resp["data"] = {
+                            "website_id": w.get("id"),
+                            "site_dir": w.get("siteDir", ""),
+                            "alias": w.get("alias", alias),
+                        }
+                        break
+        return resp
+
     def reload_openresty(self):
         """Reload OpenResty to apply new nginx configurations."""
         or_resp = self.search_installed_apps(name="openresty")
@@ -700,16 +773,22 @@ class OnePanelClient:
         """Upload static HTML/CSS/image files to the 1Panel site directory.
 
         Args:
-            alias: Site alias
+            alias: Site alias (ignored if website_dir is a full path)
             files: dict of {relative_path: content} e.g. {"index.html": "<html>...", "assets/style.css": "..."}
-            website_dir: Base directory for website files
+            website_dir: Base directory. If it contains '/index', use as-is.
+                         Otherwise defaults to /opt/1panel/www/sites/{alias}/index
 
         Returns:
             dict with code, message, and uploaded file list
         """
         errors = []
         uploaded = []
-        index_dir = f"{website_dir}/sites/{alias}/index"
+
+        # Determine index directory
+        if "/index" in website_dir or "sites/" in website_dir:
+            index_dir = website_dir.rstrip("/")
+        else:
+            index_dir = f"{website_dir}/sites/{alias}/index"
 
         for rel_path, content in files.items():
             full_path = f"{index_dir}/{rel_path}"
