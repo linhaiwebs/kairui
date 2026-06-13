@@ -15,7 +15,20 @@ class OnePanelClient:
         self.api_key = api_key
 
     def _get_config(self):
-        cfg = current_app.config
+        # If host/port/api_key were explicitly passed, use them directly
+        # (supports background threads without Flask app context)
+        if self.host and self.port and self.api_key:
+            return (self.host, self.port, self.api_key)
+        # Fallback to Flask config
+        try:
+            cfg = current_app.config
+        except RuntimeError:
+            # No Flask app context (background thread) — use what we have
+            return (
+                self.host or "167.172.142.95",
+                self.port or 3500,
+                self.api_key or "",
+            )
         return (
             self.host or cfg.get("PANEL_HOST", "167.172.142.95"),
             self.port or cfg.get("PANEL_PORT", 3500),

@@ -3152,7 +3152,7 @@ def register_routes(app):
                         try:
                             from cloudflare_client import CloudflareClient
                             cf_client = CloudflareClient(cf_api_token)
-                            zone = cf_client.find_zone_by_domain(domain)
+                            zone = cf_client.find_zone_by_name(domain)
                             if not zone:
                                 zone = cf_client.create_zone(domain)
                             zone_id = zone.get("id") if isinstance(zone, dict) else None
