@@ -515,6 +515,8 @@ def _migrate_add_columns(conn):
             conn.execute("ALTER TABLE brand_kits ADD COLUMN html_site TEXT DEFAULT '{}'")
         if "static_style" not in bk_cols:
             conn.execute("ALTER TABLE brand_kits ADD COLUMN static_style TEXT DEFAULT '{}'")
+        if "design_system" not in bk_cols:
+            conn.execute("ALTER TABLE brand_kits ADD COLUMN design_system TEXT DEFAULT '{}'")
     except Exception:
         pass
 
@@ -2417,7 +2419,7 @@ def _deserialize_brand_kit(d: dict) -> dict:
     json_array_fields = {"colors", "html_site"}
     for field in ("colors", "typography", "woo_config", "footer_config",
                   "business_info", "tax_config", "shipping_config",
-                  "html_site", "static_style"):
+                  "html_site", "static_style", "design_system"):
         if field in json_array_fields:
             default, empty = "[]", []
         elif field == "html_site":
@@ -2453,10 +2455,10 @@ def create_brand_kit(data: dict) -> dict:
                 colors, typography, directory, png_256, png_512, png_1024,
                 ico, webp, og_image, brand_md, status, error_message,
                 woo_config, footer_config, business_info, tax_config, shipping_config,
-                html_site, static_style,
+                html_site, static_style, design_system,
                 created_by, cloakbrowser_profile_name, proxy, proxy_id,
                 google_account_id, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("name", ""),
                 data.get("brand_name", ""),
@@ -2483,6 +2485,7 @@ def create_brand_kit(data: dict) -> dict:
                 json.dumps(data.get("shipping_config", {})),
                 json.dumps(data.get("html_site", {})),
                 json.dumps(data.get("static_style", {})),
+                json.dumps(data.get("design_system", {})),
                 data.get("created_by"),
                 data.get("cloakbrowser_profile_name"),
                 proxy_url,
@@ -2608,7 +2611,7 @@ def update_brand_kit(kit_id: int, data: dict) -> dict | None:
             "status", "error_message",
             "woo_config", "footer_config",
             "business_info", "tax_config", "shipping_config",
-            "html_site", "static_style",
+            "html_site", "static_style", "design_system",
             "cloakbrowser_profile_name", "proxy", "proxy_id",
             "google_account_id",
         ]
@@ -2616,7 +2619,7 @@ def update_brand_kit(kit_id: int, data: dict) -> dict | None:
         vals = []
         json_fields = ("colors", "typography", "woo_config", "footer_config",
                         "business_info", "tax_config", "shipping_config",
-                        "html_site", "static_style")
+                        "html_site", "static_style", "design_system")
         for key in updatable:
             if key in data:
                 sets.append(f"{key} = ?")
