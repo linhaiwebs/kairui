@@ -1517,6 +1517,9 @@ pipelineStatuses[siteId].demo_importing = false;
         // Pipeline status polling when on sites page
         let pipelinePollTimer = null;
         watch(currentPage, (page) => {
+            if (page === 'woocommerce-products') {
+                loadWooProducts();
+            }
             if (page === 'sites') {
                 pipelinePollTimer = setInterval(() => {
                     sites.value.forEach(s => {
