@@ -803,8 +803,14 @@ class OnePanelClient:
         errors = []
         uploaded = []
 
-        # Determine index directory
-        if "/index" in website_dir or "sites/" in website_dir:
+        # Determine index directory — convert to full 1Panel server path
+        if website_dir.startswith("/www/"):
+            # Relative path from container: /www/sites/domain/index
+            index_dir = f"/opt/1panel/apps/openresty/openresty{website_dir}".rstrip("/")
+        elif website_dir.startswith("/opt/"):
+            # Already a full 1Panel path
+            index_dir = website_dir.rstrip("/")
+        elif "/index" in website_dir or "sites/" in website_dir:
             index_dir = website_dir.rstrip("/")
         else:
             index_dir = f"{website_dir}/sites/{alias}/index"
