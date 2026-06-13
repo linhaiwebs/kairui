@@ -213,23 +213,28 @@ def _esc(s):
     return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#39;")
 
 
+_INLINE_CSS = ""
+_INLINE_JS = ""
+
 def _head(title, extra=""):
-    """Return standard HTML5 <head> with Tailwind-like utility CSS and store JS."""
+    """Return standard HTML5 <head> with inline CSS from global cache."""
+    style_tag = f"<style>{_INLINE_CSS}</style>" if _INLINE_CSS else ""
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{_esc(title)}</title>
-<link rel="stylesheet" href="/assets/style.css">
+{style_tag}
 {extra}
 </head>
 <body>"""
 
 
 def _foot():
-    """Standard closing tags + store.js reference."""
-    return '<script src="/assets/store.js"></script>\n</body>\n</html>'
+    """Standard closing tags + inline JS from global cache."""
+    script_tag = f"<script>{_INLINE_JS}</script>" if _INLINE_JS else ""
+    return f'{script_tag}\n</body>\n</html>'
 
 
 # ---------------------------------------------------------------------------
@@ -2317,22 +2322,12 @@ def render_site(domain, brand_kit, products, site_dir=None):
     design = _load_design(brand_kit)
     files_written = 0
 
-    # 1. CSS
-    css = build_css(design, brand_kit)
-    css_path = os.path.join(assets_dir, "style.css")
-    with open(css_path, "w", encoding="utf-8") as f:
-        f.write(css)
-    files_written += 1
-    logger.info(f"Written: {css_path}")
+    # Set inline CSS/JS globals (inline into every page, no external assets)
+    global _INLINE_CSS, _INLINE_JS
+    _INLINE_CSS = build_css(design, brand_kit)
+    _INLINE_JS = STORE_JS
 
-    # 2. JS
-    js_path = os.path.join(assets_dir, "store.js")
-    with open(js_path, "w", encoding="utf-8") as f:
-        f.write(STORE_JS)
-    files_written += 1
-    logger.info(f"Written: {js_path}")
-
-    # 3. Homepage
+    # 1. Homepage
     index_html = render_homepage(products, design, brand_kit)
     index_path = os.path.join(site_dir, "index.html")
     with open(index_path, "w", encoding="utf-8") as f:
