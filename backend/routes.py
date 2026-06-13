@@ -7818,9 +7818,7 @@ Respond with strict JSON only (no markdown code blocks):
                 detail = _fetch_amazon_product_detail(crawlbase_keys, url)
                 # Build product dict compatible with search results format
                 extra = detail.get("extra_data") or {}
-                price_str = detail.get("price") or extra.get("originalPrice") or ""
-                if not price_str:
-                    return {"ok": False, "idx": idx, "error": "no_price"}
+                price_str = detail.get("price") or extra.get("originalPrice") or "0.00"
                 product = {
                     "product_name": detail.get("title", ""),
                     "price": detail.get("price", ""),
@@ -8190,9 +8188,9 @@ Respond with strict JSON only (no markdown code blocks):
                     extra["attributes"] = attributes
                     extra["variations"] = variations_list
 
-                # Price validation: simple products must have a price; variable products need at least one priced variant
+                # Price validation: simple products use 0.00 if price missing
                 if product_type == "simple" and not regular_price:
-                    return {"ok": False, "idx": idx, "title": name[:60], "error": "no_price"}
+                    regular_price = "0.00"
                 if product_type == "variable" and variations_list:
                     priced_count = sum(1 for v in variations_list if v.get("regular_price"))
                     if priced_count == 0:
