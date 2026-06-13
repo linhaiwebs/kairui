@@ -1701,7 +1701,6 @@ async def auto_verify_google_site(
 
     _emit("info", "=" * 50)
     _emit("info", f"AutoVerify 开始 — site={site_domain} profile={os.path.basename(profile_dir)}")
-    _emit("info", f"参数: headless={headless} timeout={timeout_ms/1000}s test_only={test_only} proxy={'YES' if proxy else 'NO'}")
 
     try:
         from cloakbrowser import launch_persistent_context_async
@@ -1716,6 +1715,7 @@ async def auto_verify_google_site(
     _emit("info", "正在加载 profile 配置...", "config")
     config = load_profile_config(profile_dir) or {}
     proxy = (config.get("proxy", "") or "").replace("socks5h://", "socks5://")
+    _emit("info", f"参数: headless={headless} timeout={timeout_ms/1000}s test_only={test_only} proxy={'YES' if proxy else 'NO'}")
     tz = config.get("timezone", "America/Chicago")
     locale = config.get("locale", "en-US")
     fingerprint_args = _build_launch_args(config)
@@ -2100,7 +2100,6 @@ async def gmc_recon(
 
     _emit("info", "=" * 50)
     _emit("info", f"GMC 侦查模式 — profile={os.path.basename(profile_dir)}")
-    _emit("info", f"参数: headless={headless} timeout={timeout_ms/1000}s 代理={'OK' if proxy else 'NO'}")
 
     try:
         from cloakbrowser import launch_persistent_context_async
@@ -2112,6 +2111,7 @@ async def gmc_recon(
 
     config = load_profile_config(profile_dir) or {}
     proxy = (config.get("proxy", "") or "").replace("socks5h://", "socks5://")
+    _emit("info", f"参数: headless={headless} timeout={timeout_ms/1000}s 代理={'OK' if proxy else 'NO'}")
     tz = config.get("timezone", "America/Chicago")
     locale = config.get("locale", "en-US")
     fingerprint_args = _build_launch_args(config)
