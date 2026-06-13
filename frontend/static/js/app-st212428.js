@@ -2571,12 +2571,12 @@ pipelineStatuses[siteId].demo_importing = false;
                             port = hostPort.substring(hpColon + 1);
                         }
                     } else {
-                        // Format 2: a:b:c:d (4 colon-separated parts)
+                        // Format 2: host:port:user:pass_profile-params
                         const parts = name.split(':');
-                        if (parts.length === 4) {
+                        if (parts.length >= 4) {
                             // Check if 2nd part looks like a port (numeric, 2-5 digits)
                             if (/^\d{2,5}$/.test(parts[1])) {
-                                // host:port:user:pass
+                                // host:port:user:pass_PROFILE_PARAMS
                                 host = parts[0]; port = parts[1]; user = parts[2]; pass = parts[3];
                             } else {
                                 // user:pass:host:port
@@ -2585,17 +2585,35 @@ pipelineStatuses[siteId].demo_importing = false;
                         }
                     }
 
-                    if (host && port && user && pass) {
-                        proxy = 'socks5://' + encodeURIComponent(user) + ':' + encodeURIComponent(pass) + '@' + host + ':' + port;
-                        // Collect for batch proxy import: IP:PORT:USER:PASS
-                        proxyLines.push(host + ':' + port + ':' + user + ':' + pass);
+                    // Extract profile params from password (format: PASS_country-XX_session-XXX_lifetime-XXh...)
+                    let profileName = name;  // fallback: sanitized full string
+                    let purePass = pass;
+                    if (pass && pass.includes('_country-')) {
+                        const underscoreIdx = pass.indexOf('_country-');
+                        purePass = pass.substring(0, underscoreIdx);
+                        profileName = pass.substring(underscoreIdx + 1);  // country-us_session-xxx_lifetime-72h...
+                        // Extract country from profile name
+                        const countryMatch = profileName.match(/country-([a-z]{2})/i);
+                        if (countryMatch) {
+                            country = countryMatch[1].toUpperCase();
+                        }
+                    } else if (pass && pass.includes('_session-')) {
+                        const underscoreIdx = pass.indexOf('_session-');
+                        purePass = pass.substring(0, underscoreIdx);
+                        profileName = pass.substring(underscoreIdx + 1);
                     }
 
-                    const resp = await API.createCloakbrowserProfile(name, '', proxy, country, null);
+                    if (host && port && user && purePass) {
+                        proxy = 'socks5://' + encodeURIComponent(user) + ':' + encodeURIComponent(purePass) + '@' + host + ':' + port;
+                        // Collect for batch proxy import: IP:PORT:USER:PASS (pure password)
+                        proxyLines.push(host + ':' + port + ':' + user + ':' + purePass);
+                    }
+
+                    const resp = await API.createCloakbrowserProfile(profileName, '', proxy, country, null);
                     if (resp.code === 200 || resp.code === 409) {
                         if (resp.code === 200) created++;
                         else skipped++;
-                        const sanitizedName = name.replace(/[^a-zA-Z0-9\-_]/g, '-');
+                        const sanitizedName = profileName.replace(/[^a-zA-Z0-9\-_]/g, '-');
                         await API.setProfileCategory(sanitizedName, activeFingerprintCategory.value);
                     }
                 } catch (e) {
