@@ -4056,56 +4056,49 @@ async function loadProfileCategories() {
                         <table class="w-full text-sm">
                             <thead class="bg-surface-container-low text-left text-xs text-on-surface-variant uppercase border-b">
                                 <tr>
-                                    <th class="px-4 py-3 w-10"></th>
-                                    <th class="px-4 py-3 min-w-[200px] max-w-[300px]">产品名称</th>
-                                    <th class="px-4 py-3 w-24">SKU</th>
-                                    <th class="px-4 py-3 w-24">价格</th>
-                                    <th class="px-4 py-3 w-20">库存</th>
-                                    <th class="px-4 py-3 w-28">分类</th>
-                                    <th class="px-4 py-3 w-16">图片</th>
+                                    <th class="px-3 py-2 w-8"></th>
+                                    <th class="px-3 py-2 w-[140px] max-w-[180px]">产品名称</th>
+                                    <th class="px-3 py-2 w-20">价格</th>
+                                    <th class="px-3 py-2 w-16">库存</th>
+                                    <th class="px-3 py-2 w-20">分类</th>
+                                    <th class="px-3 py-2 w-12">图</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y">
                                 <tr v-for="(p, idx) in wooProducts" :key="p.id"
                                     :class="['hover:bg-surface-container-low transition cursor-pointer', wooSelectedIndices.has(idx) ? 'bg-blue-50' : '']"
                                     @click="toggleWooSelect(idx)">
-                                    <td class="px-4 py-3">
+                                    <td class="px-3 py-2">
                                         <input type="checkbox" :checked="wooSelectedIndices.has(idx)" class="accent-blue-500 pointer-events-none">
                                     </td>
-                                    <td class="px-4 py-3 max-w-[300px]">
+                                    <td class="px-3 py-2 max-w-[180px]">
                                         <a v-if="p.source_url" :href="p.source_url" target="_blank" @click.stop
-                                            class="font-semibold text-on-surface hover:text-primary transition line-clamp-1 block" :title="p.name">
-                                            {{ (p.name || '').slice(0, 20) }}{{ (p.name || '').length > 20 ? '...' : '' }}
+                                            class="font-medium text-on-surface hover:text-primary transition line-clamp-1 block text-xs" :title="p.name">
+                                            {{ (p.name || '').slice(0, 18) }}{{ (p.name || '').length > 18 ? '..' : '' }}
                                         </a>
-                                        <span v-else class="font-semibold text-on-surface line-clamp-1 block" :title="p.name">{{ (p.name || '').slice(0, 20) }}{{ (p.name || '').length > 20 ? '...' : '' }}</span>
-                                        <div class="text-xs text-on-surface-variant mt-0.5 line-clamp-1" :title="p.short_description">{{ (p.short_description || '').slice(0, 20) }}{{ (p.short_description || '').length > 20 ? '...' : '' }}</div>
+                                        <span v-else class="font-medium text-on-surface line-clamp-1 block text-xs" :title="p.name">{{ (p.name || '').slice(0, 18) }}{{ (p.name || '').length > 18 ? '..' : '' }}</span>
                                     </td>
-                                    <td class="px-4 py-3 font-mono text-xs text-on-surface-variant">{{ p.sku || '-' }}</td>
-                                    <td class="px-4 py-3">
-                                        <p class="font-bold text-[#146c2e]" v-if="p.regular_price">{{ p.regular_price }}</p>
+                                    <td class="px-3 py-2">
+                                        <p class="font-bold text-[#146c2e] text-xs" v-if="p.regular_price">{{ p.regular_price }}</p>
                                         <p v-else class="text-on-surface-variant text-xs">-</p>
-                                        <p v-if="p.sale_price" class="text-xs text-error line-through">{{ p.sale_price }}</p>
                                     </td>
-                                    <td class="px-4 py-3">
-                                        <span :class="['px-2 py-0.5 rounded-full text-xs font-medium',
+                                    <td class="px-3 py-2">
+                                        <span :class="['px-1.5 py-0.5 rounded-full text-[10px] font-medium',
                                             p.stock_status === 'instock' ? 'bg-[#146c2e]/10 text-[#146c2e]' :
                                             p.stock_status === 'outofstock' ? 'bg-error-container text-error' :
                                             'bg-yellow-100 text-yellow-700']">
                                             {{ p.stock_status === 'instock' ? '有货' : p.stock_status === 'outofstock' ? '缺货' : '预售' }}
                                         </span>
                                     </td>
-                                    <td class="px-4 py-3 text-xs text-on-surface-variant">
-                                        <span v-if="p.categories" class="line-clamp-2" :title="p.categories">{{ p.categories }}</span>
+                                    <td class="px-3 py-2 text-[10px] text-on-surface-variant">
+                                        <span v-if="p.categories" class="line-clamp-1" :title="p.categories">{{ (p.categories || '').slice(0, 12) }}{{ (p.categories || '').length > 12 ? '..' : '' }}</span>
                                         <span v-else>-</span>
-                                        <span v-if="p.tags" class="block text-on-surface-variant text-[10px] mt-0.5">{{ p.tags }}</span>
                                     </td>
-                                    <td class="px-4 py-3">
-                                        <div v-if="p.images" class="flex gap-1">
-                                            <img v-for="(img, i) in p.images.split('|').slice(0, 3)" :key="i" :src="img"
-                                                class="w-8 h-8 rounded border object-cover" :alt="p.name">
-                                            <span v-if="p.images.split('|').length > 3" class="text-xs text-on-surface-variant self-center">+{{ p.images.split('|').length - 3 }}</span>
+                                    <td class="px-3 py-2">
+                                        <div v-if="p.images" class="w-6 h-6 rounded border object-cover overflow-hidden">
+                                            <img :src="p.images.split('|')[0]" class="w-full h-full object-cover" :alt="p.name">
                                         </div>
-                                        <span v-else class="text-on-surface-variant text-xs">-</span>
+                                        <span v-else class="text-on-surface-variant text-[10px]">-</span>
                                     </td>
                                 </tr>
                             </tbody>
