@@ -3174,7 +3174,7 @@ def register_routes(app):
                             if zone_id:
                                 # For root domain, name=domain; for subdomain, name=domain (full FQDN)
                                 # DNS target = 1Panel environment IP (always use panel env)
-                                target_ip = "163.123.236.110"
+                                target_ip = (panel_env.get("host", "") if panel_env else "") or panel_server_ip
                                 dns = cf_client.create_dns_record(
                                     zone_id=zone_id,
                                     record_type="A",
