@@ -2405,9 +2405,12 @@ def register_routes(app):
 
             nginx_alias = site.get("nginx_alias", "")
 
-            # Static site: delete 1Panel website + site directory
+            # Static site: delete 1Panel website + directory
             if site.get("site_type") == "static":
                 pid = site.get("panel_website_id")
+                alias = nginx_alias or site.get("url", "").replace(".", "-")
+
+                # Try deleting via website ID if we have it
                 if pid:
                     try:
                         _get_panel_client().delete_website(
@@ -2416,16 +2419,31 @@ def register_routes(app):
                         )
                         logger.info(f"Deleted 1Panel static website {pid}")
                     except Exception as e:
-                        logger.warning(f"Failed to delete 1Panel website: {e}")
+                        logger.warning(f"Failed to delete 1Panel website by id: {e}")
 
-                # Also clean up site directory via file API
-                if nginx_alias:
-                    site_path = f"/opt/1panel/apps/openresty/openresty/www/sites/{nginx_alias}"
-                    try:
-                        _get_panel_client().delete_file(site_path)
-                        logger.info(f"Deleted static site dir: {site_path}")
-                    except Exception as e:
-                        logger.warning(f"Failed to delete site dir: {e}")
+                # Also search 1Panel by domain/alias and delete any matching websites
+                try:
+                    ws = _get_panel_client().search_websites(name=site.get("url", alias))
+                    if ws.get("code") == 200:
+                        items = (ws.get("data") or {}).get("items") or []
+                        for w in items:
+                            if w.get("alias") == alias or w.get("primaryDomain") == site.get("url"):
+                                if not pid or w.get("id") != pid:
+                                    _get_panel_client().delete_website(
+                                        w.get("id"), delete_app=False, delete_backup=True,
+                                        force_delete=True, delete_db=False,
+                                    )
+                                    logger.info(f"Deleted orphaned 1Panel website {w.get('id')}")
+                except Exception as e:
+                    logger.warning(f"Failed to search/clean 1Panel websites: {e}")
+
+                # Clean up site directory via file API
+                site_path = f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}"
+                try:
+                    _get_panel_client().delete_file(site_path)
+                    logger.info(f"Deleted static site dir: {site_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete site dir: {e}")
 
             # WordPress site (legacy)
             elif site.get("panel_website_id"):
@@ -3102,7 +3120,18 @@ body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;b
             if reload_resp.get("code") != 200:
                 logger.warning(f"OpenResty reload issue: {reload_resp.get('message', '')}")
 
-            # Success
+            # Success — also try to get website_id if not already set
+            if not website_id:
+                try:
+                    ws = _get_panel_client().search_websites(name=domain)
+                    if ws.get("code") == 200:
+                        for w in (ws.get("data") or {}).get("items", []):
+                            if w.get("alias") == alias or w.get("primaryDomain") == domain:
+                                website_id = w.get("id")
+                                break
+                except Exception:
+                    pass
+
             update_site_fields(site_id, {
                 "status": "active",
                 "static_dir": site_dir,
