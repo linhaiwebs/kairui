@@ -3141,11 +3141,25 @@ def register_routes(app):
                         try:
                             from cloudflare_client import CloudflareClient
                             cf_client = CloudflareClient(cf_api_token)
+                            # Resolve zone: try domain itself, then parent domain
                             zone = cf_client.find_zone_by_name(domain)
+                            zone_name = domain
                             if not zone:
-                                zone = cf_client.create_zone(domain)
+                                # Extract parent domain for subdomains
+                                parts = domain.rstrip(".").split(".")
+                                if len(parts) > 2:
+                                    parent = ".".join(parts[-2:])  # e.g. lhwebs.com
+                                    zone = cf_client.find_zone_by_name(parent)
+                                    if zone:
+                                        zone_name = parent
+                                # If still no zone, create one for the root domain
+                                if not zone:
+                                    root = ".".join(parts[-2:]) if len(parts) >= 2 else domain
+                                    zone = cf_client.create_zone(root)
+                                    zone_name = root
                             zone_id = zone.get("id") if isinstance(zone, dict) else None
                             if zone_id:
+                                # For root domain, name=domain; for subdomain, name=domain (full FQDN)
                                 dns = cf_client.create_dns_record(
                                     zone_id=zone_id,
                                     record_type="A",
