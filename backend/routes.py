@@ -3046,14 +3046,8 @@ def register_routes(app):
                         except Exception as e:
                             logger.warning(f"Cloudflare DNS for {domain} failed: {e}")
 
-                # Spawn background deployment thread
-                task_id = str(uuid.uuid4())
-                create_bg_task({
-                    "task_id": task_id, "site_id": site_id,
-                    "task_type": "deploy_static", "status": "queued",
-                    "message": "排队等待部署...",
-                    "created_by": user_id,
-                })
+                # Initialize bg task
+                bg_task_id = create_bg_task(site_id, "deploy_static", status="queued", message="排队等待部署...")
 
                 panel_host = panel_env.get("host") if panel_env else ""
                 panel_port = panel_env.get("port", 3500) if panel_env else 3500
@@ -3061,7 +3055,7 @@ def register_routes(app):
 
                 thread = Thread(
                     target=_bg_deploy_static,
-                    args=(task_id, site_id, alias_sanitized, domain),
+                    args=(bg_task_id, site_id, alias_sanitized, domain),
                     kwargs={
                         "brand_kit": brand_kit,
                         "panel_host": panel_host,
@@ -3075,7 +3069,7 @@ def register_routes(app):
                 results.append({
                     "site_id": site_id,
                     "domain": domain,
-                    "task_id": task_id,
+                    "task_id": str(bg_task_id),
                     "cf_result": cf_result,
                     "status": "deploying",
                 })
