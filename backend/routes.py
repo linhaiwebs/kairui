@@ -2401,13 +2401,11 @@ def register_routes(app):
     def remove_site(site_id):
         """Delete a site and all associated server resources.
 
-        Cleanup order (all site types):
-        1. Delete 1Panel app install (WordPress Docker container, etc.) — first,
-           because deleting the website with delete_app=True may cascade-delete
-           the app before we get a chance to clean up volumes properly.
-        2. Delete 1Panel website (reverse proxy entry + nginx config).
-        3. Delete manual nginx proxy config & site directory via delete_nginx_proxy_config.
-        4. For static sites: delete OpenResty site files + local temp directory.
+        1. WordPress: delete app install (Docker container).
+        2. Delete 1Panel website — 1Panel's /websites/del with ForceDelete=true
+           automatically removes the website entry AND the site directory.
+        3. WordPress: delete manual nginx proxy config (not managed by 1Panel).
+        4. Static: delete local temp files.
         5. Delete DB record.
         """
         try:
@@ -2416,10 +2414,10 @@ def register_routes(app):
                 return jsonify({"code": 404, "message": "站点不存在"}), 404
 
             domain = site.get("url", "")
-            alias = site.get("nginx_alias", domain.replace(".", "-"))
+            alias = site.get("nginx_alias", "")
             cleanup_errors = []
 
-            # ---- Step 1: Delete 1Panel app install (Docker container, etc.) ----
+            # ---- Step 1: Delete app install (WordPress Docker container) ----
             if site.get("panel_app_install_id"):
                 try:
                     _get_panel_client().operate_installed(
@@ -2432,31 +2430,26 @@ def register_routes(app):
                     logger.warning(msg)
                     cleanup_errors.append(msg)
 
-            # ---- Step 2: Delete 1Panel website (reverse proxy entry) ----
+            # ---- Step 2: Delete 1Panel website by domain ----
+            # 1Panel's /websites/del with ForceDelete=true removes:
+            #   - Website entry from 1Panel DB
+            #   - Nginx config file
+            #   - Site directory (/opt/1panel/apps/openresty/openresty/www/sites/{alias}/)
             pid = site.get("panel_website_id")
             if not pid and domain:
-                # Search by alias first — 1Panel's internal website name is the alias,
-                # NOT the domain. Searching by domain (with dots) won't match the alias
-                # (with hyphens), causing delete_website() to be silently skipped.
-                search_terms = []
-                if alias:
-                    search_terms.append(alias)
-                if domain and domain != alias:
-                    search_terms.append(domain)
-                for term in search_terms:
-                    try:
-                        ws = _get_panel_client().search_websites(name=term)
-                        if ws.get("code") == 200:
-                            for w in (ws.get("data") or {}).get("items", []) or []:
-                                if w.get("primaryDomain") == domain or w.get("alias") == alias:
-                                    pid = w.get("id")
-                                    break
-                        if pid:
-                            break
-                    except Exception as e:
-                        logger.warning(f"Search website by '{term}' failed: {e}")
+                # Search by domain name (primaryDomain in 1Panel)
+                try:
+                    ws = _get_panel_client().search_websites(name=domain)
+                    if ws.get("code") == 200:
+                        for w in (ws.get("data") or {}).get("items", []) or []:
+                            if w.get("primaryDomain") == domain:
+                                pid = w.get("id")
+                                logger.info(f"Found 1Panel website id={pid} for domain={domain}")
+                                break
+                except Exception as e:
+                    logger.warning(f"Search website by domain failed: {e}")
                 if not pid:
-                    logger.warning(f"Could not find 1Panel website for domain={domain} alias={alias}")
+                    logger.warning(f"Could not find 1Panel website for domain={domain}")
 
             if pid:
                 try:
@@ -2464,70 +2457,28 @@ def register_routes(app):
                         pid,
                         delete_app=False,  # app already deleted in step 1
                         delete_backup=True,
-                        force_delete=True,
+                        force_delete=True,  # ForceDelete removes site directory too
                         delete_db=False,
                     )
-                    logger.info(f"Deleted 1Panel website {pid}")
+                    logger.info(f"Deleted 1Panel website {pid} (directory auto-removed by 1Panel)")
                 except Exception as e:
                     msg = f"网站删除失败: {str(e)[:80]}"
                     logger.warning(msg)
                     cleanup_errors.append(msg)
 
-            # ---- Step 3: Clean up manual nginx proxy config & site directory ----
-            # WordPress sites have a manually-created nginx proxy config at
-            # /opt/1panel/www/conf.d/{alias}.conf and directory at
-            # /opt/1panel/www/sites/{alias}/ that are NOT managed by 1Panel's
-            # website API and therefore not removed by delete_website().
-            if alias:
+            # ---- Step 3: WordPress manual nginx proxy config cleanup ----
+            # WordPress sites have an extra nginx proxy config at /opt/1panel/www/
+            # that is NOT managed by 1Panel's website API. Only applies to WP sites.
+            if site.get("site_type") != "static" and alias:
                 try:
                     result = _get_panel_client().delete_nginx_proxy_config(alias, domain)
                     if result.get("code") == 200:
                         logger.info(f"Cleaned up nginx proxy config for {alias}")
-                    elif result.get("code") == 207:
-                        logger.warning(f"Partial nginx cleanup for {alias}: {result.get('message', '')}")
                 except Exception as e:
-                    msg = f"nginx配置清理失败: {str(e)[:80]}"
-                    logger.warning(msg)
-                    cleanup_errors.append(msg)
+                    logger.warning(f"nginx配置清理失败: {e}")
 
-            # ---- Step 4: Static site extra cleanup ----
+            # ---- Step 4: Static site local temp cleanup ----
             if site.get("site_type") == "static":
-                # 4a. Delete OpenResty site files from 1Panel
-                # Try multiple path strategies since static_dir may be full or relative:
-                #   - After deployment:  /opt/1panel/apps/openresty/openresty/www/sites/{alias}/index
-                #   - Initial insert:     /www/sites/{alias}/index
-                static_dir = site.get("static_dir", "")
-                paths_to_try = set()
-
-                # Strategy 1: alias-based path (hyphens, e.g. maxc-lhwebs-com)
-                paths_to_try.add(f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}")
-                # Strategy 2: domain-based path (dots, e.g. maxc.lhwebs.com)
-                # 1Panel may use the domain name for the site directory, not the alias
-                if domain and domain != alias:
-                    paths_to_try.add(f"/opt/1panel/apps/openresty/openresty/www/sites/{domain}")
-
-                if static_dir:
-                    clean = static_dir.rstrip("/")
-                    # Strip trailing "/index" to delete the whole site dir
-                    if clean.endswith("/index"):
-                        clean = clean[:-6]
-                    # Handle full vs relative paths
-                    if clean.startswith("/opt/"):
-                        paths_to_try.add(clean)
-                    elif clean.startswith("/www/"):
-                        paths_to_try.add(f"/opt/1panel/apps/openresty/openresty{clean}")
-
-                for p in paths_to_try:
-                    try:
-                        result = _get_panel_client().delete_file(p)
-                        if result.get("code") in (200, 500):
-                            logger.info(f"Deleted static site dir on 1Panel: {p}")
-                        else:
-                            logger.warning(f"Failed to delete static site dir {p}: {result.get('message', '')}")
-                    except Exception as e:
-                        logger.warning(f"Failed to delete static site dir {p}: {e}")
-
-                # 4b. Delete local temp files
                 local_dir = f"/app/backend/static-sites/{domain}"
                 try:
                     import shutil
@@ -3201,9 +3152,9 @@ def register_routes(app):
                 if not domain:
                     continue
 
-                # Use domain directly as alias so 1Panel creates directory with domain name
-                # e.g. maxc.lhwebs.com → .../sites/maxc.lhwebs.com/index  (not maxc-lhwebs-com)
-                alias = re.sub(r"[^a-zA-Z0-9\-\.]", "", domain)
+                # 1Panel accepts dots in alias, use domain directly
+                # sitePath will be .../sites/maxc.lhwebs.com (not maxc-lhwebs-com)
+                alias = domain
 
                 # Create site record
                 site_data = {
