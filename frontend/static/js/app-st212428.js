@@ -76,7 +76,7 @@ const app = createApp({
         const feedStats = ref(null);
         const feedStatsLoading = ref(false);
 
-        // WooCommerce Sales Stats page
+        // 网站产品 Sales Stats page
         const wooStats = ref(null);
         const wooStatsLoading = ref(false);
         const wooStatsPeriod = ref('month');
@@ -127,7 +127,7 @@ const app = createApp({
         const showFeedDescModal = ref(false);
         const feedDescContent = ref('');
 
-        // WooCommerce products page state
+        // 网站产品 products page state
         const wooProducts = ref([]);
         const wooSelectedIndices = ref(new Set());
         const wooConverting = ref(false);
@@ -192,7 +192,7 @@ const app = createApp({
             if (demoModal.category === 'all') return demoModal.demos;
             return demoModal.demos.filter(d => (d.categories || []).includes(demoModal.category));
         });
-        // Unified Brand Config (merged AI + WooCommerce + Logo + Footer)
+        // Unified Brand Config (merged AI + 网站产品 + Logo + Footer)
         const brandConfigBrandName = ref('');
         const brandConfigRunning = ref(false);
         const brandConfigError = ref('');
@@ -203,7 +203,7 @@ const app = createApp({
             { label: '上传站点图标', status: 'pending', message: '' },
             { label: '注册及角色设置', status: 'pending', message: '' },
             { label: '时区设置', status: 'pending', message: '' },
-            { label: '保存 WooCommerce 配置', status: 'pending', message: '' },
+            { label: '保存 网站产品 配置', status: 'pending', message: '' },
             { label: '上传品牌 Logo', status: 'pending', message: '' },
             { label: '设置站点 Logo', status: 'pending', message: '' },
             { label: '保存页脚信息', status: 'pending', message: '' },
@@ -232,7 +232,7 @@ const app = createApp({
         const aiConfigSteps = ref([]);
         const aiConfigKey = ref('');
 
-        // Simplified WooCommerce form
+        // Simplified 网站产品 form
         const wooConfigForm = reactive({
             address: '', city: '', country_state: '', postcode: '', allowed_countries: ''
         });
@@ -695,7 +695,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 const params = { period: wooStatsPeriod.value };
                 if (wooStatsDateMin.value) params.date_min = wooStatsDateMin.value;
                 if (wooStatsDateMax.value) params.date_max = wooStatsDateMax.value;
-                const resp = await API.getWooCommerceStats(params);
+                const resp = await API.get网站产品Stats(params);
                 if (resp.code === 200) {
                     wooStats.value = resp.data;
                 }
@@ -1147,8 +1147,8 @@ pipelineStatuses[siteId].demo_importing = false;
             return parts.join('');
         }
 
-        // ---- WooCommerce Products ----
-        async function convertToWooCommerce() {
+        // ---- 网站产品 Products ----
+        async function convertTo网站产品() {
             if (!amazonSelectedIndices.value.size) {
                 showToast('请先选择要转换的产品', 'error');
                 return;
@@ -1199,7 +1199,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 convertLogProgress.value = `转换完成！${msg.ok} 成功 / ${msg.fail} 失败`;
                                 if (msg.ok > 0) {
                                     await loadWooProducts();
-                                    showToast(`转换完成: ${msg.ok} 件 WooCommerce 产品`, 'success');
+                                    showToast(`转换完成: ${msg.ok} 件 网站产品 产品`, 'success');
                                     amazonSelectedIndices.value = new Set();
                                 } else {
                                     showToast('转换失败，所有产品均未能获取', 'error');
@@ -1216,7 +1216,7 @@ pipelineStatuses[siteId].demo_importing = false;
         }
         async function loadWooProducts() {
             try {
-                const resp = await API.getWooCommerceProducts();
+                const resp = await API.get网站产品Products();
                 if (resp.code === 200) wooProducts.value = resp.data || [];
             } catch (e) { /* ignore */ }
         }
@@ -1245,9 +1245,9 @@ pipelineStatuses[siteId].demo_importing = false;
                 showToast('没有有效的产品', 'error');
                 return;
             }
-            if (!confirm(`确定删除选中的 ${selectedIds.length} 件 WooCommerce 产品？`)) return;
+            if (!confirm(`确定删除选中的 ${selectedIds.length} 件 网站产品 产品？`)) return;
             try {
-                const resp = await API.deleteWooCommerceProducts(selectedIds);
+                const resp = await API.delete网站产品Products(selectedIds);
                 if (resp.code === 200) {
                     const idSet = new Set(selectedIds);
                     wooProducts.value = wooProducts.value.filter(p => !idSet.has(p.id));
@@ -1261,7 +1261,7 @@ pipelineStatuses[siteId].demo_importing = false;
             }
         }
 
-        // ---- Site Sync (Feed + WooCommerce) ----
+        // ---- Site Sync (Feed + 网站产品) ----
         const feedUrl = ref({});  // keyed by site_id
         async function createFeedForSite() {
             if (!feedSyncSiteId.value) { showToast('请先选择目标站点', 'error'); return; }
@@ -1310,7 +1310,7 @@ pipelineStatuses[siteId].demo_importing = false;
             try {
                 const resp = await API.syncWooToSite(wooSyncSiteId.value);
                 if (resp.code === 200) {
-                    showToast(`WooCommerce 同步完成！${resp.data.ok} 成功 / ${resp.data.fail} 失败`, resp.data.fail ? 'error' : 'success');
+                    showToast(`网站产品 同步完成！${resp.data.ok} 成功 / ${resp.data.fail} 失败`, resp.data.fail ? 'error' : 'success');
                 } else {
                     showToast(resp.message || '同步失败', 'error');
                 }
@@ -1321,7 +1321,7 @@ pipelineStatuses[siteId].demo_importing = false;
         }
         async function cleanWooFromSite() {
             if (!wooSyncSiteId.value) { showToast('请先选择目标站点', 'error'); return; }
-            if (!confirm('确定从该站点删除所有 WooCommerce 产品？此操作不可撤销。')) return;
+            if (!confirm('确定从该站点删除所有 网站产品 产品？此操作不可撤销。')) return;
             syncingWoo.value = true;
             try {
                 const resp = await API.cleanWooFromSite(wooSyncSiteId.value);
@@ -1758,7 +1758,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 brandConfigBrandName.value = kit.brand_name;
             }
         }
-        // Unified brand config (AI + WooCommerce + Logo + Footer)
+        // Unified brand config (AI + 网站产品 + Logo + Footer)
         async function startBrandConfig() {
             if (!postInstallSite.value || !brandConfigBrandName.value.trim()) return;
             brandConfigRunning.value = true;
@@ -2758,7 +2758,7 @@ async function loadProfileCategories() {
             closeConvertLogModal, toggleFeedSelect, selectAllFeed, deleteSelectedFeedItems, showFeedDescription, buildFeedDetailText,
             wooProducts, wooSelectedIndices, wooConverting, wooConvertProgress,
             feedSyncSiteId, wooSyncSiteId, syncingFeed, syncingWoo,
-            convertToWooCommerce, loadWooProducts, toggleWooSelect, selectAllWoo, deleteSelectedWooProducts,
+            convertTo网站产品, loadWooProducts, toggleWooSelect, selectAllWoo, deleteSelectedWooProducts,
             createFeedForSite, cleanFeedFromSite, syncWooToSite, cleanWooFromSite, generateFeedFromWoo, wooGeneratingFeed, feedUrl,
             cfConnected, cfToken, cfAccounts, cfSelectedAccountId,
             deepseekApiKeys, deepseekVisibleKeys, deepseekKeyErrors, deepseekConnected, deepseekVerify,
@@ -2925,7 +2925,7 @@ async function loadProfileCategories() {
                     <span class="material-symbols-outlined">inventory_2</span> 产品来源
                 </a>
                 <a @click="currentPage = 'woocommerce-products'" :class="['sidebar-link', currentPage === 'woocommerce-products' ? 'active' : '']">
-                    <span class="material-symbols-outlined">shopping_cart</span> WooCommerce
+                    <span class="material-symbols-outlined">shopping_cart</span> 网站产品
                 </a>
                 <a @click="currentPage = 'shai-pin-feed'" :class="['sidebar-link', currentPage === 'shai-pin-feed' ? 'active' : '']">
                     <span class="material-symbols-outlined">rss_feed</span> 数据源生成
@@ -2999,12 +2999,12 @@ async function loadProfileCategories() {
                 <div class="page-breadcrumb" v-if="currentPage !== 'dashboard'">
                     <span>凯瑞投流</span>
                     <span class="material-symbols-outlined" style="font-size:16px">chevron_right</span>
-                    <span class="current">{{ currentPage === 'sites' ? '站点概览' : currentPage === 'brand-kits' ? '品牌套件' : currentPage === 'brand-kits-detail' ? '品牌套件详情' : currentPage === 'shai-pin-dashboard' ? '筛品' : currentPage === 'shai-pin-source' ? '产品来源' : currentPage === 'shai-pin-feed' ? '数据源生成' : currentPage === 'woocommerce-products' ? 'WooCommerce' : currentPage === 'woo-stats' ? '销售统计' : currentPage === 'mc-automation' ? 'Google MC' : currentPage === 'users' ? '用户管理' : '系统设置' }}</span>
+                    <span class="current">{{ currentPage === 'sites' ? '站点概览' : currentPage === 'brand-kits' ? '品牌套件' : currentPage === 'brand-kits-detail' ? '品牌套件详情' : currentPage === 'shai-pin-dashboard' ? '筛品' : currentPage === 'shai-pin-source' ? '产品来源' : currentPage === 'shai-pin-feed' ? '数据源生成' : currentPage === 'woocommerce-products' ? '网站产品' : currentPage === 'woo-stats' ? '销售统计' : currentPage === 'mc-automation' ? 'Google MC' : currentPage === 'users' ? '用户管理' : '系统设置' }}</span>
                 </div>
 
 <!-- Main Content -->
         <div class="mb-lg">
-                <h1 class="page-title">{{ currentPage === 'dashboard' ? '概览' : currentPage === 'sites' ? '站点概览' : currentPage === 'brand-kits' ? '品牌套件' : currentPage === 'brand-kits-detail' ? '品牌套件详情' : currentPage === 'shai-pin-dashboard' ? '筛品' : currentPage === 'shai-pin-source' ? '产品来源' : currentPage === 'shai-pin-feed' ? '数据源生成' : currentPage === 'woocommerce-products' ? 'WooCommerce' : currentPage === 'woo-stats' ? '销售统计' : currentPage === 'mc-automation' ? 'Google MC' : currentPage === 'users' ? '用户管理' : '系统设置' }}</h1>
+                <h1 class="page-title">{{ currentPage === 'dashboard' ? '概览' : currentPage === 'sites' ? '站点概览' : currentPage === 'brand-kits' ? '品牌套件' : currentPage === 'brand-kits-detail' ? '品牌套件详情' : currentPage === 'shai-pin-dashboard' ? '筛品' : currentPage === 'shai-pin-source' ? '产品来源' : currentPage === 'shai-pin-feed' ? '数据源生成' : currentPage === 'woocommerce-products' ? '网站产品' : currentPage === 'woo-stats' ? '销售统计' : currentPage === 'mc-automation' ? 'Google MC' : currentPage === 'users' ? '用户管理' : '系统设置' }}</h1>
                 <p class="font-body-md text-on-surface-variant mt-xs"><span :class="panelConnected ? 'text-[#146c2e]' : 'text-error'"><span class="material-symbols-outlined text-[10px] mr-1">circle</span>{{ panelConnected ? '1Panel 已连接' : '1Panel 未连接' }}</span></p>
                 <div class="flex gap-sm mt-md">
                     <button v-if="currentPage === 'settings'" @click="exportSystemData" class="flex items-center gap-sm px-md py-sm bg-primary-container text-on-primary rounded-lg hover:bg-primary transition-colors font-label-md text-label-md shadow-level-1" title="导出所有配置和数据"><span class="material-symbols-outlined text-[18px]">download</span>导出配置</button>
@@ -3031,7 +3031,7 @@ async function loadProfileCategories() {
                 </div>
             </div>
 
-            <!-- WooCommerce Stats -->
+            <!-- 网站产品 Stats -->
             <div v-if="currentPage === 'woo-stats'" class="fade-in">
                 <div v-if="wooStatsLoading" class="flex items-center justify-center py-20">
                     <span class="spinner w-4 h-4 inline-block"></span>
@@ -3095,7 +3095,7 @@ async function loadProfileCategories() {
                                     <td class="text-right px-4 py-3 text-on-surface">{{ '$' + formatMoney(s.average_sales) }}</td>
                                     <td class="text-center px-4 py-3">
                                         <span v-if="s.status === 'ok'" class="text-xs bg-[#146c2e]/10 text-[#146c2e] px-2 py-0.5 rounded-full">正常</span>
-                                        <span v-else-if="s.status === 'no_woocommerce'" class="text-xs bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-full">无WooCommerce</span>
+                                        <span v-else-if="s.status === 'no_woocommerce'" class="text-xs bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-full">无网站产品</span>
                                         <span v-else-if="s.status === 'no_data'" class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">无数据</span>
                                         <span v-else class="text-xs bg-error-container text-error px-2 py-0.5 rounded-full">无法连接</span>
                                     </td>
@@ -3117,7 +3117,7 @@ async function loadProfileCategories() {
                 <div v-else class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center text-on-surface-variant">
                     <i class="fas fa-chart-bar text-5xl mb-4"></i>
                     <p class="text-lg font-medium text-on-surface-variant mb-2">暂无销售数据</p>
-                    <p>请先创建站点并安装 WooCommerce</p>
+                    <p>请先创建站点并安装 网站产品</p>
                 </div>
             </div>
 
@@ -3727,9 +3727,9 @@ async function loadProfileCategories() {
                                     <input type="checkbox" :checked="amazonSelectedIndices.size === amazonSearchResults.length" @change="selectAllAmazon" class="accent-red-500">
                                     全选
                                 </label>
-                                <button @click="convertToWooCommerce" :disabled="!amazonSelectedIndices.size || amazonSearchLoading || wooConverting"
+                                <button @click="convertTo网站产品" :disabled="!amazonSelectedIndices.size || amazonSearchLoading || wooConverting"
                                     class="px-4 py-1.5 bg-primary-container text-on-primary rounded text-xs font-medium hover:bg-primary disabled:opacity-50 transition">
-                                    <i class="fas fa-shopping-cart mr-1"></i>生成 Woo 产品 ({{ amazonSelectedIndices.size }})
+                                    <i class="fas fa-shopping-cart mr-1"></i>生成 网站产品 ({{ amazonSelectedIndices.size }})
                                 </button>
                                 <button @click="deleteSelectedAmazonProducts" :disabled="!amazonSelectedIndices.size || amazonSearchLoading"
                                     class="px-4 py-1.5 bg-error text-on-primary rounded text-xs font-medium hover:bg-error disabled:opacity-50 transition">
@@ -3883,7 +3883,7 @@ async function loadProfileCategories() {
                     </div>
                     <h3 class="text-lg font-semibold text-on-surface mb-2">Feed 生成</h3>
                     <p class="text-on-surface-variant mb-1">暂无生成数据</p>
-                    <p class="text-xs text-on-surface-variant">从 Woo产品页面点击「生成 Feed」或在商品来源导入产品后在此创建</p>
+                    <p class="text-xs text-on-surface-variant">从 网站产品页面点击「生成 Feed」或在商品来源导入产品后在此创建</p>
                 </div>
 
                 <!-- Feed product table -->
@@ -3995,11 +3995,11 @@ async function loadProfileCategories() {
                 </div>
             </div>
 
-            <!-- WooCommerce 产品 -->
+            <!-- 网站产品 产品 -->
             <div v-if="currentPage === 'woocommerce-products'" class="fade-in">
                 <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
                     <h3 class="font-semibold text-on-surface">
-                        <i class="fas fa-shopping-cart mr-2 text-primary"></i>WooCommerce 产品
+                        <i class="fas fa-shopping-cart mr-2 text-primary"></i>网站产品 产品
                         <span v-if="wooProducts.length" class="text-sm text-on-surface-variant ml-2">({{ wooProducts.length }} 件商品)</span>
                     </h3>
                     <div class="flex items-center gap-3">
@@ -4029,12 +4029,12 @@ async function loadProfileCategories() {
                     <div class="w-20 h-20 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                         <i class="fas fa-shopping-cart text-primary text-3xl"></i>
                     </div>
-                    <h3 class="text-lg font-semibold text-on-surface mb-2">WooCommerce 产品</h3>
-                    <p class="text-on-surface-variant mb-1">暂无 WooCommerce 产品</p>
-                    <p class="text-xs text-on-surface-variant">在商品来源页面使用「爆品导入」搜索产品后点击「生成 Woo 产品」</p>
+                    <h3 class="text-lg font-semibold text-on-surface mb-2">网站产品 产品</h3>
+                    <p class="text-on-surface-variant mb-1">暂无 网站产品 产品</p>
+                    <p class="text-xs text-on-surface-variant">在商品来源页面使用「爆品导入」搜索产品后点击「生成 网站产品」</p>
                 </div>
 
-                <!-- WooCommerce product table -->
+                <!-- 网站产品 product table -->
                 <div v-else class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                     <div class="px-6 py-3 bg-surface-container-low border-b flex items-center justify-between text-xs text-on-surface-variant">
                         <span>共 {{ wooProducts.length }} 件产品</span>
@@ -4760,10 +4760,10 @@ async function loadProfileCategories() {
                     </div>
                 </div>
 
-                <!-- Tab 2: Store Brand (WooCommerce) -->
+                <!-- Tab 2: Store Brand (网站产品) -->
                 <div v-if="brandKitDetailTab === 'store'" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
-                    <h3 class="font-semibold text-on-surface mb-4"><i class="fas fa-store mr-2 text-primary"></i>WooCommerce 商店配置</h3>
-                    <p class="text-xs text-on-surface-variant mb-4">此配置将在应用品牌套件时自动保存到WooCommerce商店</p>
+                    <h3 class="font-semibold text-on-surface mb-4"><i class="fas fa-store mr-2 text-primary"></i>网站产品 商店配置</h3>
+                    <p class="text-xs text-on-surface-variant mb-4">此配置将在应用品牌套件时自动保存到网站产品商店</p>
                     <div class="space-y-3">
                         <div>
                             <label class="block text-xs font-medium text-on-surface-variant mb-1">地址</label>
@@ -4827,7 +4827,7 @@ async function loadProfileCategories() {
                     <!-- Tax config -->
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
                         <h3 class="font-semibold text-on-surface mb-4"><i class="fas fa-percent mr-2 text-[#146c2e]"></i>税费配置</h3>
-                        <p class="text-xs text-on-surface-variant mb-4">此配置将在应用品牌套件时自动配置到WooCommerce</p>
+                        <p class="text-xs text-on-surface-variant mb-4">此配置将在应用品牌套件时自动配置到网站产品</p>
                         <div class="space-y-3">
                             <div class="flex items-center gap-3">
                                 <label class="flex items-center gap-2 cursor-pointer">
@@ -5031,7 +5031,7 @@ async function loadProfileCategories() {
                             <option :value="null">— 不使用品牌套件 —</option>
                             <option v-for="k in brandKitsForWizard" :key="k.id" :value="k.id">{{ k.name }}{{ k.brand_name ? ' (' + k.brand_name + ')' : '' }}<span v-if="k.industry"> · {{ k.industry }}</span></option>
                         </select>
-                        <p class="text-xs text-on-surface-variant mt-1">选择后将自动使用套件的品牌名、WooCommerce和页脚配置</p>
+                        <p class="text-xs text-on-surface-variant mt-1">选择后将自动使用套件的品牌名、网站产品和页脚配置</p>
                         <!-- Display associated profile when fingerprint is enabled -->
                         <div v-if="fingerprintEnabled && wizardBrandKitId" class="mt-2 bg-blue-50 border border-primary-container/20 rounded-lg p-3">
                             <div class="flex items-center justify-between">

@@ -2934,6 +2934,112 @@ def register_routes(app):
             logger.error(f"Panel operate website failed: {e}")
             return jsonify({"code": 502, "message": f"1Panel连接失败: {str(e)[:80]}"}), 502
 
+    def _sync_feed_to_static_site(site, products):
+        """Upload feed XML to 1Panel static site directory."""
+        import xml.etree.ElementTree as ET
+        import json as _j
+
+        domain = site["url"]
+        ns_g = "http://base.google.com/ns/1.0"
+        rss = ET.Element("rss", {"version": "2.0", "xmlns:g": ns_g})
+        channel = ET.SubElement(rss, "channel")
+        ET.SubElement(channel, "title").text = site.get("site_name") or domain
+        ET.SubElement(channel, "link").text = f"https://{domain}"
+        ET.SubElement(channel, "description").text = "Google Shopping Product Feed"
+
+        for p in products:
+            item = ET.SubElement(channel, "item")
+            ET.SubElement(item, "g:id").text = str(p.get("id", ""))
+            ET.SubElement(item, "g:title").text = (p.get("title") or "")[:150]
+            ET.SubElement(item, "g:description").text = (p.get("description") or "")[:5000]
+            ET.SubElement(item, "g:link").text = p.get("source_url") or f"https://{domain}"
+
+            images = p.get("images") or []
+            if isinstance(images, str):
+                try: images = _j.loads(images)
+                except Exception: images = [images] if images else []
+            if isinstance(images, list) and images:
+                ET.SubElement(item, "g:image_link").text = str(images[0])
+                for img in images[1:11]:
+                    ET.SubElement(item, "g:additional_image_link").text = str(img)
+
+            price = (p.get("price") or "").replace("$", "").replace(",", "").strip()
+            if price:
+                ET.SubElement(item, "g:price").text = f"{price} {p.get('currency', 'USD')}"
+            ET.SubElement(item, "g:availability").text = "in_stock"
+            ET.SubElement(item, "g:condition").text = "new"
+            if p.get("brand"):
+                ET.SubElement(item, "g:brand").text = str(p["brand"])[:70]
+
+        xml_str = '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(rss, encoding="unicode")
+        size_bytes = len(xml_str.encode("utf-8"))
+
+        # Upload to 1Panel
+        nginx_alias = site.get("nginx_alias", "")
+        site_dir = site.get("static_dir", "")
+        env = get_user_panel_environment(site.get("created_by") or 1)
+        if env and nginx_alias:
+            pc = OnePanelClient(host=env["host"], port=env["port"], api_key=env["api_key"])
+            pc.upload_static_site_files(alias=nginx_alias, files={"feed.xml": xml_str}, website_dir=site_dir)
+            pc.reload_openresty()
+
+        feed_url = f"https://{domain}/feed.xml"
+        update_site(site["id"], {"google_feed_url": feed_url})
+        return jsonify({
+            "code": 200,
+            "data": {"feed_url": feed_url, "products": len(products), "size_bytes": size_bytes},
+        })
+
+    def _regenerate_static_site_html(task_id_or_none, site_id):
+        """Regenerate static site HTML with current products, upload to 1Panel."""
+        site = get_site(site_id)
+        if not site or site.get("site_type") != "static":
+            return
+
+        nginx_alias = site.get("nginx_alias", "")
+        site_dir = site.get("static_dir", "")
+        if not site_dir or not nginx_alias:
+            return
+
+        products = list_static_site_products(site_id)
+        brand_kit_id = site.get("brand_kit_id")
+        brand_kit = get_brand_kit(brand_kit_id) if brand_kit_id else None
+        domain = site.get("url", "")
+
+        # Get panel client from site's environment
+        env = get_user_panel_environment(site.get("created_by") or 1)
+        if not env:
+            logger.warning(f"No panel env for site {site_id}, skip regenerate")
+            return
+        pc = OnePanelClient(host=env["host"], port=env["port"], api_key=env["api_key"])
+
+        # Generate pages from brand kit (or fallback)
+        files = _generate_brand_pages(domain, brand_kit)
+
+        # Inject product cards into index.html if products exist
+        if products:
+            product_cards = ""
+            for p in products:
+                price = f"${p.get('price', 0):.2f}"
+                title = p.get("title", "Product")
+                image = p.get("image_url", "")
+                img_tag = f'<img src="{image}" alt="{title}">' if image else '<div style="height:240px;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8">No Image</div>'
+                product_cards += f"""<div class="product-card">{img_tag}<div class="product-info"><h3>{title}</h3><p class="price">{price}</p></div></div>"""
+
+            index = files.get("index.html", "")
+            # Replace placeholder text with real product grid
+            if "Products coming soon" in index:
+                index = index.replace(
+                    '<p style="text-align:center;color:#999;padding:40px">Products coming soon. Check back later!</p>',
+                    product_cards,
+                )
+            files["index.html"] = index
+
+        # Upload files
+        pc.upload_static_site_files(alias=nginx_alias, files=files, website_dir=site_dir)
+        pc.reload_openresty()
+        logger.info(f"Regenerated static site {site_id} ({domain}) with {len(products)} products")
+
     def _generate_brand_pages(domain, brand_kit):
         """Generate static HTML pages from brand kit data.
 
@@ -8209,7 +8315,7 @@ Respond with strict JSON only (no markdown code blocks):
     @app.route("/api/shai-pin/feed/sync-to-site", methods=["POST"])
     @jwt_required()
     def feed_sync_to_site():
-        """Generate GMC feed XML from generated_feed products and upload to WordPress site."""
+        """Generate GMC feed XML and upload to site. Static: 1Panel file API. WP: WordPress API."""
         import xml.etree.ElementTree as ET
 
         data = request.get_json(silent=True) or {}
@@ -8225,8 +8331,12 @@ Respond with strict JSON only (no markdown code blocks):
         if not products:
             return jsonify({"code": 400, "message": "没有 Feed 产品可同步"}), 400
 
+        # For static sites: upload feed.xml directly to 1Panel site directory
+        if site.get("site_type") == "static":
+            return _sync_feed_to_static_site(site, products)
+
+        # WordPress site (legacy)
         try:
-            # Build RSS 2.0 + Google Shopping XML
             ns_g = "http://base.google.com/ns/1.0"
             rss = ET.Element("rss", {"version": "2.0", "xmlns:g": ns_g})
             channel = ET.SubElement(rss, "channel")
@@ -8381,7 +8491,7 @@ Respond with strict JSON only (no markdown code blocks):
     @app.route("/api/shai-pin/woocommerce/sync-to-site", methods=["POST"])
     @jwt_required()
     def woocommerce_sync_to_site():
-        """Push woocommerce_products to selected WordPress site's WooCommerce."""
+        """Push products to site. WordPress: via WP API. Static: import to DB + regenerate HTML."""
         data = request.get_json(silent=True) or {}
         site_id = data.get("site_id")
         if not site_id:
@@ -8393,8 +8503,22 @@ Respond with strict JSON only (no markdown code blocks):
 
         products = list_woocommerce_products()
         if not products:
-            return jsonify({"code": 400, "message": "没有 WooCommerce 产品可同步"}), 400
+            return jsonify({"code": 400, "message": "没有产品可同步"}), 400
 
+        # Static site: import to local DB + regenerate
+        if site.get("site_type") == "static":
+            count = import_products_to_site(site_id, products)
+            # Regenerate the site HTML
+            try:
+                _regenerate_static_site_html(None, site_id)
+            except Exception as re:
+                logger.warning(f"Regenerate after sync failed: {re}")
+            return jsonify({
+                "code": 200,
+                "data": {"ok": count, "fail": 0, "total": len(products)},
+            })
+
+        # WordPress site (legacy)
         try:
             wp = WordPressAdminSession(site["url"], site["admin_name"], site["admin_password"])
             result = wp.create_woocommerce_products(products)
@@ -8530,7 +8654,7 @@ Respond with strict JSON only (no markdown code blocks):
     @app.route("/api/shai-pin/woocommerce/sync-to-site", methods=["DELETE"])
     @jwt_required()
     def woocommerce_clean_from_site():
-        """Delete all WooCommerce products from selected WordPress site."""
+        """Delete all products from site. WordPress: via WP API. Static: delete from DB + regenerate."""
         data = request.get_json(silent=True) or {}
         site_id = data.get("site_id")
         if not site_id:
@@ -8540,6 +8664,22 @@ Respond with strict JSON only (no markdown code blocks):
         if not site:
             return jsonify({"code": 404, "message": "站点不存在"}), 404
 
+        # Static site: delete from local DB
+        if site.get("site_type") == "static":
+            conn = get_db()
+            try:
+                cur = conn.execute("DELETE FROM static_site_products WHERE site_id = ?", (site_id,))
+                deleted = cur.rowcount
+                conn.commit()
+            finally:
+                conn.close()
+            try:
+                _regenerate_static_site_html(None, site_id)
+            except Exception:
+                pass
+            return jsonify({"code": 200, "data": {"deleted": deleted, "failed": 0}})
+
+        # WordPress site (legacy)
         try:
             wp = WordPressAdminSession(site["url"], site["admin_name"], site["admin_password"])
             result = wp.delete_all_woocommerce_products()
