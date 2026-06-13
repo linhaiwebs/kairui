@@ -2187,6 +2187,34 @@ pipelineStatuses[siteId].demo_importing = false;
             } catch (e) { showToast('删除失败', 'error'); }
         }
 
+        const selectedProfileProxy = ref('');
+
+        function onProfileChange() {
+            const name = brandKitForm.cloakbrowser_profile_name;
+            if (!name) {
+                selectedProfileProxy.value = '';
+                brandKitForm.proxy = '';
+                brandKitForm.proxy_id = null;
+                return;
+            }
+            const profile = cloakbrowserProfiles.value.find(p => p.name === name);
+            if (profile && profile.proxy) {
+                selectedProfileProxy.value = profile.proxy;
+                brandKitForm.proxy = profile.proxy;
+                // Also try to find matching proxy in pool by URL
+                const match = availableProxies.value.find(p => p.proxy_url === profile.proxy);
+                if (match) {
+                    brandKitForm.proxy_id = match.id;
+                } else {
+                    brandKitForm.proxy_id = null;  // profile proxy not in pool, but still saved as proxy string
+                }
+            } else {
+                selectedProfileProxy.value = '';
+                brandKitForm.proxy = '';
+                brandKitForm.proxy_id = null;
+            }
+        }
+
         function openBrandKitModal(kit) {
             loadProxies();
             loadGoogleAccounts();
@@ -2194,19 +2222,21 @@ pipelineStatuses[siteId].demo_importing = false;
             if (kit) {
                 brandKitEditId.value = kit.id;
                 Object.assign(brandKitForm, { name: kit.name, industry: kit.industry, proxy: kit.proxy || '', proxy_id: kit.proxy_id || null, google_account_id: kit.google_account_id || null, cloakbrowser_profile_name: kit.cloakbrowser_profile_name || '' });
+                onProfileChange();  // restore proxy preview
             } else {
                 brandKitEditId.value = null;
                 Object.keys(brandKitForm).forEach(k => brandKitForm[k] = '');
                 brandKitForm.proxy_id = null;
                 brandKitForm.google_account_id = null;
                 brandKitForm.cloakbrowser_profile_name = '';
+                selectedProfileProxy.value = '';
             }
             showBrandKitModal.value = true;
         }
         function closeBrandKitModal() { showBrandKitModal.value = false; }
         async function handleSaveBrandKit() {
             if (!brandKitForm.name.trim()) { showToast('请输入套件名称', 'error'); return; }
-            if (!brandKitEditId.value && !brandKitForm.proxy_id) { showToast('请选择代理IP', 'error'); return; }
+            if (!brandKitEditId.value && !brandKitForm.proxy_id && !brandKitForm.cloakbrowser_profile_name) { showToast('请选择指纹环境（含代理）或手动指定代理', 'error'); return; }
             try {
                 let resp;
                 if (brandKitEditId.value) {
@@ -2758,6 +2788,7 @@ async function loadProfileCategories() {
             loadGoogleAccounts, handleImportGoogleAccounts, handleDeleteGoogleAccount,
             brandKitWooForm, brandKitFooterForm, brandKitTaxForm, brandKitShippingForm, brandKitConfigSaving,
             loadBrandKits, openBrandKitModal, closeBrandKitModal, handleSaveBrandKit,
+            selectedProfileProxy, onProfileChange,
             handleDeleteBrandKit, handleGenerateBrandKit, openBrandKitDetail,
             handleDownloadBrandKitFile, loadBrandKitConfigForms, saveBrandKitConfig,
             users, showUserModal, userEditId, userForm, userFormError,
@@ -5119,34 +5150,36 @@ async function loadProfileCategories() {
                             <option value="汽车配件">汽车配件</option>
                         </select>
                     </div>
+                    <!-- 指纹环境 (包含代理) — 从系统设置中同步 -->
                     <div>
-                        <label class="block text-sm font-medium text-on-surface mb-1">代理IP <span class="text-error">*</span></label>
-                        <select v-model="brandKitForm.proxy_id" class="w-full px-4 py-2 border rounded-lg focus:border-primary">
-                            <option :value="null" disabled>请选择代理IP</option>
-                            <option v-for="p in availableProxies" :key="p.id" :value="p.id" :disabled="p.occupied_kit_id && p.occupied_kit_id !== brandKitEditId" :style="{ color: p.occupied_kit_name ? '#dc2626' : '#10b981' }">[{{ p.occupied_kit_name ? '占用' : '可用' }}] {{ p.proxy_type === 'http' ? 'HTTP' : 'S5' }} {{ p.ip }} (端口{{ p.port }}){{ p.occupied_kit_name ? ' — ' + p.occupied_kit_name : '' }}</option>
-                            <option v-if="brandKitEditId && brandKitForm.proxy_id" :value="brandKitForm.proxy_id" selected hidden>{{ brandKitForm.proxy }}</option>
+                        <label class="block text-sm font-medium text-on-surface mb-1">指纹环境 <span class="text-xs text-on-surface-variant">(可选，含代理)</span></label>
+                        <select v-model="brandKitForm.cloakbrowser_profile_name" @change="onProfileChange" class="w-full px-4 py-2 border rounded-lg focus:border-primary">
+                            <option value="">自动创建新的指纹环境</option>
+                            <option v-for="p in cloakbrowserProfiles" :key="p.name" :value="p.name" :disabled="p.bound && p.bound_kit_id !== brandKitEditId">
+                                [{{ p.bound && p.bound_kit_id !== brandKitEditId ? '已绑定' : '可用' }}] {{ p.name }}
+                                <template v-if="p.proxy"> — {{ typeof p.proxy === 'string' ? p.proxy.substring(0, 50) : '' }}</template>
+                            </option>
                         </select>
-                        <p class="text-xs text-on-surface-variant mt-1">从代理池中选择，生成品牌套件时将自动配置指纹环境代理</p>
+                        <p class="text-xs text-on-surface-variant mt-1">
+                            指纹环境 = CloakBrowser 指纹 + 代理，从系统设置 → 指纹环境中导入
+                        </p>
+                        <!-- 选中的指纹环境代理预览 -->
+                        <div v-if="selectedProfileProxy" class="mt-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-xs text-green-800">
+                            <span class="font-medium">代理:</span> {{ selectedProfileProxy }}
+                        </div>
                     </div>
+
+                    <!-- Google 账户 — 从系统设置中同步 -->
                     <div>
                         <label class="block text-sm font-medium text-on-surface mb-1">Google 账户 <span class="text-xs text-on-surface-variant">(可选)</span></label>
                         <select v-model="brandKitForm.google_account_id" class="w-full px-4 py-2 border rounded-lg focus:border-primary">
                             <option :value="null">不使用 Google 账户</option>
-                            <option v-for="ga in availableGoogleAccounts" :key="ga.id" :value="ga.id" :disabled="ga.occupied_kit_id && ga.occupied_kit_id !== brandKitEditId" :style="{ color: ga.occupied_kit_name ? '#dc2626' : '#10b981' }">[{{ ga.occupied_kit_name ? '占用' : '可用' }}] {{ ga.email }} ({{ ga.country || '未知' }}){{ ga.occupied_kit_name ? ' — ' + ga.occupied_kit_name : '' }}</option>
-                            <option v-if="brandKitEditId && brandKitForm.google_account_id" :value="brandKitForm.google_account_id" selected hidden>已选择</option>
-                        </select>
-                        <p class="text-xs text-on-surface-variant mt-1">GMC 注册时将使用此账户自动登录 Google（支持 TOTP 2FA）</p>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-on-surface mb-1">指纹环境 <span class="text-xs text-on-surface-variant">(可选)</span></label>
-                        <select v-model="brandKitForm.cloakbrowser_profile_name" class="w-full px-4 py-2 border rounded-lg focus:border-primary">
-                            <option value="">自动创建新的指纹环境</option>
-                            <option v-for="p in cloakbrowserProfiles" :key="p.name" :value="p.name" :disabled="p.bound && p.bound !== brandKitEditId">
-                                {{ p.bound ? '[已绑定]' : '[可用]' }} {{ p.name }}
-                                <template v-if="p.config && p.config.proxy"> — {{ p.config.proxy.substring(0, 40) }}</template>
+                            <option v-for="ga in availableGoogleAccounts" :key="ga.id" :value="ga.id" :disabled="ga.occupied_kit_id && ga.occupied_kit_id !== brandKitEditId">
+                                [{{ ga.occupied_kit_name && ga.occupied_kit_id !== brandKitEditId ? '占用' : '可用' }}] {{ ga.email }} ({{ ga.country || '未知' }})
+                                {{ ga.occupied_kit_name && ga.occupied_kit_id !== brandKitEditId ? ' — ' + ga.occupied_kit_name : '' }}
                             </option>
                         </select>
-                        <p class="text-xs text-on-surface-variant mt-1">选择已有指纹环境，或留空自动创建新的（含随机指纹+代理配置）</p>
+                        <p class="text-xs text-on-surface-variant mt-1">GMC 注册时将使用此账户自动登录 Google（支持 TOTP 2FA）。从系统设置 → 谷歌账户池中导入</p>
                     </div>
                 </div>
                 <div class="p-6 border-t flex gap-3 justify-end">
