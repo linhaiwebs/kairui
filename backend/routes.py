@@ -8505,7 +8505,28 @@ Respond with strict JSON only (no markdown code blocks):
 
         # Static site: import to local DB + regenerate
         if site.get("site_type") == "static":
-            count = import_products_to_site(site_id, products)
+            import json as _j
+            mapped = []
+            for p in products:
+                images = p.get("images") or []
+                if isinstance(images, str):
+                    try: images = _j.loads(images)
+                    except Exception: images = [images] if images else []
+                mapped.append({
+                    "title": p.get("name", ""),
+                    "description": p.get("description", "") or p.get("short_description", ""),
+                    "price": float((p.get("regular_price") or "0").replace("$", "").replace(",", "").strip() or 0),
+                    "sale_price": float((p.get("sale_price") or "0").replace("$", "").replace(",", "").strip() or 0) if p.get("sale_price") else None,
+                    "currency": "USD",
+                    "image_url": images[0] if images else "",
+                    "additional_images": images[1:] if len(images) > 1 else [],
+                    "category": p.get("categories", ""),
+                    "brand": p.get("brand", ""),
+                    "sku": p.get("sku", ""),
+                    "mpn": p.get("item_id", ""),
+                    "product_url": p.get("source_url", ""),
+                })
+            count = import_products_to_site(site_id, mapped)
             # Regenerate the site HTML
             try:
                 _regenerate_static_site_html(None, site_id)
