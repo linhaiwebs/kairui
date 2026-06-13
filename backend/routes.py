@@ -3033,6 +3033,13 @@ def register_routes(app):
             site_dir_1panel = site_data.get("site_dir", f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index")
             logger.info(f"1Panel website created, dir={site_dir_1panel}")
 
+            # Delete 1Panel default files before uploading ours
+            for default_file in ["index.html", "404.html"]:
+                try:
+                    _get_pc().delete_file(f"{site_dir_1panel}/{default_file}")
+                except Exception:
+                    pass
+
             # Step 2: Generate store files locally, then upload to 1Panel
             from static_store_engine import render_site
             local_tmp = f"/tmp/static-deploy-{site_id}"
