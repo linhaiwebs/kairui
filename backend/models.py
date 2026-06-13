@@ -1115,17 +1115,28 @@ def update_site(site_id, data):
 def delete_site(site_id):
     conn = get_db()
     try:
-        # Also delete associated bg_tasks
+        # Release brand kit resources if site has one
+        site = conn.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
+        if site:
+            # Release Google account from brand kit
+            bk = conn.execute(
+                "SELECT * FROM brand_kits WHERE id = ?", (site["brand_kit_id"],)
+            ).fetchone() if site["brand_kit_id"] else None
+            if bk and bk["google_account_id"]:
+                conn.execute(
+                    "UPDATE google_accounts SET occupied_kit_id = NULL, occupied_kit_name = NULL WHERE id = ?",
+                    (bk["google_account_id"],),
+                )
+            if bk and bk["proxy_id"]:
+                conn.execute(
+                    "UPDATE proxies SET occupied_kit_id = NULL, occupied_kit_name = NULL WHERE id = ?",
+                    (bk["proxy_id"],),
+                )
+
+        # Delete associated records
+        conn.execute("DELETE FROM static_site_products WHERE site_id = ?", (site_id,))
         conn.execute("DELETE FROM bg_tasks WHERE site_id = ?", (site_id,))
         conn.execute("DELETE FROM sites WHERE id = ?", (site_id,))
-        conn.commit()
-        # Compact IDs and update cross-references
-        site_id_map = _compact_ids(conn, "sites")
-        # Update bg_tasks.site_id with new site IDs
-        if site_id_map:
-            for old_id, new_id in site_id_map.items():
-                conn.execute("UPDATE bg_tasks SET site_id = ? WHERE site_id = ?", (new_id, old_id))
-        _compact_ids(conn, "bg_tasks")
         conn.commit()
     finally:
         conn.close()
