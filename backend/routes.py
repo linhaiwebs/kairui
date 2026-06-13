@@ -9062,37 +9062,37 @@ Respond with strict JSON only (no markdown code blocks):
         import random
 
         _US_CITIES = [
-            # (city, state, state_code, postcode_prefix)
-            ("New York", "New York", "NY", "100"),
-            ("Los Angeles", "California", "CA", "900"),
-            ("Chicago", "Illinois", "IL", "606"),
-            ("Houston", "Texas", "TX", "770"),
-            ("Phoenix", "Arizona", "AZ", "850"),
-            ("Philadelphia", "Pennsylvania", "PA", "191"),
-            ("San Antonio", "Texas", "TX", "782"),
-            ("San Diego", "California", "CA", "921"),
-            ("Dallas", "Texas", "TX", "752"),
-            ("Austin", "Texas", "TX", "733"),
-            ("Portland", "Oregon", "OR", "972"),
-            ("Seattle", "Washington", "WA", "981"),
-            ("Denver", "Colorado", "CO", "802"),
-            ("Nashville", "Tennessee", "TN", "372"),
-            ("Atlanta", "Georgia", "GA", "303"),
-            ("Miami", "Florida", "FL", "331"),
-            ("Detroit", "Michigan", "MI", "482"),
-            ("Minneapolis", "Minnesota", "MN", "554"),
-            ("Tampa", "Florida", "FL", "336"),
-            ("Orlando", "Florida", "FL", "328"),
-            ("Charlotte", "North Carolina", "NC", "282"),
-            ("Raleigh", "North Carolina", "NC", "276"),
-            ("Indianapolis", "Indiana", "IN", "462"),
-            ("Columbus", "Ohio", "OH", "432"),
-            ("Las Vegas", "Nevada", "NV", "891"),
-            ("Salt Lake City", "Utah", "UT", "841"),
-            ("Boston", "Massachusetts", "MA", "021"),
-            ("St. Louis", "Missouri", "MO", "631"),
-            ("Pittsburgh", "Pennsylvania", "PA", "152"),
-            ("Kansas City", "Missouri", "MO", "641"),
+            # (city, state, state_code, zip_code, area_code)
+            ("New York", "New York", "NY", "10001", "212"),
+            ("Los Angeles", "California", "CA", "90001", "213"),
+            ("Chicago", "Illinois", "IL", "60601", "312"),
+            ("Houston", "Texas", "TX", "77001", "713"),
+            ("Phoenix", "Arizona", "AZ", "85001", "602"),
+            ("Philadelphia", "Pennsylvania", "PA", "19101", "215"),
+            ("San Antonio", "Texas", "TX", "78201", "210"),
+            ("San Diego", "California", "CA", "92101", "619"),
+            ("Dallas", "Texas", "TX", "75201", "214"),
+            ("Austin", "Texas", "TX", "73301", "512"),
+            ("Portland", "Oregon", "OR", "97201", "503"),
+            ("Seattle", "Washington", "WA", "98101", "206"),
+            ("Denver", "Colorado", "CO", "80201", "303"),
+            ("Nashville", "Tennessee", "TN", "37201", "615"),
+            ("Atlanta", "Georgia", "GA", "30301", "404"),
+            ("Miami", "Florida", "FL", "33101", "305"),
+            ("Detroit", "Michigan", "MI", "48201", "313"),
+            ("Minneapolis", "Minnesota", "MN", "55401", "612"),
+            ("Tampa", "Florida", "FL", "33601", "813"),
+            ("Orlando", "Florida", "FL", "32801", "407"),
+            ("Charlotte", "North Carolina", "NC", "28201", "704"),
+            ("Raleigh", "North Carolina", "NC", "27601", "919"),
+            ("Indianapolis", "Indiana", "IN", "46201", "317"),
+            ("Columbus", "Ohio", "OH", "43201", "614"),
+            ("Las Vegas", "Nevada", "NV", "89101", "702"),
+            ("Salt Lake City", "Utah", "UT", "84101", "801"),
+            ("Boston", "Massachusetts", "MA", "02101", "617"),
+            ("St. Louis", "Missouri", "MO", "63101", "314"),
+            ("Pittsburgh", "Pennsylvania", "PA", "15201", "412"),
+            ("Kansas City", "Missouri", "MO", "64101", "816"),
         ]
 
         _STREETS = [
@@ -9102,11 +9102,9 @@ Respond with strict JSON only (no markdown code blocks):
             "Lakeview Dr", "Sunset Blvd", "Valley Rd", "Forest Ave", "Springfield Dr",
         ]
 
-        city, state, state_code, zip_prefix = random.choice(_US_CITIES)
+        city, state, state_code, postcode, area_code = random.choice(_US_CITIES)
         street_num = random.randint(100, 9999)
         street = random.choice(_STREETS)
-        zip_suffix = str(random.randint(1000, 9999))
-        postcode = f"{zip_prefix}{random.randint(10, 99)}"
 
         # Generate company name from brand
         suffixes = ["LLC", "Inc.", "Corp.", "Ltd.", "Group"]
@@ -9115,15 +9113,8 @@ Respond with strict JSON only (no markdown code blocks):
         if not any(kw in name_lower for kw in ["llc", "inc", "ltd", "corp", "co.", "group", "store", "shop"]):
             company_name = f"{brand_name} {random.choice(suffixes)}"
 
-        # Phone: US format
-        area_code = random.choice(["212", "310", "312", "415", "512", "602", "713", "917", "646", "305", "206", "404", "615", "503"])
+        # Phone: matched to city's real area code
         phone = f"+1-{area_code}-{random.randint(200,999)}-{random.randint(1000,9999)}"
-
-        # Email
-        email_domain = brand_name.lower().replace(" ", "").replace("'", "").replace(".", "")
-        if len(email_domain) > 20:
-            email_domain = email_domain[:20]
-        email = f"contact@{email_domain}.com"
 
         return {
             "company_name": company_name,
@@ -9135,7 +9126,7 @@ Respond with strict JSON only (no markdown code blocks):
             "country": "US",
             "country_state": f"US:{state_code}",
             "phone": phone,
-            "email": email,
+            "email": "",  # filled from Google account later
         }
 
     @app.route("/api/brand-kits", methods=["GET"])
@@ -9376,6 +9367,12 @@ Respond with strict JSON only (no markdown code blocks):
 Brand name: {brand_name}
 {f"Industry: {industry}" if industry else ""}
 
+IMPORTANT requirements:
+- postcode: MUST be a REAL, valid 5-digit USPS ZIP code for the chosen city
+- phone: area code MUST match the city's real area code(s)
+- address: MUST be a real street address in that city
+- email: use "placeholder@placeholder.com" as placeholder
+
 Respond with strict JSON only (no markdown code blocks):
 {{
   "company_name": "Realistic company legal name",
@@ -9383,9 +9380,9 @@ Respond with strict JSON only (no markdown code blocks):
   "city": "City name",
   "state": "Full state name",
   "state_code": "Two-letter state code",
-  "postcode": "5-digit ZIP code",
-  "phone": "+1-XXX-XXX-XXXX formatted phone",
-  "email": "contact@brandname.com"
+  "postcode": "5-digit real ZIP code for this city",
+  "phone": "+1-NPA-NXX-XXXX (area code must match the city)",
+  "email": "placeholder@placeholder.com"
 }}"""
                         def _biz_call(key):
                             return http_requests.post(
@@ -9443,6 +9440,19 @@ Respond with strict JSON only (no markdown code blocks):
                             "zone_name": "Free Shipping",
                             "country": "US",
                         }
+                        # Override email from bound Google account
+                        google_email = ""
+                        try:
+                            ga_id = kit.get("google_account_id")
+                            if ga_id:
+                                ga = get_google_account(int(ga_id))
+                                if ga and ga.get("email"):
+                                    google_email = ga["email"]
+                                    biz_info["email"] = google_email
+                                    footer_config["email"] = google_email
+                                    logger.info(f"Brand kit {kit_id}: using Google email {google_email}")
+                        except Exception as e_ga:
+                            logger.warning(f"Brand kit {kit_id}: failed to get Google email: {e_ga}")
                         update_brand_kit(kit_id, {
                             "business_info": biz_info,
                             "woo_config": woo_config,
