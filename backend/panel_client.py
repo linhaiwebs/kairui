@@ -561,7 +561,7 @@ class OnePanelClient:
             "siteDir": "",
             "streamPorts": "",
             "udp": False,
-            "name": "",
+            "name": domain,  # must match domain for search_websites(name=...) to find it
             "algorithm": "",
             "servers": [],
         }
@@ -572,17 +572,30 @@ class OnePanelClient:
             resp["data"] = {"website_id": None, "site_dir": site_dir, "alias": alias}
 
             # Search by domain (primaryDomain) to get actual website_id and siteDir
+            # 1Panel's /websites/search filters by the "name" field, so we set name=domain above
             for attempt in range(3):
                 _time.sleep(1 if attempt == 0 else 2)
                 ws = self.search_websites(name=domain)
                 if ws.get("code") == 200:
-                    for w in (ws.get("data") or {}).get("items", []) or []:
+                    items = (ws.get("data") or {}).get("items", []) or []
+                    for w in items:
                         if w.get("primaryDomain") == domain:
                             resp["data"]["website_id"] = w.get("id")
-                            actual_dir = w.get("siteDir", "")
+                            # 1Panel returns sitePath (not siteDir) for static sites
+                            actual_dir = w.get("sitePath") or w.get("siteDir") or ""
                             if actual_dir:
                                 resp["data"]["site_dir"] = actual_dir
                             break
+                    if not resp["data"].get("website_id"):
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            f"create_static_website: search found {len(items)} items but none matched primaryDomain={domain}"
+                        )
+                elif ws.get("code") != 200:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        f"create_static_website: search attempt {attempt+1} returned code={ws.get('code')} msg={ws.get('message','')[:100]}"
+                    )
                 if resp["data"].get("website_id"):
                     break
         return resp
