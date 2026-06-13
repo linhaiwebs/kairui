@@ -2499,8 +2499,12 @@ def register_routes(app):
                 static_dir = site.get("static_dir", "")
                 paths_to_try = set()
 
-                # Strategy 1: alias-based path (most reliable, always correct for std installs)
+                # Strategy 1: alias-based path (hyphens, e.g. maxc-lhwebs-com)
                 paths_to_try.add(f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}")
+                # Strategy 2: domain-based path (dots, e.g. maxc.lhwebs.com)
+                # 1Panel may use the domain name for the site directory, not the alias
+                if domain and domain != alias:
+                    paths_to_try.add(f"/opt/1panel/apps/openresty/openresty/www/sites/{domain}")
 
                 if static_dir:
                     clean = static_dir.rstrip("/")
@@ -3197,8 +3201,9 @@ def register_routes(app):
                 if not domain:
                     continue
 
-                alias = domain.replace(".", "-").replace("_", "-")
-                alias_sanitized = re.sub(r"[^a-zA-Z0-9\-]", "", alias)
+                # Use domain directly as alias so 1Panel creates directory with domain name
+                # e.g. maxc.lhwebs.com → .../sites/maxc.lhwebs.com/index  (not maxc-lhwebs-com)
+                alias = re.sub(r"[^a-zA-Z0-9\-\.]", "", domain)
 
                 # Create site record
                 site_data = {
@@ -3210,9 +3215,9 @@ def register_routes(app):
                     "security_id": security_id,
                     "status": "deploying",
                     "site_type": "static",
-                    "static_dir": f"/www/sites/{alias_sanitized}/index",
+                    "static_dir": f"/www/sites/{alias}/index",
                     "brand_kit_id": brand_kit_id,
-                    "nginx_alias": alias_sanitized,
+                    "nginx_alias": alias,
                     "created_by": user_id,
                     "cloakbrowser_profile_name": brand_kit.get("cloakbrowser_profile_name") if brand_kit else None,
                 }
@@ -3274,7 +3279,7 @@ def register_routes(app):
 
                 thread = threading.Thread(
                     target=_bg_deploy_static,
-                    args=(bg_task_id, site_id, alias_sanitized, domain),
+                    args=(bg_task_id, site_id, alias, domain),
                     kwargs={
                         "brand_kit": brand_kit,
                         "panel_host": panel_host,

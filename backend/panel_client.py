@@ -567,7 +567,8 @@ class OnePanelClient:
         }
         resp = self._request("POST", "/websites", body)
         if resp.get("code") == 200:
-            # Site directory follows 1Panel's static site pattern
+            # Directory name follows 1Panel's alias — since alias is now the domain
+            # (e.g. "maxc.lhwebs.com"), this produces the correct domain-named directory.
             site_dir = f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index"
             resp["data"] = {"website_id": None, "site_dir": site_dir, "alias": alias}
 
