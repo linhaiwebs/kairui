@@ -9562,6 +9562,56 @@ Respond with strict JSON only (no markdown code blocks):
                             },
                         })
 
+                    # Step 2.5: AI generate design_system
+                    try:
+                        from static_store_engine import DEFAULT_DESIGN
+                        design_schema = json.dumps(DEFAULT_DESIGN, ensure_ascii=False)
+                        brand_name = kit.get("brand_name") or kit.get("name", "")
+                        industry = kit.get("industry", "")
+                        ds_prompt = f"""You are an e-commerce design expert. Output strict JSON only.
+
+Design a unique e-commerce storefront for brand "{brand_name}"
+in the "{industry}" industry.
+
+Primary color: {colors[0] if colors else '#1a1a2e'}
+Accent color: {colors[1] if len(colors) > 1 else '#667eea'}
+
+Output ONLY this JSON — different creative choices for each field:
+{design_schema}
+
+Make UNIQUE decisions — different hero type, card style, layout from typical defaults."""
+
+                        def _ds_call(key):
+                            return http_requests.post(
+                                "https://api.deepseek.com/v1/chat/completions",
+                                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                                json={
+                                    "model": "deepseek-chat",
+                                    "messages": [
+                                        {"role": "system", "content": "You are an e-commerce design expert. Output strict JSON only, no markdown."},
+                                        {"role": "user", "content": ds_prompt},
+                                    ],
+                                    "temperature": 0.9, "max_tokens": 1024,
+                                },
+                                timeout=45,
+                            )
+                        ds_resp = rotate_deepseek(_ds_call, deepseek_keys)
+                        design_system = DEFAULT_DESIGN
+                        if ds_resp.status_code == 200:
+                            ds_text = ds_resp.json()["choices"][0]["message"]["content"].strip()
+                            if "```" in ds_text:
+                                ds_text = re.sub(r'^```(?:json)?\s*\n?', '', ds_text)
+                                ds_text = re.sub(r'\n?```\s*$', '', ds_text)
+                            try:
+                                design_system = json.loads(ds_text)
+                            except json.JSONDecodeError:
+                                logger.warning("AI design_system parse failed, using default")
+                        update_brand_kit(kit_id, {"design_system": design_system})
+                        logger.info("design_system generated for brand kit %s", kit_id)
+                    except Exception as e:
+                        logger.warning("AI design_system generation failed, using default: %s", e)
+                        update_brand_kit(kit_id, {"design_system": DEFAULT_DESIGN})
+
                     # Step 3: Text to path (safety net for any remaining <text> elements)
                     steps[2]["status"] = "running"
                     steps[2]["message"] = "正在转换文字为路径..."
