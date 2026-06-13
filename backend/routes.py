@@ -3233,11 +3233,13 @@ body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;b
                             zone_id = zone.get("id") if isinstance(zone, dict) else None
                             if zone_id:
                                 # For root domain, name=domain; for subdomain, name=domain (full FQDN)
+                                # DNS target = 1Panel environment IP (always use panel env)
+                                target_ip = (panel_env.get("host", "") if panel_env else "") or panel_server_ip
                                 dns = cf_client.create_dns_record(
                                     zone_id=zone_id,
                                     record_type="A",
                                     name=domain,
-                                    content=panel_server_ip or (panel_env.get("host", "") if panel_env else ""),
+                                    content=target_ip,
                                     proxied=True,
                                 )
                                 if dns and dns.get("success"):
