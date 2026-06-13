@@ -2405,45 +2405,28 @@ def register_routes(app):
 
             nginx_alias = site.get("nginx_alias", "")
 
-            # Static site: delete 1Panel website + directory
+            # Static site: delete local files + 1Panel website (if any)
             if site.get("site_type") == "static":
-                pid = site.get("panel_website_id")
-                alias = nginx_alias or site.get("url", "").replace(".", "-")
+                # Delete local site directory
+                domain = site.get("url", "")
+                local_dir = f"/app/backend/static-sites/{domain}"
+                try:
+                    import shutil
+                    if os.path.isdir(local_dir):
+                        shutil.rmtree(local_dir)
+                        logger.info(f"Deleted local static site: {local_dir}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete local dir: {e}")
 
-                # Try deleting via website ID if we have it
+                # Also clean 1Panel website if one was created
+                pid = site.get("panel_website_id")
                 if pid:
                     try:
-                        _get_panel_client().delete_website(
-                            pid, delete_app=False, delete_backup=True,
-                            force_delete=True, delete_db=False,
-                        )
-                        logger.info(f"Deleted 1Panel static website {pid}")
+                        _get_panel_client().delete_website(pid, delete_app=False,
+                            delete_backup=True, force_delete=True, delete_db=False)
+                        logger.info(f"Deleted 1Panel website {pid}")
                     except Exception as e:
-                        logger.warning(f"Failed to delete 1Panel website by id: {e}")
-
-                # Also search 1Panel by domain/alias and delete any matching websites
-                try:
-                    ws = _get_panel_client().search_websites(name=site.get("url", alias))
-                    if ws.get("code") == 200:
-                        items = (ws.get("data") or {}).get("items") or []
-                        for w in items:
-                            if w.get("alias") == alias or w.get("primaryDomain") == site.get("url"):
-                                if not pid or w.get("id") != pid:
-                                    _get_panel_client().delete_website(
-                                        w.get("id"), delete_app=False, delete_backup=True,
-                                        force_delete=True, delete_db=False,
-                                    )
-                                    logger.info(f"Deleted orphaned 1Panel website {w.get('id')}")
-                except Exception as e:
-                    logger.warning(f"Failed to search/clean 1Panel websites: {e}")
-
-                # Clean up site directory via file API
-                site_path = f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}"
-                try:
-                    _get_panel_client().delete_file(site_path)
-                    logger.info(f"Deleted static site dir: {site_path}")
-                except Exception as e:
-                    logger.warning(f"Failed to delete site dir: {e}")
+                        logger.warning(f"Failed to delete 1Panel website: {e}")
 
             # WordPress site (legacy)
             elif site.get("panel_website_id"):
@@ -2467,18 +2450,7 @@ def register_routes(app):
                     except Exception as e:
                         logger.warning(f"Failed to delete 1Panel app: {e}")
 
-            # Legacy nginx proxy config cleanup
-            elif nginx_alias:
-                try:
-                    _get_panel_client().delete_nginx_proxy_config(alias=nginx_alias)
-                    logger.info(f"Deleted nginx config for {nginx_alias}")
-                except Exception as e:
-                    logger.warning(f"Failed to delete nginx config: {e}")
-
             # Cloudflare DNS: skip deletion — keep DNS for reuse
-
-            # Clean up unused Docker images via Docker socket
-            _do_docker_image_cleanup(site_id)
 
             delete_site(site_id)
             return jsonify({"code": 200, "message": "站点已删除（DNS 记录已保留）"})
