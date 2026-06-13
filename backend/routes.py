@@ -8512,11 +8512,20 @@ Respond with strict JSON only (no markdown code blocks):
                 if isinstance(images, str):
                     try: images = _j.loads(images)
                     except Exception: images = [images] if images else []
+                # Clean price string: remove $, commas, and unit suffixes like "/count", "per oz", etc.
+                def _clean_price(v):
+                    if not v: return 0.0
+                    v = str(v).replace("$", "").replace(",", "").strip()
+                    # Take only the numeric part before any slash or alphabetic suffix
+                    import re
+                    m = re.match(r'^[\d.]+', v)
+                    return float(m.group()) if m else 0.0
+
                 mapped.append({
                     "title": p.get("name", ""),
                     "description": p.get("description", "") or p.get("short_description", ""),
-                    "price": float((p.get("regular_price") or "0").replace("$", "").replace(",", "").strip() or 0),
-                    "sale_price": float((p.get("sale_price") or "0").replace("$", "").replace(",", "").strip() or 0) if p.get("sale_price") else None,
+                    "price": _clean_price(p.get("regular_price")),
+                    "sale_price": _clean_price(p.get("sale_price")) if p.get("sale_price") else None,
                     "currency": "USD",
                     "image_url": images[0] if images else "",
                     "additional_images": images[1:] if len(images) > 1 else [],
