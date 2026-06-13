@@ -49,7 +49,7 @@ class OnePanelClient:
         }
 
     def _request(self, method, path, json_data=None, params=None):
-        url = f"{self._base_url()}/api/v2{path}"
+        url = f"{self._base_url()}/api/v1{path}"
         try:
             resp = requests.request(
                 method, url, headers=self._headers(), json=json_data, params=params, timeout=30
