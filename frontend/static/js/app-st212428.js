@@ -1516,12 +1516,12 @@ pipelineStatuses[siteId].demo_importing = false;
             const isBatch = wizardMode.value === 'batch';
             let domains = [];
             if (isBatch) {
-                domains = createForm.domains.split('\n').map(d => d.trim()).filter(d => d);
+                domains = createForm.domains.split('\n').map(d => d.trim()).filter(d => d).map(d => ({ domain: d }));
                 if (!domains.length) { showToast('请至少输入一个域名', 'error'); return; }
             } else {
                 const domain = createForm.site_name.trim();
                 if (!domain) { showToast('请输入域名', 'error'); return; }
-                domains = [domain];
+                domains = [{ domain }];
             }
 
             // Submit to backend (creates sites in DB + starts bg deploy threads)
