@@ -4074,6 +4074,34 @@ def register_routes(app):
         }})
 
     # ------------------------------------------------------------------
+
+def _auto_diagnose_on_failure(task_id, success):
+    """任务失败时自动触发 AI 诊断，并保存诊断结果。"""
+    if success:
+        return
+    try:
+        import threading as _th
+        def _bg_diag():
+            try:
+                from services.gmc_diagnosis import (
+                    diagnose_task, get_task_logs_as_list, get_task_type,
+                )
+                from task_logs import save_diagnosis, add_log
+                task_type = get_task_type(task_id)
+                log_entries = get_task_logs_as_list(task_id)
+                if log_entries:
+                    report = diagnose_task(task_id, task_type, log_entries)
+                    save_diagnosis(task_id, report.to_dict())
+                    add_log(task_id, "info", "🤖 AI 自动诊断完成: " + report.root_cause, "diagnosis")
+                    sol = report.solution[:200] if report.solution else ""
+                    add_log(task_id, "info", "💡 建议方案: " + sol, "diagnosis")
+                    logger.info("Auto-diagnosis complete for failed task %s", task_id)
+            except Exception as diag_err:
+                logger.error("Auto-diagnosis error for task %s: %s", task_id, diag_err)
+        _th.Thread(target=_bg_diag, daemon=True).start()
+    except Exception as e:
+        logger.error("Failed to start auto-diagnosis: %s", e)
+
     # GMC 自动化后台任务（带实时日志）
     # ------------------------------------------------------------------
 
@@ -9001,6 +9029,7 @@ Respond with strict JSON only (no markdown code blocks):
             return jsonify({"code": 200, "message": "ok: " + ", ".join(imported)})
         except Exception as e:
             return jsonify({"code": 500, "message": str(e)[:200]}), 500
+
 
 
 
