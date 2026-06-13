@@ -196,14 +196,34 @@ like a real premium e-commerce site.
 | 5 | 改 `delete_site` 清理 | routes.py | 已有 |
 | 6 | Docker 构建 + 部署 | - | - |
 
-## 8. 边界与约束
+## 8. 纯静态保证
+
+- 生成站点 **不含任何后端逻辑**：每个域名目录下只有 HTML/CSS/JS/图片文件
+- nginx 直接 serve 静态文件，不需要 PHP/Python/Node.js 运行时
+- 购物车/结账/搜索 **全部前端 JS 实现**（localStorage + DOM 操作）
+- 产品数据在生成时注入 HTML，**不依赖数据库查询**
+- 站点可以部署到任何静态托管（CDN/S3/GitHub Pages），不绑定 puhuo
+
+## 9. 网站数量与资源
+
+| | WordPress (旧) | 静态站点 (新) |
+|------|--------------|-------------|
+| 单个站点大小 | ~150MB | **~50-200KB**（不含图片） |
+| 所需运行时 | PHP + MariaDB | **无需**（纯文件） |
+| 服务器可承载 | 5-10 个 | **数千个** |
+| 部署时间 | 3-5 分钟 | **< 1 秒** |
+| nginx 配置 | 每个站点单独配置 | **通配配置，零配置新增** |
+
+引擎每生成一个站点只写入一次文件，站点上线后不再消耗任何 CPU/内存资源。
+
+## 10. 边界与约束
 
 - **不实现**: 真实支付（不需要后端）、真实用户认证、后台管理
-- **技术栈**: 纯 HTML/CSS/JS，无框架依赖，单文件 < 50KB
+- **技术栈**: 纯 HTML/CSS/JS，无框架依赖，store.js < 20KB
 - **兼容**: 现代浏览器（Chrome/Firefox/Safari/Edge 近2年版本）
 - **性能**: 首次加载 < 2s（含图片），lighthouse score > 80
 - **GMC**: schema.org Product JSON-LD 完整标记，feed.xml 规范
 
-## 9. 回退
+## 11. 回退
 
 如果 AI design_system 生成失败，引擎使用内置默认设计（等同于当前 `_generate_brand_pages` 的效果），不影响部署流程。
