@@ -2435,16 +2435,28 @@ def register_routes(app):
             # ---- Step 2: Delete 1Panel website (reverse proxy entry) ----
             pid = site.get("panel_website_id")
             if not pid and domain:
-                # Search by domain name (handles sites where panel_website_id was not saved)
-                try:
-                    ws = _get_panel_client().search_websites(name=domain)
-                    if ws.get("code") == 200:
-                        for w in (ws.get("data") or {}).get("items", []) or []:
-                            if w.get("primaryDomain") == domain or w.get("alias") == alias:
-                                pid = w.get("id")
-                                break
-                except Exception as e:
-                    logger.warning(f"Search website by domain failed: {e}")
+                # Search by alias first — 1Panel's internal website name is the alias,
+                # NOT the domain. Searching by domain (with dots) won't match the alias
+                # (with hyphens), causing delete_website() to be silently skipped.
+                search_terms = []
+                if alias:
+                    search_terms.append(alias)
+                if domain and domain != alias:
+                    search_terms.append(domain)
+                for term in search_terms:
+                    try:
+                        ws = _get_panel_client().search_websites(name=term)
+                        if ws.get("code") == 200:
+                            for w in (ws.get("data") or {}).get("items", []) or []:
+                                if w.get("primaryDomain") == domain or w.get("alias") == alias:
+                                    pid = w.get("id")
+                                    break
+                        if pid:
+                            break
+                    except Exception as e:
+                        logger.warning(f"Search website by '{term}' failed: {e}")
+                if not pid:
+                    logger.warning(f"Could not find 1Panel website for domain={domain} alias={alias}")
 
             if pid:
                 try:
@@ -2480,28 +2492,36 @@ def register_routes(app):
 
             # ---- Step 4: Static site extra cleanup ----
             if site.get("site_type") == "static":
-                # 4a. Delete OpenResty site files (use static_dir from DB for correct path)
+                # 4a. Delete OpenResty site files from 1Panel
+                # Try multiple path strategies since static_dir may be full or relative:
+                #   - After deployment:  /opt/1panel/apps/openresty/openresty/www/sites/{alias}/index
+                #   - Initial insert:     /www/sites/{alias}/index
                 static_dir = site.get("static_dir", "")
+                paths_to_try = set()
+
+                # Strategy 1: alias-based path (most reliable, always correct for std installs)
+                paths_to_try.add(f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}")
+
                 if static_dir:
-                    # static_dir is like "/www/sites/{alias}/index"
-                    # Full 1Panel path: /opt/1panel/apps/openresty/openresty{static_dir}
-                    # Delete the parent site directory (strip trailing /index if present)
-                    if static_dir.endswith("/index"):
-                        static_dir = static_dir[:-6]  # remove "/index"
-                    site_path_1panel = f"/opt/1panel/apps/openresty/openresty{static_dir}"
+                    clean = static_dir.rstrip("/")
+                    # Strip trailing "/index" to delete the whole site dir
+                    if clean.endswith("/index"):
+                        clean = clean[:-6]
+                    # Handle full vs relative paths
+                    if clean.startswith("/opt/"):
+                        paths_to_try.add(clean)
+                    elif clean.startswith("/www/"):
+                        paths_to_try.add(f"/opt/1panel/apps/openresty/openresty{clean}")
+
+                for p in paths_to_try:
                     try:
-                        _get_panel_client().delete_file(site_path_1panel)
-                        logger.info(f"Deleted static site dir on 1Panel: {site_path_1panel}")
+                        result = _get_panel_client().delete_file(p)
+                        if result.get("code") in (200, 500):
+                            logger.info(f"Deleted static site dir on 1Panel: {p}")
+                        else:
+                            logger.warning(f"Failed to delete static site dir {p}: {result.get('message', '')}")
                     except Exception as e:
-                        logger.warning(f"Failed to delete static site dir: {e}")
-                else:
-                    # Fallback: construct path from alias
-                    try:
-                        _get_panel_client().delete_file(
-                            f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}"
-                        )
-                    except Exception:
-                        pass
+                        logger.warning(f"Failed to delete static site dir {p}: {e}")
 
                 # 4b. Delete local temp files
                 local_dir = f"/app/backend/static-sites/{domain}"

@@ -572,18 +572,24 @@ class OnePanelClient:
             resp["data"] = {"website_id": None, "site_dir": site_dir, "alias": alias}
 
             # Try to get actual website_id from search (retry up to 3 times)
+            # IMPORTANT: 1Panel's internal website name is the alias (e.g. "example-com"),
+            # NOT the domain ("example.com"). Search by alias first to ensure match.
+            search_terms = [alias] if alias == domain else [alias, domain]
             for attempt in range(3):
                 _time.sleep(1 if attempt == 0 else 2)
-                ws = self.search_websites(name=domain)
-                if ws.get("code") == 200:
-                    items = (ws.get("data") or {}).get("items") or []
-                    for w in items:
-                        if w.get("primaryDomain") == domain or w.get("alias") == alias:
-                            resp["data"]["website_id"] = w.get("id")
-                            actual_dir = w.get("siteDir", "")
-                            if actual_dir:
-                                resp["data"]["site_dir"] = actual_dir
-                            break
+                for search_term in search_terms:
+                    ws = self.search_websites(name=search_term)
+                    if ws.get("code") == 200:
+                        items = (ws.get("data") or {}).get("items") or []
+                        for w in items:
+                            if w.get("primaryDomain") == domain or w.get("alias") == alias:
+                                resp["data"]["website_id"] = w.get("id")
+                                actual_dir = w.get("siteDir", "")
+                                if actual_dir:
+                                    resp["data"]["site_dir"] = actual_dir
+                                break
+                    if resp["data"].get("website_id"):
+                        break
                 if resp["data"].get("website_id"):
                     break
         return resp
