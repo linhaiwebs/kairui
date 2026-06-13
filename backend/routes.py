@@ -3011,20 +3011,20 @@ def register_routes(app):
 
             # Step 2: Generate files locally
             from static_store_engine import render_site
-            local_dir = f"/app/backend/static-sites/{domain}"
-            os.makedirs(local_dir, exist_ok=True)
-            count = render_site(domain, brand_kit or {}, [], local_dir)
+            import tempfile as _tf
+            local_tmp = _tf.mkdtemp(prefix=f"deploy-{site_id}-")
+            render_site(domain, brand_kit or {}, [], local_tmp)
 
-            # Step 3: Upload to 1Panel (CSS/JS already inlined, so only index.html + other HTML pages needed)
+            # Step 3: Upload to 1Panel (CSS/JS already inlined, skip .css/.js)
             update_bg_task(task_id, status="deploying", message="正在上传商城文件到1Panel...")
-            _get_pc().delete_file(f"{site_dir_1panel}/index.html")  # remove 1Panel default
+            _get_pc().delete_file(f"{site_dir_1panel}/index.html")
             uploaded = 0
-            for root, dirs, files in os.walk(local_dir):
+            for root, dirs, files in os.walk(local_tmp):
                 for fname in files:
                     if fname.endswith(".css") or fname.endswith(".js"):
-                        continue  # CSS/JS are inlined, skip assets
+                        continue
                     local_path = os.path.join(root, fname)
-                    rel_path = os.path.relpath(local_path, local_dir)
+                    rel_path = os.path.relpath(local_path, local_tmp)
                     remote_path = f"{site_dir_1panel}/{rel_path}"
                     parent_dir = os.path.dirname(remote_path)
                     _get_pc().create_file(parent_dir, is_dir=True)
@@ -3041,11 +3041,12 @@ def register_routes(app):
                     uploaded += 1
 
             _get_pc().reload_openresty()
+            import shutil; shutil.rmtree(local_tmp, ignore_errors=True)
             logger.info(f"Uploaded {uploaded} files to 1Panel for {domain}")
 
             update_site_fields(site_id, {
                 "status": "active",
-                "static_dir": local_dir,
+                "static_dir": site_dir_1panel,
                 "panel_website_id": site_data.get("website_id"),
             })
             update_bg_task(task_id, status="completed",
