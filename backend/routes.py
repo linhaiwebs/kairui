@@ -1,4 +1,4 @@
-import functools
+﻿import functools
 import json
 import logging
 import os
@@ -19,7 +19,7 @@ from werkzeug.utils import secure_filename
 
 from config import config
 from services.mc_auto_register import get_profiles_root, resolve_profile_path
-from task_logs import add_log, complete_task, create_task, get_task_logs
+from task_logs import add_log, complete_task, create_task, get_diagnosis, get_task_logs, save_diagnosis
 from models import (
     assign_cloakbrowser_profile_to_brand_kit,
     create_bg_task,
@@ -4128,6 +4128,7 @@ def register_routes(app):
             except Exception as e:
                 add_log(task_id, "error", f"任务异常: {e}", "")
                 complete_task(task_id, False, {"success": False, "message": str(e)})
+                _auto_diagnose_on_failure(task_id, False)
             finally:
                 loop.close()
 
@@ -4163,6 +4164,7 @@ def register_routes(app):
                 else:
                     add_log(task_id, "error", result.get("message", "Feed 生成失败"), "feed")
                     complete_task(task_id, False, result)
+                    _auto_diagnose_on_failure(task_id, False)
             except Exception as e:
                 add_log(task_id, "error", f"任务异常: {e}", "feed")
                 complete_task(task_id, False, {"success": False, "message": str(e)})
@@ -4232,6 +4234,7 @@ def register_routes(app):
             except Exception as e:
                 add_log(task_id, "error", f"任务异常: {e}", "")
                 complete_task(task_id, False, {"success": False, "message": str(e)})
+                _auto_diagnose_on_failure(task_id, False)
             finally:
                 loop.close()
 
@@ -4251,15 +4254,93 @@ def register_routes(app):
         """
         after = request.args.get("after", 0, type=int)
         logs, status, result = get_task_logs(task_id, after)
+        diagnosis = get_diagnosis(task_id) if status in ("success", "failed") else None
         return jsonify({
             "code": 200,
             "data": {
                 "logs": logs,
                 "status": status,
                 "result": result,
+                "diagnosis": diagnosis,
             }
         })
 
+    
+# ------------------------------------------------------------------
+# AI 诊断 — 分析任务日志，自动生成解决方案
+# ------------------------------------------------------------------
+
+@app.route("/api/tasks/<task_id>/diagnose", methods=["POST"])
+@jwt_required()
+def task_diagnose(task_id):
+    """触发 AI 诊断：分析 GMC 任务日志并返回解决方案。
+
+    Returns:
+        { code, data: { diagnosis: { root_cause, solution, severity, steps, errors } } }
+    """
+    from services.gmc_diagnosis import (
+        diagnose_task, get_task_logs_as_list, get_task_type,
+    )
+    from task_logs import save_diagnosis, get_task_logs
+
+    try:
+        task_type = get_task_type(task_id)
+        if task_type == "unknown":
+            return jsonify({"code": 404, "message": "任务不存在"}), 404
+
+        # 读取所有日志
+        log_entries = get_task_logs_as_list(task_id)
+        logs, status, result = get_task_logs(task_id, after=0)
+
+        if not log_entries:
+            return jsonify({
+                "code": 200,
+                "data": {
+                    "diagnosis": {
+                        "summary": "暂无日志数据，无法诊断。请等待任务开始后重试。",
+                        "severity": "info",
+                    }
+                }
+            })
+
+        # 执行 AI 诊断
+        report = diagnose_task(task_id, task_type, log_entries)
+        diagnosis_dict = report.to_dict()
+
+        # 持久化诊断结果
+        save_diagnosis(task_id, diagnosis_dict)
+
+        logger.info(
+            "Diagnosis complete for task %s: severity=%s root_cause=%s",
+            task_id, report.severity, report.root_cause[:80],
+        )
+
+        return jsonify({
+            "code": 200,
+            "data": {
+                "diagnosis": diagnosis_dict,
+                "task_status": status,
+            },
+            "message": "诊断完成",
+        })
+    except Exception as e:
+        logger.error("Diagnosis error for task %s: %s", task_id, e)
+        return jsonify({"code": 500, "message": f"诊断异常: {str(e)[:200]}"}), 500
+
+
+@app.route("/api/tasks/<task_id>/diagnosis", methods=["GET"])
+@jwt_required()
+def get_task_diagnosis(task_id):
+    """获取之前保存的诊断结果（如果有）。"""
+    from task_logs import get_diagnosis
+    try:
+        diag = get_diagnosis(task_id)
+        if diag:
+            return jsonify({"code": 200, "data": {"diagnosis": diag}})
+        return jsonify({"code": 200, "data": {"diagnosis": None}, "message": "尚无诊断结果"})
+    except Exception as e:
+        logger.error("get_diagnosis error: %s", e)
+        return jsonify({"code": 500, "message": str(e)[:200]}), 500
     @app.route("/api/tasks/gmc-recon", methods=["POST"])
     @jwt_required()
     def task_gmc_recon():
@@ -4304,9 +4385,11 @@ def register_routes(app):
                     log_callback=lambda level, msg, step: add_log(task_id, level, msg, step),
                 ))
                 complete_task(task_id, result.get("success", False), result)
+                _auto_diagnose_on_failure(task_id, result.get("success", False))
             except Exception as e:
                 add_log(task_id, "error", f"任务异常: {e}", "")
                 complete_task(task_id, False, {"success": False, "message": str(e)})
+                _auto_diagnose_on_failure(task_id, False)
             finally:
                 loop.close()
 
@@ -8844,4 +8927,84 @@ Respond with strict JSON only (no markdown code blocks):
         except Exception as e:
             logger.error(f"delete_google_account: {e}")
             return jsonify({"code": 500, "message": str(e)[:200]}), 500
+
+
+
+    @app.route("/api/system/export", methods=["GET"])
+    @jwt_required()
+    def system_export():
+        """Export all config and data as JSON."""
+        try:
+            db = get_db()
+            data = {}
+            def et(table, cols=None):
+                c = "*" if cols is None else ", ".join(cols)
+                return [dict(r) for r in db.execute(f"SELECT {c} FROM {table}").fetchall()]
+            data["global_config"] = et("global_config", ["config_key", "config_value", "updated_at"])
+            data["users"] = et("users", ["id", "username", "password", "role", "panel_environment_id", "created_at"])
+            data["sites"] = et("sites")
+            data["brand_kits"] = et("brand_kits")
+            data["cloudflare_accounts"] = et("cloudflare_accounts")
+            data["fingerprint_categories"] = et("fingerprint_categories")
+            data["profile_category_mapping"] = et("profile_category_mapping")
+            data["panel_environments"] = et("panel_environments")
+            data["wordpress_settings"] = et("wordpress_settings")
+            data["feed_products"] = et("feed_products")
+            data["woocommerce_products"] = et("woocommerce_products")
+            data["generated_feed"] = et("generated_feed")
+            data["google_accounts"] = et("google_accounts")
+            data["proxies"] = et("proxies")
+            data["_meta"] = {"exported_at": datetime.utcnow().isoformat(), "version": "1.0"}
+            return jsonify({"code": 200, "data": data})
+        except Exception as e:
+            return jsonify({"code": 500, "message": str(e)[:200]}), 500
+
+    @app.route("/api/system/import", methods=["POST"])
+    @jwt_required()
+    def system_import():
+        """Import config and data from JSON."""
+        try:
+            data = request.get_json(silent=True) or {}
+            if not data or "_meta" not in data:
+                return jsonify({"code": 400, "message": "invalid data"}), 400
+            db = get_db()
+            imported = []
+            def cols(t):
+                return {r["name"] for r in db.execute(f"PRAGMA table_info({t})").fetchall()}
+            def up(table, rows, keys):
+                if not rows: return 0
+                valid = cols(table); cnt = 0
+                for row in rows:
+                    if not isinstance(row, dict): continue
+                    f = {k: v for k, v in row.items() if k in valid}
+                    if not f: continue
+                    wp = [f"{k} = ?" for k in keys if k in f]
+                    wv = [f[k] for k in keys if k in f]
+                    if not wp: continue
+                    w = " AND ".join(wp)
+                    ex = db.execute(f"SELECT 1 FROM {table} WHERE {w}", wv).fetchone()
+                    ck = list(f.keys()); cv = [f[k] for k in ck]
+                    if ex:
+                        sc = ", ".join(f"{k} = ?" for k in ck)
+                        db.execute(f"UPDATE {table} SET {sc} WHERE {w}", cv + wv)
+                    else:
+                        ph = ", ".join("?" for _ in ck)
+                        cn = ", ".join(ck)
+                        db.execute(f"INSERT INTO {table} ({cn}) VALUES ({ph})", cv)
+                    cnt += 1
+                return cnt
+            for t, k in [("global_config",["config_key"]),("users",["id"]),("panel_environments",["id"]),("cloudflare_accounts",["id"]),("fingerprint_categories",["id"]),("profile_category_mapping",["profile_name","category_id"]),("brand_kits",["id"]),("sites",["id"]),("wordpress_settings",["id"]),("feed_products",["id"]),("woocommerce_products",["id"]),("generated_feed",["id"]),("google_accounts",["id"]),("proxies",["id"])]:
+                if t in data:
+                    c = up(t, data[t], k)
+                    imported.append(f"{t}({c})")
+            db.commit()
+            return jsonify({"code": 200, "message": "ok: " + ", ".join(imported)})
+        except Exception as e:
+            return jsonify({"code": 500, "message": str(e)[:200]}), 500
+
+
+
+
+
+
 

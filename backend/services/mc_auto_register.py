@@ -1,4 +1,4 @@
-"""
+﻿"""
 Google Merchant Center 自动化注册 + CloakBrowser 指纹环境管理
 
 每个 profile 目录是一个完整的独立浏览器环境：
@@ -208,7 +208,7 @@ def create_profile(
 
     config = generate_fingerprint(platform, country)
     config["google_email"] = google_email
-    config["proxy"] = proxy.replace("socks5h://", "socks5://") if proxy else ""
+    config["proxy"] = proxy if proxy else ""
     config["note"] = ""
 
     save_profile_config(profile_dir, config)
@@ -1012,7 +1012,7 @@ async def register_mc_account(
 
     _emit("info", "=" * 50)
     _emit("info", f"MC 注册开始 — site={site_domain} profile={os.path.basename(profile_dir)}")
-    _emit("info", f"参数: country={country} headless={headless} timeout={timeout_ms/1000}s feed={'✓' if feed_url else '✗'}")
+    _emit("info", f"参数: country={country} headless={headless} timeout={timeout_ms/1000}s feed={'OK' if feed_url else 'NO'}")
 
     try:
         from cloakbrowser import launch_persistent_context_async
@@ -1038,7 +1038,7 @@ async def register_mc_account(
 
     title = site_title or site_domain.replace("www.", "").split(".")[0].capitalize()
     website_url = f"https://{site_domain}"
-    _emit("info", f"配置加载完成 — platform={config.get('platform','?')} proxy={'✓' if proxy else '✗'} title={title} url={website_url}", "config")
+    _emit("info", f"配置加载完成 — platform={config.get('platform','?')} proxy={'YES' if proxy else 'NO'} title={title} url={website_url}", "config")
 
     browser_ctx = None
     result = {"success": False, "mc_account_id": "", "step": ""}
@@ -1385,7 +1385,7 @@ async def register_mc_account(
                     el = page.locator(sel).first
                     if await el.is_visible():
                         verified = True
-                        _emit("info", "✓ 网站验证成功!", "verify_website")
+                        _emit("info", "OK 网站验证成功!", "verify_website")
                         break
                 except Exception:
                     pass
@@ -1485,7 +1485,7 @@ async def register_mc_account(
 
             result["success"] = True
             result["message"] = f"GMC Next 注册完成 (MC ID: {mc_id})" if mc_id else "GMC Next 注册完成"
-            _emit("info", f"✓ {result['message']}", "done")
+            _emit("info", f"OK {result['message']}", "done")
 
 
         if not result.get("wizard_skipped"):
@@ -1689,9 +1689,10 @@ async def auto_verify_google_site(
     import traceback
 
     def _emit(level: str, msg: str, step: str = ""):
-        """同时输出到 Python logger 和前端 log_callback。"""
+        """增强日志：同时输出到 Python logger 和前端 log_callback。"""
         log_func = {"info": logger.info, "warning": logger.warning, "error": logger.error}.get(level, logger.info)
-        log_func("%s", msg)
+        prefix = {"info": "[INFO]", "warning": "[WARN]", "error": "[ERR]"}.get(level, "[LOG]")
+        log_func("%s", f"{prefix} [{step}] {msg}" if step else f"{prefix} {msg}")
         if log_callback:
             try:
                 log_callback(level, msg, step)
@@ -1700,7 +1701,7 @@ async def auto_verify_google_site(
 
     _emit("info", "=" * 50)
     _emit("info", f"AutoVerify 开始 — site={site_domain} profile={os.path.basename(profile_dir)}")
-    _emit("info", f"参数: headless={headless} timeout={timeout_ms/1000}s test_only={test_only}")
+    _emit("info", f"参数: headless={headless} timeout={timeout_ms/1000}s test_only={test_only} proxy={'YES' if proxy else 'NO'}")
 
     try:
         from cloakbrowser import launch_persistent_context_async
@@ -1990,7 +1991,7 @@ async def auto_verify_google_site(
             except Exception as e:
                 _emit("warning", f"WordPress 注入异常: {e}", "inject_wp")
         else:
-            _emit("info", f"跳过 WP 注入 (wp_url={'✓' if wp_url else '✗'} wp_user={'✓' if wp_username else '✗'})", "inject_wp")
+            _emit("info", f"跳过 WP 注入 (wp_url={'OK' if wp_url else 'NO'} wp_user={'OK' if wp_username else 'NO'})", "inject_wp")
 
         # --- Wait for Google to detect the tag ---
         _emit("info", "步骤 7: 等待 10 秒，让 Google 检测验证标签...", "verify_click")
@@ -2047,7 +2048,7 @@ async def auto_verify_google_site(
         if verified:
             result["success"] = True
             result["message"] = "网站验证成功"
-            _emit("info", "✓ 网站验证成功!", "done")
+            _emit("info", "OK 网站验证成功!", "done")
         else:
             result["success"] = False  # Honestly report failure
             result["message"] = "验证标签已注入 WordPress，但 Google 端验证按钮未找到/未完成，请手动检查 GMC"
@@ -2089,7 +2090,8 @@ async def gmc_recon(
 
     def _emit(level: str, msg: str, step: str = ""):
         log_func = {"info": logger.info, "warning": logger.warning, "error": logger.error}.get(level, logger.info)
-        log_func("%s", msg)
+        prefix = {"info": "[INFO]", "warning": "[WARN]", "error": "[ERR]"}.get(level, "[LOG]")
+        log_func("%s", f"{prefix} [{step}] {msg}" if step else f"{prefix} {msg}")
         if log_callback:
             try:
                 log_callback(level, msg, step)
@@ -2098,6 +2100,7 @@ async def gmc_recon(
 
     _emit("info", "=" * 50)
     _emit("info", f"GMC 侦查模式 — profile={os.path.basename(profile_dir)}")
+    _emit("info", f"参数: headless={headless} timeout={timeout_ms/1000}s 代理={'OK' if proxy else 'NO'}")
 
     try:
         from cloakbrowser import launch_persistent_context_async
@@ -2455,3 +2458,4 @@ async def gmc_recon(
 def country_to_locale(country: str) -> str:
     """国家代码 → BCP 47 locale。"""
     return _REGION_CONFIGS.get(country, _REGION_CONFIGS["US"])["locale"]
+

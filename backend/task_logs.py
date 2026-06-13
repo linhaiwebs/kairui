@@ -1,4 +1,4 @@
-"""
+﻿"""
 Task log store for GMC automation (SQLite-backed, safe across gunicorn workers).
 
 Tables:
@@ -6,7 +6,7 @@ Tables:
   - task_log_entries(task_id, log_index, timestamp, level, message, step)
 
 Frontend polls GET /api/tasks/<task_id>/logs?after=<last_index>
-"""
+"+`nEnhanced with AI diagnosis support:`n"  - diagnose_task(): analyze logs and return structured diagnosis`n"  - save_diagnosis(): persist diagnosis result to DB`n"""
 
 import json as _json
 import time
@@ -36,7 +36,7 @@ def add_log(task_id: str, level: str, message: str, step: str = ""):
     """Append a log entry (committed immediately for cross-worker visibility)."""
     conn = get_db()
     try:
-        # Get next log_index — count existing entries for this task
+        # Get next log_index 鈥?count existing entries for this task
         row = conn.execute(
             "SELECT COALESCE(MAX(log_index), -1) + 1 FROM task_log_entries WHERE task_id = ?",
             (task_id,),
@@ -95,5 +95,48 @@ def get_task_logs(task_id: str, after: int = 0):
         logs = [dict(r) for r in rows]
         result = _json.loads(sess["result_json"]) if sess["result_json"] else None
         return logs, sess["status"], result
+    finally:
+        conn.close()
+
+import logging
+logger = logging.getLogger(__name__)
+
+
+def save_diagnosis(task_id: str, diagnosis_dict: dict):
+    """保存 AI 诊断结果到 task_sessions.result_json 中。"""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT result_json FROM task_sessions WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+        if row is None:
+            logger.warning("save_diagnosis: task %s not found", task_id)
+            return False
+        existing = _json.loads(row["result_json"]) if row["result_json"] else {}
+        existing["diagnosis"] = diagnosis_dict
+        conn.execute(
+            "UPDATE task_sessions SET result_json = ?, updated_at = ? WHERE task_id = ?",
+            (_json.dumps(existing), datetime.now().isoformat(), task_id),
+        )
+        conn.commit()
+        logger.info("Diagnosis saved for task %s", task_id)
+        return True
+    finally:
+        conn.close()
+
+
+def get_diagnosis(task_id: str) -> dict | None:
+    """从数据库读取已保存的诊断结果。"""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT result_json FROM task_sessions WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+        if row and row["result_json"]:
+            data = _json.loads(row["result_json"])
+            return data.get("diagnosis")
+        return None
     finally:
         conn.close()
