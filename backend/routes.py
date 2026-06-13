@@ -2981,51 +2981,18 @@ def register_routes(app):
         })
 
     def _regenerate_static_site_html(task_id_or_none, site_id):
-        """Regenerate static site HTML with current products, upload to 1Panel."""
+        """Regenerate static site files with current products."""
         site = get_site(site_id)
         if not site or site.get("site_type") != "static":
             return
-
         domain = site.get("url", "")
         products = list_static_site_products(site_id)
         brand_kit_id = site.get("brand_kit_id")
         brand_kit = get_brand_kit(brand_kit_id) if brand_kit_id else {}
-
         from static_store_engine import render_site
-        local_tmp = f"/tmp/regenerate-{site_id}"
-        os.makedirs(local_tmp, exist_ok=True)
-        count = render_site(domain, brand_kit, products, local_tmp)
-
-        # Upload to 1Panel
-        env = get_user_panel_environment(site.get("created_by") or 1)
-        if env:
-            alias = site.get("nginx_alias", domain.replace(".", "-"))
-            remote_dir = f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index"
-            pc = OnePanelClient(host=env["host"], port=env["port"], api_key=env["api_key"])
-            # Delete 1Panel defaults first
-            for df in ["index.html", "404.html"]:
-                try: pc.delete_file(f"{remote_dir}/{df}")
-                except: pass
-            for root, dirs, files in os.walk(local_tmp):
-                for fname in files:
-                    local_path = os.path.join(root, fname)
-                    rel_path = os.path.relpath(local_path, local_tmp)
-                    remote_path = f"{remote_dir}/{rel_path}"
-                    pc.create_file(os.path.dirname(remote_path), is_dir=True)
-                    ts = str(int(time.time()))
-                    token = hashlib.md5(("1panel" + env["api_key"] + ts).encode()).hexdigest()
-                    with open(local_path, "rb") as f:
-                        http_requests.post(
-                            f"http://{env['host']}:{env['port']}/api/v1/files/upload",
-                            data={"path": remote_path},
-                            files={"file": (fname, f, "application/octet-stream")},
-                            headers={"1Panel-Token": token, "1Panel-Timestamp": ts},
-                            timeout=30,
-                        )
-            pc.reload_openresty()
-            import shutil as _shutil
-            _shutil.rmtree(local_tmp, ignore_errors=True)
-        logger.info(f"Regenerated static site {site_id} ({domain}) with {len(products)} products, {count} files")
+        site_dir = site.get("static_dir") or f"/app/backend/static-sites/{domain}"
+        count = render_site(domain, brand_kit, products, site_dir)
+        logger.info(f"Regenerated {site_id} ({domain}) with {len(products)} products, {count} files")
 
 # _generate_brand_pages removed — replaced by static_store_engine.render_site()
 
@@ -3215,7 +3182,7 @@ def register_routes(app):
                             if zone_id:
                                 # For root domain, name=domain; for subdomain, name=domain (full FQDN)
                                 # DNS target = 1Panel environment IP (always use panel env)
-                                target_ip = (panel_env.get("host", "") if panel_env else "") or panel_server_ip
+                                target_ip = "163.123.236.110"
                                 dns = cf_client.create_dns_record(
                                     zone_id=zone_id,
                                     record_type="A",
