@@ -2141,7 +2141,18 @@ def list_feed_products(site_id):
         rows = conn.execute(
             "SELECT * FROM feed_products WHERE site_id = ? ORDER BY id ASC", (site_id,)
         ).fetchall()
-        return [dict(r) for r in rows]
+        results = [dict(r) for r in rows]
+
+        # Fallback: also return generated_feed products (from WooCommerce feed generation)
+        # when the site has no explicit feed_products yet
+        if not results:
+            gen_rows = conn.execute(
+                "SELECT *, ? as site_id FROM generated_feed ORDER BY id DESC", (site_id,)
+            ).fetchall()
+            for r in gen_rows:
+                d = dict(r)
+                results.append(d)
+        return results
     finally:
         conn.close()
 
