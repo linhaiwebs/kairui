@@ -1491,6 +1491,10 @@ pipelineStatuses[siteId].demo_importing = false;
             } else {
                 if (pipelinePollTimer) { clearInterval(pipelinePollTimer); pipelinePollTimer = null; }
             }
+            // Auto-load feed data when entering feed page
+            if (page === 'shai-pin-feed') {
+                loadGeneratedFeed();
+            }
         });
 
         // Watch brand kit selection → auto-test environment
