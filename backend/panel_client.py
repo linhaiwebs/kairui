@@ -233,7 +233,7 @@ class OnePanelClient:
         return self._request("POST", "/apps/installed/params/update", body)
 
     # ---- Websites ----
-    def search_websites(self, page=1, page_size=100, name="", order_by="name", order="asc",
+    def search_websites(self, page=1, page_size=100, name="", order_by="created_at", order="ascending",
                         website_group_id=0, website_type=""):
         body = {
             "name": name,
