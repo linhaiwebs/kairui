@@ -3167,11 +3167,12 @@ def register_routes(app):
                                     content=panel_server_ip or (panel_env.get("host", "") if panel_env else ""),
                                     proxied=True,
                                 )
-                                if dns:
+                                if dns and dns.get("success"):
                                     cf_result = dns
+                                    rec = dns.get("result", {})
                                     update_site_fields(site_id, {
                                         "cf_zone_id": zone_id,
-                                        "cf_dns_record_id": dns.get("id"),
+                                        "cf_dns_record_id": rec.get("id") if isinstance(rec, dict) else None,
                                     })
                         except Exception as e:
                             logger.warning(f"Cloudflare DNS for {domain} failed: {e}")
