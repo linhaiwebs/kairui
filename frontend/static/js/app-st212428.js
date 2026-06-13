@@ -695,7 +695,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 const params = { period: wooStatsPeriod.value };
                 if (wooStatsDateMin.value) params.date_min = wooStatsDateMin.value;
                 if (wooStatsDateMax.value) params.date_max = wooStatsDateMax.value;
-                const resp = await API.get网站产品Stats(params);
+                const resp = await API.getWooCommerceStats(params);
                 if (resp.code === 200) {
                     wooStats.value = resp.data;
                 }
@@ -1148,7 +1148,7 @@ pipelineStatuses[siteId].demo_importing = false;
         }
 
         // ---- 网站产品 Products ----
-        async function convertTo网站产品() {
+        async function convertToWooCommerce() {
             if (!amazonSelectedIndices.value.size) {
                 showToast('请先选择要转换的产品', 'error');
                 return;
@@ -1216,7 +1216,7 @@ pipelineStatuses[siteId].demo_importing = false;
         }
         async function loadWooProducts() {
             try {
-                const resp = await API.get网站产品Products();
+                const resp = await API.getWooCommerceProducts();
                 if (resp.code === 200) wooProducts.value = resp.data || [];
             } catch (e) { /* ignore */ }
         }
@@ -1247,7 +1247,7 @@ pipelineStatuses[siteId].demo_importing = false;
             }
             if (!confirm(`确定删除选中的 ${selectedIds.length} 件 网站产品 产品？`)) return;
             try {
-                const resp = await API.delete网站产品Products(selectedIds);
+                const resp = await API.deleteWooCommerceProducts(selectedIds);
                 if (resp.code === 200) {
                     const idSet = new Set(selectedIds);
                     wooProducts.value = wooProducts.value.filter(p => !idSet.has(p.id));
@@ -2758,7 +2758,7 @@ async function loadProfileCategories() {
             closeConvertLogModal, toggleFeedSelect, selectAllFeed, deleteSelectedFeedItems, showFeedDescription, buildFeedDetailText,
             wooProducts, wooSelectedIndices, wooConverting, wooConvertProgress,
             feedSyncSiteId, wooSyncSiteId, syncingFeed, syncingWoo,
-            convertTo网站产品, loadWooProducts, toggleWooSelect, selectAllWoo, deleteSelectedWooProducts,
+            convertToWooCommerce, loadWooProducts, toggleWooSelect, selectAllWoo, deleteSelectedWooProducts,
             createFeedForSite, cleanFeedFromSite, syncWooToSite, cleanWooFromSite, generateFeedFromWoo, wooGeneratingFeed, feedUrl,
             cfConnected, cfToken, cfAccounts, cfSelectedAccountId,
             deepseekApiKeys, deepseekVisibleKeys, deepseekKeyErrors, deepseekConnected, deepseekVerify,
@@ -3727,7 +3727,7 @@ async function loadProfileCategories() {
                                     <input type="checkbox" :checked="amazonSelectedIndices.size === amazonSearchResults.length" @change="selectAllAmazon" class="accent-red-500">
                                     全选
                                 </label>
-                                <button @click="convertTo网站产品" :disabled="!amazonSelectedIndices.size || amazonSearchLoading || wooConverting"
+                                <button @click="convertToWooCommerce" :disabled="!amazonSelectedIndices.size || amazonSearchLoading || wooConverting"
                                     class="px-4 py-1.5 bg-primary-container text-on-primary rounded text-xs font-medium hover:bg-primary disabled:opacity-50 transition">
                                     <i class="fas fa-shopping-cart mr-1"></i>生成 网站产品 ({{ amazonSelectedIndices.size }})
                                 </button>
