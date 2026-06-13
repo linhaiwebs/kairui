@@ -2299,6 +2299,26 @@ def render_policy_pages(design, brand_kit):
 # ---------------------------------------------------------------------------
 # 8. render_site — main entry point
 # ---------------------------------------------------------------------------
+def render_site_to_dict(domain, brand_kit, products):
+    """Same as render_site but returns dict {filename: content} without writing to disk."""
+    design = _load_design(brand_kit)
+    global _INLINE_CSS, _INLINE_JS
+    _INLINE_CSS = build_css(design, brand_kit)
+    _INLINE_JS = STORE_JS
+
+    result = {}
+    result["index.html"] = render_homepage(products, design, brand_kit)
+    result["cart.html"] = render_cart_page(design, brand_kit)
+    result["checkout.html"] = render_checkout_page(design, brand_kit)
+    result["order.html"] = render_order_page(design, brand_kit)
+    for fname, content in render_policy_pages(design, brand_kit).items():
+        result[fname] = content
+    for p in (products or []):
+        pid = p.get("id", "")
+        if pid:
+            result[f"products/{pid}.html"] = render_product_page(p, design, brand_kit, products)
+    return result
+
 def render_site(domain, brand_kit, products, site_dir=None):
     """Render all static site files and write to disk.
 

@@ -2999,6 +2999,7 @@ def register_routes(app):
     def _bg_deploy_static(task_id, site_id, alias, domain,
                          brand_kit=None, panel_host="", panel_port=3500, panel_api_key=""):
         """Deploy static site: create 1Panel website + upload files via multipart."""
+        import io as _io
         _get_pc = lambda: OnePanelClient(host=panel_host, port=panel_port, api_key=panel_api_key)
 
         try:
@@ -3010,38 +3011,31 @@ def register_routes(app):
             site_dir_1panel = site_data.get("site_dir", f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index")
 
             # Step 2: Generate files locally
-            from static_store_engine import render_site
-            import tempfile as _tf
-            local_tmp = _tf.mkdtemp(prefix=f"deploy-{site_id}-")
-            render_site(domain, brand_kit or {}, [], local_tmp)
+            from static_store_engine import render_site_to_dict
+            files = render_site_to_dict(domain, brand_kit or {}, [])
 
-            # Step 3: Upload to 1Panel (CSS/JS already inlined, skip .css/.js)
+            # Upload to 1Panel via multipart (all content in memory, no disk writes)
             update_bg_task(task_id, status="deploying", message="正在上传商城文件到1Panel...")
             _get_pc().delete_file(f"{site_dir_1panel}/index.html")
             uploaded = 0
-            for root, dirs, files in os.walk(local_tmp):
-                for fname in files:
-                    if fname.endswith(".css") or fname.endswith(".js"):
-                        continue
-                    local_path = os.path.join(root, fname)
-                    rel_path = os.path.relpath(local_path, local_tmp)
-                    remote_path = f"{site_dir_1panel}/{rel_path}"
-                    parent_dir = os.path.dirname(remote_path)
-                    _get_pc().create_file(parent_dir, is_dir=True)
-                    ts = str(int(time.time()))
-                    token = hashlib.md5(("1panel" + panel_api_key + ts).encode()).hexdigest()
-                    with open(local_path, "rb") as f:
-                        http_requests.post(
-                            f"http://{panel_host}:{panel_port}/api/v1/files/upload",
-                            data={"path": remote_path},
-                            files={"file": (fname, f, "text/html")},
-                            headers={"1Panel-Token": token, "1Panel-Timestamp": ts},
-                            timeout=30,
-                        )
-                    uploaded += 1
+            for rel_path, content in files.items():
+                if rel_path.endswith(".css") or rel_path.endswith(".js"):
+                    continue
+                remote_path = f"{site_dir_1panel}/{rel_path}"
+                parent_dir = os.path.dirname(remote_path)
+                _get_pc().create_file(parent_dir, is_dir=True)
+                ts = str(int(time.time()))
+                token = hashlib.md5(("1panel" + panel_api_key + ts).encode()).hexdigest()
+                http_requests.post(
+                    f"http://{panel_host}:{panel_port}/api/v1/files/upload",
+                    data={"path": remote_path},
+                    files={"file": (os.path.basename(rel_path), _io.BytesIO(content.encode("utf-8")), "text/html")},
+                    headers={"1Panel-Token": token, "1Panel-Timestamp": ts},
+                    timeout=30,
+                )
+                uploaded += 1
 
             _get_pc().reload_openresty()
-            import shutil; shutil.rmtree(local_tmp, ignore_errors=True)
             logger.info(f"Uploaded {uploaded} files to 1Panel for {domain}")
 
             update_site_fields(site_id, {
