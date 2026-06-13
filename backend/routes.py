@@ -2991,53 +2991,46 @@ def register_routes(app):
         })
 
     def _regenerate_static_site_html(task_id_or_none, site_id):
-        """Regenerate static site HTML with current products, upload to 1Panel."""
+        """Regenerate static site HTML with current products, write locally."""
         site = get_site(site_id)
         if not site or site.get("site_type") != "static":
             return
 
-        nginx_alias = site.get("nginx_alias", "")
-        site_dir = site.get("static_dir", "")
-        if not site_dir or not nginx_alias:
-            return
-
+        domain = site.get("url", "")
         products = list_static_site_products(site_id)
         brand_kit_id = site.get("brand_kit_id")
         brand_kit = get_brand_kit(brand_kit_id) if brand_kit_id else None
-        domain = site.get("url", "")
 
-        # Get panel client from site's environment
-        env = get_user_panel_environment(site.get("created_by") or 1)
-        if not env:
-            logger.warning(f"No panel env for site {site_id}, skip regenerate")
-            return
-        pc = OnePanelClient(host=env["host"], port=env["port"], api_key=env["api_key"])
+        # Write to local filesystem (served by puhuo nginx wildcard)
+        site_dir = f"/var/www/static-sites/{domain}"
+        assets_dir = os.path.join(site_dir, "assets")
+        os.makedirs(assets_dir, exist_ok=True)
 
-        # Generate pages from brand kit (or fallback)
         files = _generate_brand_pages(domain, brand_kit)
 
-        # Inject product cards into index.html if products exist
+        # Inject product cards
         if products:
             product_cards = ""
             for p in products:
                 price = f"${p.get('price', 0):.2f}"
-                title = p.get("title", "Product")
+                title = p.get('title', 'Product') or 'Product'
                 image = p.get("image_url", "")
                 img_tag = f'<img src="{image}" alt="{title}">' if image else '<div style="height:240px;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8">No Image</div>'
-                product_cards += f"""<div class="product-card">{img_tag}<div class="product-info"><h3>{title}</h3><p class="price">{price}</p></div></div>"""
+                product_cards += f'<div class="product-card">{img_tag}<div class="product-info"><h3>{title}</h3><p class="price">{price}</p></div></div>'
 
             index = files.get("index.html", "")
-            # Replace placeholder text with real product grid
-            if "Products coming soon" in index:
-                index = index.replace(
-                    '<p style="text-align:center;color:#999;padding:40px">Products coming soon. Check back later!</p>',
-                    product_cards,
-                )
+            placeholder = '<p style="text-align:center;color:#999;padding:40px">Products coming soon. Check back later!</p>'
+            if placeholder in index:
+                index = index.replace(placeholder, product_cards)
             files["index.html"] = index
 
-        # Upload files
-        pc.upload_static_site_files(alias=nginx_alias, files=files, website_dir=site_dir)
-        pc.reload_openresty()
+        # Write files
+        for rel_path, content in files.items():
+            full_path = os.path.join(site_dir, rel_path)
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
         logger.info(f"Regenerated static site {site_id} ({domain}) with {len(products)} products")
 
     def _generate_brand_pages(domain, brand_kit):
@@ -3147,44 +3140,18 @@ body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;b
 
     def _bg_deploy_static(task_id, site_id, alias, domain,
                          brand_kit=None, panel_host="", panel_port=3500, panel_api_key=""):
-        """Deploy a static site via 1Panel API.
-
-        1. Create static website in 1Panel → get siteDir
-        2. Upload HTML files via 1Panel file API
-        3. Reload OpenResty
-        """
-        _get_panel_client = lambda: OnePanelClient(
-            host=panel_host, port=panel_port, api_key=panel_api_key
-        )
+        """Deploy a static site — write files locally, served by puhuo nginx wildcard."""
+        site_dir = f"/var/www/static-sites/{domain}"
+        assets_dir = os.path.join(site_dir, "assets")
 
         try:
-            update_bg_task(task_id, status="deploying", message="1Panel正在创建静态网站...")
+            update_bg_task(task_id, status="deploying", message="正在创建站点目录...")
+            os.makedirs(assets_dir, exist_ok=True)
 
-            # Step 1: Create static website in 1Panel
-            site_resp = _get_panel_client().create_static_website(
-                domain=domain, alias=alias
-            )
-            if site_resp.get("code") != 200:
-                update_bg_task(task_id, status="failed",
-                              message=f"1Panel创建网站失败: {site_resp.get('message', '')}")
-                update_site_fields(site_id, {"status": "error"})
-                return
-
-            site_data = site_resp.get("data", {})
-            site_dir = site_data.get("site_dir", "")
-            website_id = site_data.get("website_id")
-            logger.info(f"1Panel static site created: id={website_id} dir={site_dir}")
-
-            # Ensure index directory exists
-            _get_panel_client().create_file(site_dir, is_dir=True)
-            _get_panel_client().create_file(site_dir.rstrip("/") + "/assets", is_dir=True)
-
-            # Step 2: Prepare and upload files
-            files = {}
+            # Generate or use brand kit pages
+            files_written = 0
             if brand_kit and brand_kit.get("html_site"):
-                update_bg_task(task_id, status="deploying", message="正在上传品牌页面...")
-                import base64 as _b64
-
+                update_bg_task(task_id, status="deploying", message="正在写入品牌页面...")
                 html_site = brand_kit["html_site"]
                 if isinstance(html_site, str):
                     html_site = json.loads(html_site) if html_site else {}
@@ -3194,55 +3161,34 @@ body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;b
                                   "returns.html", "robots.txt"]:
                     content = html_site.get(page_name, "")
                     if content:
-                        files[page_name] = content
+                        with open(os.path.join(site_dir, page_name), "w", encoding="utf-8") as f:
+                            f.write(content)
+                        files_written += 1
 
-                css_content = html_site.get("css", "")
-                if css_content:
-                    files["assets/style.css"] = css_content
+                css = html_site.get("css", "")
+                if css:
+                    with open(os.path.join(assets_dir, "style.css"), "w", encoding="utf-8") as f:
+                        f.write(css)
 
-                for asset_key, asset_name in [("png_256", "logo.png"), ("ico", "favicon.ico"), ("og_image", "og-image.png")]:
-                    src = brand_kit.get(asset_key, "")
+                for ak, an in [("png_256", "logo.png"), ("ico", "favicon.ico"), ("og_image", "og-image.png")]:
+                    src = brand_kit.get(ak, "")
                     if src and os.path.isfile(src):
-                        with open(src, "rb") as f:
-                            files[f"assets/{asset_name}"] = _b64.b64encode(f.read()).decode("utf-8")
+                        import shutil
+                        shutil.copy(src, os.path.join(assets_dir, an))
 
-            if not files:
-                # Generate from brand kit data (or generic placeholder)
+            if files_written == 0:
                 update_bg_task(task_id, status="deploying", message="正在生成品牌页面...")
                 files = _generate_brand_pages(domain, brand_kit)
+                for rel_path, content in files.items():
+                    full_path = os.path.join(site_dir, rel_path)
+                    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                    with open(full_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    files_written += 1
 
-            update_bg_task(task_id, status="deploying", message="正在上传文件...")
-            upload_resp = _get_panel_client().upload_static_site_files(
-                alias=alias, files=files, website_dir=site_dir
-            )
-            if upload_resp.get("code") not in (200, 207):
-                logger.warning(f"File upload issue: {upload_resp.get('message', '')}")
-            else:
-                logger.info(f"Uploaded {len(upload_resp.get('data', {}).get('uploaded', []))} files for {domain}")
+            logger.info(f"Static site {domain}: {files_written} files written to {site_dir}")
 
-            # Step 3: Reload OpenResty
-            update_bg_task(task_id, status="deploying", message="正在重载OpenResty...")
-            reload_resp = _get_panel_client().reload_openresty()
-            if reload_resp.get("code") != 200:
-                logger.warning(f"OpenResty reload issue: {reload_resp.get('message', '')}")
-
-            # Success — also try to get website_id if not already set
-            if not website_id:
-                try:
-                    ws = _get_panel_client().search_websites(name=domain)
-                    if ws.get("code") == 200:
-                        for w in (ws.get("data") or {}).get("items", []):
-                            if w.get("alias") == alias or w.get("primaryDomain") == domain:
-                                website_id = w.get("id")
-                                break
-                except Exception:
-                    pass
-
-            update_site_fields(site_id, {
-                "status": "active",
-                "static_dir": site_dir,
-                "panel_website_id": website_id,
-            })
+            update_site_fields(site_id, {"status": "active", "static_dir": site_dir})
             update_bg_task(task_id, status="completed",
                           message=f"站点 {domain} 部署完成")
 
