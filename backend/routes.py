@@ -3053,7 +3053,7 @@ def register_routes(app):
                 panel_port = panel_env.get("port", 3500) if panel_env else 3500
                 panel_key = panel_env.get("api_key", "") if panel_env else ""
 
-                thread = Thread(
+                thread = threading.Thread(
                     target=_bg_deploy_static,
                     args=(bg_task_id, site_id, alias_sanitized, domain),
                     kwargs={
