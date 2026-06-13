@@ -4753,17 +4753,32 @@ body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;b
     @app.route("/api/sites/<int:site_id>/pipeline-status", methods=["GET"])
     @jwt_required()
     def get_pipeline_status(site_id):
-        """Get timeline pipeline status for a site (WP deployed / demo / kit / GMC)."""
+        """Get timeline pipeline status for a site.
+
+        Static sites: dns_resolved → site_created → files_uploaded
+        WordPress sites (legacy): wp_deployed → demo_imported → brand_configured → gmc
+        """
         site = get_site(site_id)
         if not site:
             return jsonify({"code": 404, "message": "站点不存在"}), 404
-        return jsonify({"code": 200, "data": {
-            "wp_deployed": bool(site.get("panel_website_id")),
-            "demo_imported": bool(site.get("demo_imported", 0)),
+
+        is_static = site.get("site_type") == "static"
+        is_active = site.get("status") == "active"
+
+        data = {
+            "site_type": site.get("site_type", "wordpress"),
+            # Static site stages
+            "dns_resolved": bool(site.get("cf_dns_record_id")),
+            "site_created": bool(site.get("panel_website_id") or site.get("static_dir")),
+            "files_uploaded": is_active,
+            # WordPress legacy stages
+            "wp_deployed": bool(site.get("panel_website_id")) if not is_static else False,
+            "demo_imported": bool(site.get("demo_imported", 0)) if not is_static else False,
             "demo_name": site.get("demo_name", ""),
-            "brand_configured": bool(site.get("brand_configured", 0)),
+            "brand_configured": bool(site.get("brand_kit_id") or site.get("brand_configured", 0)),
             "gmc_registered": bool(site.get("google_mc_account_id", "") or site.get("google_feed_url", "")),
-        }})
+        }
+        return jsonify({"code": 200, "data": data})
 
     # ------------------------------------------------------------------
 

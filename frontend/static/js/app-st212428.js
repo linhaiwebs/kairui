@@ -453,7 +453,15 @@ const app = createApp({
         function siteStatusText(site) {
             const s = pipelineStatuses[site.id] || {};
             const w = wpInstallStatuses[site.id];
-            if (s.gmc_registered) return '已完成';
+            const isStatic = s.site_type === 'static';
+            if (s.gmc_registered && !isStatic) return '已完成';
+            if (isStatic) {
+                if (s.files_uploaded) return '已上线';
+                if (s.site_created) return '正在上传文件...';
+                if (s.dns_resolved) return '正在创建站点...';
+                if (w && w.status === 'installing') return '正在部署...';
+                return '等待部署';
+            }
             if (s.brand_configured) {
                 if (s.silent_step === 'cf-ssl') return '正在安装SSL...';
                 return '处理中...';
@@ -468,8 +476,28 @@ const app = createApp({
             return '等待部署';
         }
         function pipelineLineState(site, stage) {
-            // stage: 'demo' | 'kit' | 'gmc'
             const s = pipelineStatuses[site.id] || {};
+            const isStatic = s.site_type === 'static';
+            if (isStatic) {
+                // Static: stage1 (create) → stage2 (upload) → stage3 (brand)
+                if (stage === 'stage1') {
+                    if (s.files_uploaded || s.site_created) return 'done';
+                    if (s.dns_resolved) return 'connecting';
+                    return 'inactive';
+                }
+                if (stage === 'stage2') {
+                    if (s.files_uploaded) return 'done';
+                    if (s.site_created && !s.files_uploaded) return 'connecting';
+                    return 'inactive';
+                }
+                if (stage === 'stage3') {
+                    if (s.brand_configured || s.gmc_registered) return 'done';
+                    if (s.files_uploaded && !s.brand_configured) return 'connecting';
+                    return 'inactive';
+                }
+                return 'inactive';
+            }
+            // WordPress: demo / kit / gmc
             if (stage === 'demo') {
                 if (s.demo_imported) return 'done';
                 if (s.wp_deployed && !s.demo_imported) return 'connecting';
@@ -1493,12 +1521,21 @@ pipelineStatuses[siteId].demo_importing = false;
                 pipelinePollTimer = setInterval(() => {
                     sites.value.forEach(s => {
                         const ps = pipelineStatuses[s.id];
-                        if (!ps || !ps.wp_deployed) return;
+                        if (!ps) return;
+                        // Static sites: poll while not fully complete
+                        if (ps.site_type === 'static') {
+                            if (!ps.files_uploaded || !ps.brand_configured) {
+                                loadPipelineStatus(s.id);
+                            }
+                            return;
+                        }
+                        // WordPress sites (legacy)
+                        if (!ps.wp_deployed) return;
                         if (!ps.brand_configured || !ps.gmc_registered || (!ps.demo_imported && !ps.demo_importing)) {
                             loadPipelineStatus(s.id);
                         }
                     });
-                }, 15000);
+                }, 8000);
             } else {
                 if (pipelinePollTimer) { clearInterval(pipelinePollTimer); pipelinePollTimer = null; }
             }
@@ -3117,42 +3154,54 @@ async function loadProfileCategories() {
                             </div>
                             <!-- Timeline -->
                             <div class="flex items-center gap-0 flex-1 ml-2">
-                                <!-- WP icon -->
-                                <div class="timeline-icon" :class="pipelineStatuses[site.id]?.wp_deployed ? 'active' : (wpInstallStatuses[site.id] && wpInstallStatuses[site.id].status === 'installing' ? 'in-progress' : 'inactive')">
-                                    <span class="material-symbols-outlined">language</span>
-                                </div>
-                                <!-- Line 1: WP → Demo -->
-                                <div class="timeline-line" :class="pipelineLineState(site, 'demo')"></div>
-                                <!-- Demo icon -->
-                                <div class="timeline-icon"
-                                     :class="[
-                                        pipelineStatuses[site.id]?.demo_imported ? 'active' :
-                                        pipelineStatuses[site.id]?.demo_importing ? 'in-progress' :
-                                        (pipelineStatuses[site.id]?.wp_deployed && !pipelineStatuses[site.id]?.demo_imported) ? 'in-progress clickable' : 'inactive',
-                                        (pipelineStatuses[site.id]?.wp_deployed && !pipelineStatuses[site.id]?.demo_importing) ? 'clickable' : ''
-                                     ]"
-                                     :title="pipelineStatuses[site.id]?.demo_imported ? '演示已导入: ' + (pipelineStatuses[site.id]?.demo_name || '') : pipelineStatuses[site.id]?.demo_importing ? '演示导入中...' : '点击导入主题演示'"
-                                     @click="pipelineStatuses[site.id]?.wp_deployed && !pipelineStatuses[site.id]?.demo_importing && openDemoImportForSite(site)">
-                                    <i class="fas fa-paint-brush"></i>
-                                </div>
-                                <!-- Line 2: Demo → Kit -->
-                                <div class="timeline-line" :class="pipelineLineState(site, 'kit')"></div>
-                                <!-- Kit icon -->
-                                <div class="timeline-icon"
-                                     :class="pipelineStatuses[site.id]?.brand_configured ? 'active' :
-                                        (pipelineStatuses[site.id]?.demo_imported && !pipelineStatuses[site.id]?.brand_configured) ? 'in-progress' : 'inactive'"
-                                     :title="pipelineStatuses[site.id]?.brand_configured ? '品牌配置已完成' : '品牌配置'">
-                                    <i class="fas fa-cube"></i>
-                                </div>
-                                <!-- Line 3: Kit → GMC -->
-                                <div class="timeline-line" :class="pipelineLineState(site, 'gmc')"></div>
-                                <!-- GMC icon -->
-                                <div class="timeline-icon"
-                                     :class="pipelineStatuses[site.id]?.gmc_registered ? 'active' :
-                                        (pipelineStatuses[site.id]?.brand_configured && !pipelineStatuses[site.id]?.gmc_registered) ? 'inactive' : 'inactive'"
-                                     :title="pipelineStatuses[site.id]?.gmc_registered ? 'GMC已注册: ' + (site.google_mc_account_id || '') : 'GMC注册'">
-                                    <i class="fab fa-google"></i>
-                                </div>
+                                <!-- Static site timeline -->
+                                <template v-if="pipelineStatuses[site.id]?.site_type === 'static'">
+                                    <!-- Stage 1: DNS + 1Panel site -->
+                                    <div class="timeline-icon" :class="pipelineStatuses[site.id]?.site_created ? 'active' : (pipelineStatuses[site.id]?.dns_resolved ? 'in-progress' : 'inactive')">
+                                        <span class="material-symbols-outlined">dns</span>
+                                    </div>
+                                    <div class="timeline-line" :class="pipelineLineState(site, 'stage1')"></div>
+                                    <!-- Stage 2: Files uploaded -->
+                                    <div class="timeline-icon" :class="pipelineStatuses[site.id]?.files_uploaded ? 'active' : (pipelineStatuses[site.id]?.site_created ? 'in-progress' : 'inactive')">
+                                        <span class="material-symbols-outlined">upload_file</span>
+                                    </div>
+                                    <div class="timeline-line" :class="pipelineLineState(site, 'stage2')"></div>
+                                    <!-- Stage 3: Brand configured -->
+                                    <div class="timeline-icon" :class="pipelineStatuses[site.id]?.brand_configured ? 'active' : (pipelineStatuses[site.id]?.files_uploaded ? 'in-progress' : 'inactive')">
+                                        <i class="fas fa-cube"></i>
+                                    </div>
+                                </template>
+                                <!-- WordPress site timeline (legacy) -->
+                                <template v-else>
+                                    <div class="timeline-icon" :class="pipelineStatuses[site.id]?.wp_deployed ? 'active' : (wpInstallStatuses[site.id] && wpInstallStatuses[site.id].status === 'installing' ? 'in-progress' : 'inactive')">
+                                        <span class="material-symbols-outlined">language</span>
+                                    </div>
+                                    <div class="timeline-line" :class="pipelineLineState(site, 'demo')"></div>
+                                    <div class="timeline-icon"
+                                         :class="[
+                                            pipelineStatuses[site.id]?.demo_imported ? 'active' :
+                                            pipelineStatuses[site.id]?.demo_importing ? 'in-progress' :
+                                            (pipelineStatuses[site.id]?.wp_deployed && !pipelineStatuses[site.id]?.demo_imported) ? 'in-progress clickable' : 'inactive',
+                                            (pipelineStatuses[site.id]?.wp_deployed && !pipelineStatuses[site.id]?.demo_importing) ? 'clickable' : ''
+                                         ]"
+                                         :title="pipelineStatuses[site.id]?.demo_imported ? '演示已导入: ' + (pipelineStatuses[site.id]?.demo_name || '') : pipelineStatuses[site.id]?.demo_importing ? '演示导入中...' : '点击导入主题演示'"
+                                         @click="pipelineStatuses[site.id]?.wp_deployed && !pipelineStatuses[site.id]?.demo_importing && openDemoImportForSite(site)">
+                                        <i class="fas fa-paint-brush"></i>
+                                    </div>
+                                    <div class="timeline-line" :class="pipelineLineState(site, 'kit')"></div>
+                                    <div class="timeline-icon"
+                                         :class="pipelineStatuses[site.id]?.brand_configured ? 'active' :
+                                            (pipelineStatuses[site.id]?.demo_imported && !pipelineStatuses[site.id]?.brand_configured) ? 'in-progress' : 'inactive'"
+                                         :title="pipelineStatuses[site.id]?.brand_configured ? '品牌配置已完成' : '品牌配置'">
+                                        <i class="fas fa-cube"></i>
+                                    </div>
+                                    <div class="timeline-line" :class="pipelineLineState(site, 'gmc')"></div>
+                                    <div class="timeline-icon"
+                                         :class="pipelineStatuses[site.id]?.gmc_registered ? 'active' : 'inactive'"
+                                         :title="pipelineStatuses[site.id]?.gmc_registered ? 'GMC已注册: ' + (site.google_mc_account_id || '') : 'GMC注册'">
+                                        <i class="fab fa-google"></i>
+                                    </div>
+                                </template>
                                 <!-- Status text -->
                                 <span class="text-xs text-on-surface-variant ml-3 whitespace-nowrap">{{ siteStatusText(site) }}</span>
                             </div>
