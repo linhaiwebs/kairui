@@ -2403,13 +2403,32 @@ def register_routes(app):
             if not site:
                 return jsonify({"code": 404, "message": "站点不存在"}), 404
 
-            # Clean up 1Panel resources.
-            # Delete the website/app via 1Panel, but NOT the database — the DB
-            # is an independent resource shared across sites on a single MariaDB
-            # service. Deleting via 1Panel's DeleteDB flag could remove the entire
-            # service container, taking down other sites. We delete the DB by name
-            # below instead.
-            if site.get("panel_website_id"):
+            nginx_alias = site.get("nginx_alias", "")
+
+            # Static site: delete 1Panel website + site directory
+            if site.get("site_type") == "static":
+                pid = site.get("panel_website_id")
+                if pid:
+                    try:
+                        _get_panel_client().delete_website(
+                            pid, delete_app=False, delete_backup=True,
+                            force_delete=True, delete_db=False,
+                        )
+                        logger.info(f"Deleted 1Panel static website {pid}")
+                    except Exception as e:
+                        logger.warning(f"Failed to delete 1Panel website: {e}")
+
+                # Also clean up site directory via file API
+                if nginx_alias:
+                    site_path = f"/opt/1panel/apps/openresty/openresty/www/sites/{nginx_alias}"
+                    try:
+                        _get_panel_client().delete_file(site_path)
+                        logger.info(f"Deleted static site dir: {site_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to delete site dir: {e}")
+
+            # WordPress site (legacy)
+            elif site.get("panel_website_id"):
                 try:
                     _get_panel_client().delete_website(
                         site["panel_website_id"],
@@ -2419,15 +2438,6 @@ def register_routes(app):
                     logger.info(f"Deleted 1Panel deployment website {site['panel_website_id']}")
                 except Exception as e:
                     logger.warning(f"Failed to delete 1Panel website: {e}")
-            else:
-                # Legacy: manually clean up nginx config and app
-                nginx_alias = site.get("nginx_alias")
-                if nginx_alias:
-                    try:
-                        _get_panel_client().delete_nginx_proxy_config(alias=nginx_alias)
-                        logger.info(f"Deleted nginx config for {nginx_alias}")
-                    except Exception as e:
-                        logger.warning(f"Failed to delete nginx config: {e}")
 
                 if site.get("panel_app_install_id"):
                     try:
@@ -2439,27 +2449,15 @@ def register_routes(app):
                     except Exception as e:
                         logger.warning(f"Failed to delete 1Panel app: {e}")
 
-            # Clean up the independently-created database
-            db_name = site.get("db_name")
-            db_service = site.get("db_service") or "mariadb"
-            if db_name:
+            # Legacy nginx proxy config cleanup
+            elif nginx_alias:
                 try:
-                    db_resp = _get_panel_client().search_databases(name=db_name)
-                    if db_resp.get("code") == 200:
-                        db_items = (db_resp.get("data") or {}).get("items") or []
-                        for d in db_items:
-                            if d.get("name") == db_name:
-                                _get_panel_client().delete_database(
-                                    d.get("id"), db_type=db_service,
-                                    delete_user=True, force_delete=True,
-                                )
-                                logger.info(f"Deleted 1Panel database {db_name}")
-                                break
+                    _get_panel_client().delete_nginx_proxy_config(alias=nginx_alias)
+                    logger.info(f"Deleted nginx config for {nginx_alias}")
                 except Exception as e:
-                    logger.warning(f"Failed to delete database {db_name}: {e}")
+                    logger.warning(f"Failed to delete nginx config: {e}")
 
             # Cloudflare DNS: skip deletion — keep DNS for reuse
-            # (DNS records persist after site removal so domain can be repointed later)
 
             # Clean up unused Docker images via Docker socket
             _do_docker_image_cleanup(site_id)
