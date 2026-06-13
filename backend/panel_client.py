@@ -233,7 +233,7 @@ class OnePanelClient:
         return self._request("POST", "/apps/installed/params/update", body)
 
     # ---- Websites ----
-    def search_websites(self, page=1, page_size=100, name="", order_by="favorite", order="descending",
+    def search_websites(self, page=1, page_size=100, name="", order_by="name", order="asc",
                         website_group_id=0, website_type=""):
         body = {
             "name": name,
@@ -567,8 +567,9 @@ class OnePanelClient:
         }
         resp = self._request("POST", "/websites", body)
         if resp.get("code") == 200:
-            # 1Panel creates site directory at .../sites/{alias}/index
-            site_dir = f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index"
+            # 1Panel creates site directory at .../sites/{alias} (no trailing /index)
+            # sitePath from search response: /opt/1panel/apps/openresty/openresty/www/sites/maxc.lhwebs.com
+            site_dir = f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}"
             resp["data"] = {"website_id": None, "site_dir": site_dir, "alias": alias}
 
             # Search by domain (primaryDomain) to get actual website_id and siteDir
