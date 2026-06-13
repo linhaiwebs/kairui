@@ -237,12 +237,17 @@ const API = {
         return this.request('GET', '/api/panel/environments/current');
     },
     
-    // Batch create
+    // Batch create static sites
+    async batchCreateStaticSite(data) {
+        return this.request('POST', '/api/sites/create-static', data);
+    },
+
+    // Batch create (legacy WordPress, kept for backward compatibility)
     async batchCreateWordPress(data) {
         return this.request('POST', '/api/wordpress/batch-create', data);
     },
 
-    // WordPress install status
+    // WordPress install status (legacy)
     async getWPInstallStatus(siteId) {
         return this.request('GET', `/api/wordpress/install-status/${siteId}`);
     },

@@ -1527,14 +1527,13 @@ pipelineStatuses[siteId].demo_importing = false;
             // Submit to backend (creates sites in DB + starts bg deploy threads)
             loading.value = true;
             try {
-                const resp = await API.batchCreateWordPress({
-                    domains: domains, admin_name: createForm.admin_name, admin_password: createForm.admin_password,
-                    tag: "模板独立站", security_id: createForm.security_id, http_username: createForm.http_username,
-                    http_password: createForm.http_password, verify_certificate: createForm.verify_certificate,
-                    ssl_version: createForm.ssl_version, base_port: createForm.base_port, db_service: createForm.db_service,
-                    website_group_id: createForm.website_group_id || 1,
+                const resp = await API.batchCreateStaticSite({
+                    domains: domains,
                     brand_kit_id: wizardBrandKitId.value || null,
                     cf_account_id: cfSelectedAccountId.value || null,
+                    admin_name: createForm.admin_name || 'admin',
+                    admin_password: createForm.admin_password || '',
+                    tag: "静态独立站",
                 });
                 if (resp.code !== 200) {
                     showToast(`创建失败: ${resp.message}`, 'error');
@@ -1542,26 +1541,12 @@ pipelineStatuses[siteId].demo_importing = false;
                 }
                 const results = resp.data.results || [];
 
-                // Refresh site list BEFORE closing wizard — so new sites are visible immediately
+                // Refresh site list — new sites visible immediately
                 await loadSites();
 
-                // Start background WP polling for each site
-                for (const r of results) {
-                    if (r.site_id && r.status !== 'error') {
-                        startWPPolling(r.site_id, domains.find(d => d === r.domain || !r.domain) || r.domain || '');
-                    }
-                }
-
-                // Pre-warm silent install: save kit info for when polling completes
-                if (wizardBrandKitId.value) {
-                    brandConfigSelectedKitId.value = wizardBrandKitId.value;
-                    const kit = brandKitsForWizard.value.find(k => k.id === wizardBrandKitId.value);
-                    if (kit && kit.brand_name) brandConfigBrandName.value = kit.brand_name;
-                }
-
-                // Now close wizard — site list underneath already has new entries
+                // Close wizard
                 wizardOpen.value = false;
-                showToast(`${results.length} 个站点已加入队列，后台部署中...`);
+                showToast(`${results.length} 个站点已创建，后台部署中...`);
             } catch (e) {
                 showToast(`创建失败: ${e.message}`, 'error');
             } finally {
