@@ -4294,231 +4294,231 @@ def _auto_diagnose_on_failure(task_id, success):
         })
 
     
-# ------------------------------------------------------------------
-# AI 诊断 — 分析任务日志，自动生成解决方案
-# ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # AI 诊断 — 分析任务日志，自动生成解决方案
+    # ------------------------------------------------------------------
 
-@app.route("/api/tasks/<task_id>/diagnose", methods=["POST"])
-@jwt_required()
-def task_diagnose(task_id):
-    """触发 AI 诊断：分析 GMC 任务日志并返回解决方案。
+    @app.route("/api/tasks/<task_id>/diagnose", methods=["POST"])
+    @jwt_required()
+    def task_diagnose(task_id):
+        """触发 AI 诊断：分析 GMC 任务日志并返回解决方案。
 
-    Returns:
-        { code, data: { diagnosis: { root_cause, solution, severity, steps, errors } } }
-    """
-    from services.gmc_diagnosis import (
-        diagnose_task, get_task_logs_as_list, get_task_type,
-    )
-    from task_logs import save_diagnosis, get_task_logs
+        Returns:
+            { code, data: { diagnosis: { root_cause, solution, severity, steps, errors } } }
+        """
+        from services.gmc_diagnosis import (
+            diagnose_task, get_task_logs_as_list, get_task_type,
+        )
+        from task_logs import save_diagnosis, get_task_logs
 
-    try:
-        task_type = get_task_type(task_id)
-        if task_type == "unknown":
-            return jsonify({"code": 404, "message": "任务不存在"}), 404
+        try:
+            task_type = get_task_type(task_id)
+            if task_type == "unknown":
+                return jsonify({"code": 404, "message": "任务不存在"}), 404
 
-        # 读取所有日志
-        log_entries = get_task_logs_as_list(task_id)
-        logs, status, result = get_task_logs(task_id, after=0)
+            # 读取所有日志
+            log_entries = get_task_logs_as_list(task_id)
+            logs, status, result = get_task_logs(task_id, after=0)
 
-        if not log_entries:
+            if not log_entries:
+                return jsonify({
+                    "code": 200,
+                    "data": {
+                        "diagnosis": {
+                            "summary": "暂无日志数据，无法诊断。请等待任务开始后重试。",
+                            "severity": "info",
+                        }
+                    }
+                })
+
+            # 执行 AI 诊断
+            report = diagnose_task(task_id, task_type, log_entries)
+            diagnosis_dict = report.to_dict()
+
+            # 持久化诊断结果
+            save_diagnosis(task_id, diagnosis_dict)
+
+            logger.info(
+                "Diagnosis complete for task %s: severity=%s root_cause=%s",
+                task_id, report.severity, report.root_cause[:80],
+            )
+
             return jsonify({
                 "code": 200,
                 "data": {
-                    "diagnosis": {
-                        "summary": "暂无日志数据，无法诊断。请等待任务开始后重试。",
-                        "severity": "info",
-                    }
-                }
+                    "diagnosis": diagnosis_dict,
+                    "task_status": status,
+                },
+                "message": "诊断完成",
             })
-
-        # 执行 AI 诊断
-        report = diagnose_task(task_id, task_type, log_entries)
-        diagnosis_dict = report.to_dict()
-
-        # 持久化诊断结果
-        save_diagnosis(task_id, diagnosis_dict)
-
-        logger.info(
-            "Diagnosis complete for task %s: severity=%s root_cause=%s",
-            task_id, report.severity, report.root_cause[:80],
-        )
-
-        return jsonify({
-            "code": 200,
-            "data": {
-                "diagnosis": diagnosis_dict,
-                "task_status": status,
-            },
-            "message": "诊断完成",
-        })
-    except Exception as e:
-        logger.error("Diagnosis error for task %s: %s", task_id, e)
-        return jsonify({"code": 500, "message": f"诊断异常: {str(e)[:200]}"}), 500
+        except Exception as e:
+            logger.error("Diagnosis error for task %s: %s", task_id, e)
+            return jsonify({"code": 500, "message": f"诊断异常: {str(e)[:200]}"}), 500
 
 
-@app.route("/api/tasks/<task_id>/diagnosis", methods=["GET"])
-@jwt_required()
-def get_task_diagnosis(task_id):
-    """获取之前保存的诊断结果（如果有）。"""
-    from task_logs import get_diagnosis
-    try:
-        diag = get_diagnosis(task_id)
-        if diag:
-            return jsonify({"code": 200, "data": {"diagnosis": diag}})
-        return jsonify({"code": 200, "data": {"diagnosis": None}, "message": "尚无诊断结果"})
-    except Exception as e:
-        logger.error("get_diagnosis error: %s", e)
-        return jsonify({"code": 500, "message": str(e)[:200]}), 500
-    @app.route("/api/tasks/gmc-recon", methods=["POST"])
+    @app.route("/api/tasks/<task_id>/diagnosis", methods=["GET"])
     @jwt_required()
-    def task_gmc_recon():
-        """GMC Next 流程侦查：遍历注册向导每一步，导出 DOM 结构 + 截图。
-
-        输出: /tmp/gmc_recon/step_01.png, step_01.json, step_02.png, ...
-        """
-        data = request.get_json(silent=True) or {}
-        site_id = data.get("site_id")
-        profile_dir = (data.get("profile_dir") or "").strip()
-        onboarding_url = (data.get("onboarding_url") or "").strip()
-
-        site = get_site(site_id) if site_id else None
-        if not site:
-            return jsonify({"code": 404, "message": "站点不存在"}), 404
-
+    def get_task_diagnosis(task_id):
+        """获取之前保存的诊断结果（如果有）。"""
+        from task_logs import get_diagnosis
         try:
-            profile_dir = _resolve_site_profile(site, profile_dir)
-        except FileNotFoundError as e:
-            return jsonify({"code": 400, "message": str(e)}), 400
+            diag = get_diagnosis(task_id)
+            if diag:
+                return jsonify({"code": 200, "data": {"diagnosis": diag}})
+            return jsonify({"code": 200, "data": {"diagnosis": None}, "message": "尚无诊断结果"})
+        except Exception as e:
+            logger.error("get_diagnosis error: %s", e)
+            return jsonify({"code": 500, "message": str(e)[:200]}), 500
+        @app.route("/api/tasks/gmc-recon", methods=["POST"])
+        @jwt_required()
+        def task_gmc_recon():
+            """GMC Next 流程侦查：遍历注册向导每一步，导出 DOM 结构 + 截图。
 
-        google_email, google_password, google_totp_secret = _resolve_google_account_from_site(site)
+            输出: /tmp/gmc_recon/step_01.png, step_01.json, step_02.png, ...
+            """
+            data = request.get_json(silent=True) or {}
+            site_id = data.get("site_id")
+            profile_dir = (data.get("profile_dir") or "").strip()
+            onboarding_url = (data.get("onboarding_url") or "").strip()
 
-        task_id = create_task("gmc-recon", site_id)
-        logger.info("Task %s: gmc-recon started site=%s profile=%s url=%s",
-                    task_id, site_id, os.path.basename(profile_dir), onboarding_url or "default")
+            site = get_site(site_id) if site_id else None
+            if not site:
+                return jsonify({"code": 404, "message": "站点不存在"}), 404
 
-        import asyncio
-        from services.mc_auto_register import gmc_recon as do_recon
-
-        def _run():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
             try:
-                result = loop.run_until_complete(do_recon(
-                    profile_dir=profile_dir,
-                    google_email=google_email,
-                    google_password=google_password,
-                    google_totp_secret=google_totp_secret,
-                    onboarding_url=onboarding_url,
-                    headless=False,
-                    log_callback=lambda level, msg, step: add_log(task_id, level, msg, step),
-                ))
-                complete_task(task_id, result.get("success", False), result)
-                _auto_diagnose_on_failure(task_id, result.get("success", False))
+                profile_dir = _resolve_site_profile(site, profile_dir)
+            except FileNotFoundError as e:
+                return jsonify({"code": 400, "message": str(e)}), 400
+
+            google_email, google_password, google_totp_secret = _resolve_google_account_from_site(site)
+
+            task_id = create_task("gmc-recon", site_id)
+            logger.info("Task %s: gmc-recon started site=%s profile=%s url=%s",
+                        task_id, site_id, os.path.basename(profile_dir), onboarding_url or "default")
+
+            import asyncio
+            from services.mc_auto_register import gmc_recon as do_recon
+
+            def _run():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(do_recon(
+                        profile_dir=profile_dir,
+                        google_email=google_email,
+                        google_password=google_password,
+                        google_totp_secret=google_totp_secret,
+                        onboarding_url=onboarding_url,
+                        headless=False,
+                        log_callback=lambda level, msg, step: add_log(task_id, level, msg, step),
+                    ))
+                    complete_task(task_id, result.get("success", False), result)
+                    _auto_diagnose_on_failure(task_id, result.get("success", False))
+                except Exception as e:
+                    add_log(task_id, "error", f"任务异常: {e}", "")
+                    complete_task(task_id, False, {"success": False, "message": str(e)})
+                    _auto_diagnose_on_failure(task_id, False)
+                finally:
+                    loop.close()
+
+            threading.Thread(target=_run, daemon=True).start()
+            return jsonify({"code": 200, "data": {"task_id": task_id}, "message": "侦查任务已启动"})
+
+        @app.route("/api/cloakbrowser/profiles/test", methods=["POST"])
+        @jwt_required()
+        def cloakbrowser_test_profile():
+            """Test a CloakBrowser profile: launch browser, verify connectivity."""
+            data = request.get_json(silent=True) or {}
+            profile_name = (data.get("profile_name") or "").strip()
+            if not profile_name:
+                return jsonify({"code": 400, "message": "请指定 profile 名称"}), 400
+
+            try:
+                profile_dir = resolve_profile_path(profile_name)
+            except FileNotFoundError as e:
+                logger.error("TestProfile: %s", e)
+                return jsonify({"code": 400, "message": str(e)}), 400
+
+            logger.info("TestProfile: resolved '%s' → '%s'", profile_name, profile_dir)
+
+            import asyncio
+            from services.mc_auto_register import auto_verify_google_site as do_test
+
+            try:
+                logger.info("TestProfile: starting test_only for %s...", os.path.basename(profile_dir))
+                result = asyncio.run(do_test(profile_dir=profile_dir, test_only=True))
+                code = 200 if result.get("success") else 500
+                logger.info("TestProfile: result success=%s step=%s message=%s",
+                            result.get("success"), result.get("step", ""), result.get("message", "")[:100])
+                return jsonify({"code": code, "message": result.get("message", ""), "data": result}), code
             except Exception as e:
-                add_log(task_id, "error", f"任务异常: {e}", "")
-                complete_task(task_id, False, {"success": False, "message": str(e)})
-                _auto_diagnose_on_failure(task_id, False)
-            finally:
-                loop.close()
+                logger.error("TestProfile: unhandled error: %s\n%s", e, traceback.format_exc())
+                return jsonify({"code": 500, "message": str(e)[:200]}), 500
 
-        threading.Thread(target=_run, daemon=True).start()
-        return jsonify({"code": 200, "data": {"task_id": task_id}, "message": "侦查任务已启动"})
+        @app.route("/api/cloakbrowser/profiles", methods=["GET"])
+        @jwt_required()
+        def cloakbrowser_profiles():
+            """List all CloakBrowser profiles with full fingerprint details."""
+            try:
+                from services.mc_auto_register import list_profiles
+                data = list_profiles()
+                return jsonify({"code": 200, "data": data})
+            except Exception as e:
+                return jsonify({"code": 500, "message": str(e)[:200]}), 500
 
-    @app.route("/api/cloakbrowser/profiles/test", methods=["POST"])
-    @jwt_required()
-    def cloakbrowser_test_profile():
-        """Test a CloakBrowser profile: launch browser, verify connectivity."""
-        data = request.get_json(silent=True) or {}
-        profile_name = (data.get("profile_name") or "").strip()
-        if not profile_name:
-            return jsonify({"code": 400, "message": "请指定 profile 名称"}), 400
+        @app.route("/api/cloakbrowser/profiles", methods=["POST"])
+        @jwt_required()
+        def cloakbrowser_create_profile():
+            """Create a new CloakBrowser profile with random fingerprint."""
+            data = request.get_json(silent=True) or {}
+            name = (data.get("name") or "").strip()
+            if not name:
+                return jsonify({"code": 400, "message": "Profile 名称不能为空"}), 400
+            # Sanitize name: only allow a-z, 0-9, -, _
+            import re as _re
+            name = _re.sub(r'[^a-zA-Z0-9\-_]', '-', name)
+            try:
+                from services.mc_auto_register import create_profile
+                result = create_profile(
+                    name=name,
+                    google_email=(data.get("google_email") or "").strip(),
+                    proxy=(data.get("proxy") or "").strip(),
+                    country=(data.get("country") or "US").strip(),
+                    platform=(data.get("platform") or None),
+                )
+                return jsonify({"code": 200, "message": "Profile 创建成功", "data": result})
+            except FileExistsError:
+                return jsonify({"code": 409, "message": f"Profile '{name}' 已存在"}), 409
+            except Exception as e:
+                logger.error(f"create_profile error: {e}")
+                return jsonify({"code": 500, "message": str(e)[:200]}), 500
 
-        try:
-            profile_dir = resolve_profile_path(profile_name)
-        except FileNotFoundError as e:
-            logger.error("TestProfile: %s", e)
-            return jsonify({"code": 400, "message": str(e)}), 400
+        @app.route("/api/cloakbrowser/profiles/<name>", methods=["PUT"])
+        @jwt_required()
+        def cloakbrowser_update_profile(name):
+            """Update a CloakBrowser profile config."""
+            data = request.get_json(silent=True) or {}
+            try:
+                from services.mc_auto_register import update_profile
+                result = update_profile(name, **{k: v for k, v in data.items() if v is not None})
+                return jsonify({"code": 200, "message": "Profile 更新成功", "data": result})
+            except FileNotFoundError:
+                return jsonify({"code": 404, "message": f"Profile '{name}' 不存在"}), 404
+            except Exception as e:
+                return jsonify({"code": 500, "message": str(e)[:200]}), 500
 
-        logger.info("TestProfile: resolved '%s' → '%s'", profile_name, profile_dir)
-
-        import asyncio
-        from services.mc_auto_register import auto_verify_google_site as do_test
-
-        try:
-            logger.info("TestProfile: starting test_only for %s...", os.path.basename(profile_dir))
-            result = asyncio.run(do_test(profile_dir=profile_dir, test_only=True))
-            code = 200 if result.get("success") else 500
-            logger.info("TestProfile: result success=%s step=%s message=%s",
-                        result.get("success"), result.get("step", ""), result.get("message", "")[:100])
-            return jsonify({"code": code, "message": result.get("message", ""), "data": result}), code
-        except Exception as e:
-            logger.error("TestProfile: unhandled error: %s\n%s", e, traceback.format_exc())
-            return jsonify({"code": 500, "message": str(e)[:200]}), 500
-
-    @app.route("/api/cloakbrowser/profiles", methods=["GET"])
-    @jwt_required()
-    def cloakbrowser_profiles():
-        """List all CloakBrowser profiles with full fingerprint details."""
-        try:
-            from services.mc_auto_register import list_profiles
-            data = list_profiles()
-            return jsonify({"code": 200, "data": data})
-        except Exception as e:
-            return jsonify({"code": 500, "message": str(e)[:200]}), 500
-
-    @app.route("/api/cloakbrowser/profiles", methods=["POST"])
-    @jwt_required()
-    def cloakbrowser_create_profile():
-        """Create a new CloakBrowser profile with random fingerprint."""
-        data = request.get_json(silent=True) or {}
-        name = (data.get("name") or "").strip()
-        if not name:
-            return jsonify({"code": 400, "message": "Profile 名称不能为空"}), 400
-        # Sanitize name: only allow a-z, 0-9, -, _
-        import re as _re
-        name = _re.sub(r'[^a-zA-Z0-9\-_]', '-', name)
-        try:
-            from services.mc_auto_register import create_profile
-            result = create_profile(
-                name=name,
-                google_email=(data.get("google_email") or "").strip(),
-                proxy=(data.get("proxy") or "").strip(),
-                country=(data.get("country") or "US").strip(),
-                platform=(data.get("platform") or None),
-            )
-            return jsonify({"code": 200, "message": "Profile 创建成功", "data": result})
-        except FileExistsError:
-            return jsonify({"code": 409, "message": f"Profile '{name}' 已存在"}), 409
-        except Exception as e:
-            logger.error(f"create_profile error: {e}")
-            return jsonify({"code": 500, "message": str(e)[:200]}), 500
-
-    @app.route("/api/cloakbrowser/profiles/<name>", methods=["PUT"])
-    @jwt_required()
-    def cloakbrowser_update_profile(name):
-        """Update a CloakBrowser profile config."""
-        data = request.get_json(silent=True) or {}
-        try:
-            from services.mc_auto_register import update_profile
-            result = update_profile(name, **{k: v for k, v in data.items() if v is not None})
-            return jsonify({"code": 200, "message": "Profile 更新成功", "data": result})
-        except FileNotFoundError:
-            return jsonify({"code": 404, "message": f"Profile '{name}' 不存在"}), 404
-        except Exception as e:
-            return jsonify({"code": 500, "message": str(e)[:200]}), 500
-
-    @app.route("/api/cloakbrowser/profiles/<name>", methods=["DELETE"])
-    @jwt_required()
-    def cloakbrowser_delete_profile(name):
-        """Delete a CloakBrowser profile (including cookies)."""
-        try:
-            from services.mc_auto_register import delete_profile
-            ok = delete_profile(name)
-            if ok:
-                return jsonify({"code": 200, "message": f"Profile '{name}' 已删除"})
-            return jsonify({"code": 404, "message": f"Profile '{name}' 不存在"}), 404
-        except Exception as e:
-            return jsonify({"code": 500, "message": str(e)[:200]}), 500
+        @app.route("/api/cloakbrowser/profiles/<name>", methods=["DELETE"])
+        @jwt_required()
+        def cloakbrowser_delete_profile(name):
+            """Delete a CloakBrowser profile (including cookies)."""
+            try:
+                from services.mc_auto_register import delete_profile
+                ok = delete_profile(name)
+                if ok:
+                    return jsonify({"code": 200, "message": f"Profile '{name}' 已删除"})
+                return jsonify({"code": 404, "message": f"Profile '{name}' 不存在"}), 404
+            except Exception as e:
+                return jsonify({"code": 500, "message": str(e)[:200]}), 500
 
     # ---- 1Panel Status ----
 
