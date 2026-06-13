@@ -15,22 +15,21 @@ class OnePanelClient:
         self.api_key = api_key
 
     def _get_config(self):
-        # If host/port/api_key were explicitly passed, use them directly
-        # (supports background threads without Flask app context)
-        if self.host and self.port and self.api_key:
+        # If host/port/api_key were explicitly passed (non-None), use them directly
+        if self.host is not None and self.port is not None and self.api_key is not None:
             return (self.host, self.port, self.api_key)
         # Fallback to Flask config
         try:
             cfg = current_app.config
         except RuntimeError:
-            # No Flask app context (background thread) — use what we have
+            # No Flask app context (background thread) — fallback to defaults
             return (
-                self.host or "167.172.142.95",
+                self.host or "127.0.0.1",
                 self.port or 3500,
                 self.api_key or "",
             )
         return (
-            self.host or cfg.get("PANEL_HOST", "167.172.142.95"),
+            self.host or cfg.get("PANEL_HOST", "127.0.0.1"),
             self.port or cfg.get("PANEL_PORT", 3500),
             self.api_key or cfg.get("PANEL_API_KEY", ""),
         )
@@ -511,11 +510,10 @@ class OnePanelClient:
 
     def reload_openresty(self):
         """Reload OpenResty to apply new nginx configurations."""
-        # Find OpenResty install ID
         or_resp = self.search_installed_apps(name="openresty")
-        if or_resp.get("code") != 200:
-            return or_resp
-        items = or_resp.get("data", {}).get("items", [])
+        if not or_resp or or_resp.get("code") != 200:
+            return or_resp or {"code": 502, "message": "无法连接1Panel", "data": None}
+        items = (or_resp.get("data") or {}).get("items", [])
         if not items:
             return {"code": 404, "message": "OpenResty未安装", "data": None}
         or_id = items[0]["id"]

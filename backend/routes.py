@@ -3147,8 +3147,10 @@ def register_routes(app):
                             zone_id = zone.get("id") if isinstance(zone, dict) else None
                             if zone_id:
                                 dns = cf_client.create_dns_record(
-                                    zone_id, domain,
-                                    panel_server_ip or panel_env.get("host", "") if panel_env else "",
+                                    zone_id=zone_id,
+                                    record_type="A",
+                                    name=domain,
+                                    content=panel_server_ip or (panel_env.get("host", "") if panel_env else ""),
                                     proxied=True,
                                 )
                                 if dns:
