@@ -2998,13 +2998,7 @@ def register_routes(app):
 
     def _bg_deploy_static(task_id, site_id, alias, domain,
                          brand_kit=None, panel_host="", panel_port=3500, panel_api_key=""):
-        """Deploy static site:
-        1. Create static website on 1Panel (nginx config + directory)
-        2. Write files locally on puhuo (guaranteed to work)
-        3. Upload files to 1Panel (best effort)
-        4. DNS -> 1Panel IP; puhuo nginx wildcard as fallback
-        """
-        import io as _io
+        """Deploy static site: create 1Panel website + upload files via multipart."""
         _get_pc = lambda: OnePanelClient(host=panel_host, port=panel_port, api_key=panel_api_key)
 
         try:
@@ -3015,41 +3009,39 @@ def register_routes(app):
             site_data = site_resp.get("data", {}) if site_resp.get("code") == 200 else {}
             site_dir_1panel = site_data.get("site_dir", f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index")
 
-            # Step 2: Generate + write to puhuo local (always succeeds)
+            # Step 2: Generate files locally
             from static_store_engine import render_site
             local_dir = f"/app/backend/static-sites/{domain}"
             os.makedirs(local_dir, exist_ok=True)
             count = render_site(domain, brand_kit or {}, [], local_dir)
 
-            # Step 3: Upload to 1Panel via multipart
-            if site_resp.get("code") == 200:
-                update_bg_task(task_id, status="deploying", message="正在上传商城文件到1Panel...")
-                # Delete 1Panel defaults first
-                for df in ["index.html", "404.html"]:
-                    try: _get_pc().delete_file(f"{site_dir_1panel}/{df}")
-                    except: pass
-                # Upload
-                uploaded = 0
-                for root, dirs, files in os.walk(local_dir):
-                    for fname in files:
-                        local_path = os.path.join(root, fname)
-                        rel_path = os.path.relpath(local_path, local_dir)
-                        remote_path = f"{site_dir_1panel}/{rel_path}"
-                        parent_dir = os.path.dirname(remote_path)
-                        _get_pc().create_file(parent_dir, is_dir=True)
-                        ts = str(int(time.time()))
-                        token = hashlib.md5(("1panel" + panel_api_key + ts).encode()).hexdigest()
-                        with open(local_path, "rb") as f:
-                            http_requests.post(
-                                f"http://{panel_host}:{panel_port}/api/v1/files/upload",
-                                data={"path": remote_path},
-                                files={"file": (fname, f, "application/octet-stream")},
-                                headers={"1Panel-Token": token, "1Panel-Timestamp": ts},
-                                timeout=30,
-                            )
-                        uploaded += 1
-                _get_pc().reload_openresty()
-                logger.info(f"Uploaded {uploaded} files to 1Panel for {domain}")
+            # Step 3: Upload to 1Panel (CSS/JS already inlined, so only index.html + other HTML pages needed)
+            update_bg_task(task_id, status="deploying", message="正在上传商城文件到1Panel...")
+            _get_pc().delete_file(f"{site_dir_1panel}/index.html")  # remove 1Panel default
+            uploaded = 0
+            for root, dirs, files in os.walk(local_dir):
+                for fname in files:
+                    if fname.endswith(".css") or fname.endswith(".js"):
+                        continue  # CSS/JS are inlined, skip assets
+                    local_path = os.path.join(root, fname)
+                    rel_path = os.path.relpath(local_path, local_dir)
+                    remote_path = f"{site_dir_1panel}/{rel_path}"
+                    parent_dir = os.path.dirname(remote_path)
+                    _get_pc().create_file(parent_dir, is_dir=True)
+                    ts = str(int(time.time()))
+                    token = hashlib.md5(("1panel" + panel_api_key + ts).encode()).hexdigest()
+                    with open(local_path, "rb") as f:
+                        http_requests.post(
+                            f"http://{panel_host}:{panel_port}/api/v1/files/upload",
+                            data={"path": remote_path},
+                            files={"file": (fname, f, "text/html")},
+                            headers={"1Panel-Token": token, "1Panel-Timestamp": ts},
+                            timeout=30,
+                        )
+                    uploaded += 1
+
+            _get_pc().reload_openresty()
+            logger.info(f"Uploaded {uploaded} files to 1Panel for {domain}")
 
             update_site_fields(site_id, {
                 "status": "active",
@@ -3057,7 +3049,7 @@ def register_routes(app):
                 "panel_website_id": site_data.get("website_id"),
             })
             update_bg_task(task_id, status="completed",
-                          message=f"站点 {domain} 部署完成 ({count} 文件)")
+                          message=f"站点 {domain} 部署完成 ({uploaded} 文件)")
 
         except Exception as e:
             logger.error(f"Static deployment failed for {domain}: {traceback.format_exc()}")
