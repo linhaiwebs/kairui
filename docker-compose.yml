@@ -22,6 +22,7 @@ services:
       - wp-db:/app/backend/data
       - wp-plugins:/app/backend/plugins
       - wp-themes:/app/backend/themes
+      - /var/www/static-sites:/var/www/static-sites
       - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
     restart: unless-stopped
     healthcheck:

@@ -2928,7 +2928,7 @@ def register_routes(app):
 
         So new sites work immediately without nginx reload.
         """
-        STATIC_ROOT = "/app/backend/static-sites"
+        STATIC_ROOT = "/var/www/static-sites"
 
         try:
             update_bg_task(task_id, status="deploying", message="正在创建站点目录...")
