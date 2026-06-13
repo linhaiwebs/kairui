@@ -3118,7 +3118,7 @@ def register_routes(app):
                             if zone_id:
                                 # For root domain, name=domain; for subdomain, name=domain (full FQDN)
                                 # DNS target = 1Panel environment IP (always use panel env)
-                                target_ip = "163.123.236.110"  # Static: always puhuo
+                                target_ip = "163.123.236.110"
                                 dns = cf_client.create_dns_record(
                                     zone_id=zone_id,
                                     record_type="A",
