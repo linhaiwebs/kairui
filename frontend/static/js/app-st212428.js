@@ -460,7 +460,7 @@ const app = createApp({
             const progress = s.stitch_screen_progress || [];
             if (!progress.length) {
                 if (s.design_complete) return '设计完成' + (s.design_label ? ' (' + s.design_label + ')' : '');
-                if (s.design_generating) return 'Stitch AI正在生成设计...';
+                if (s.design_generating) return 'Agnes AI正在生成设计...';
                 return '商城设计';
             }
             const done = progress.filter(p => p.status === 'complete').length;
@@ -481,7 +481,7 @@ const app = createApp({
                 // 4-step flow: DNS → 1Panel创建 → 设计生成 → 上传文件 → 上线
                 if (s.files_uploaded) return '已上线';
                 if (s.design_complete) return '正在上传文件...';
-                if (s.design_generating) return 'Stitch AI生成设计中...';
+                if (s.design_generating) return 'Agnes AI生成设计中...';
                 if (s.design_started) return '正在生成设计...';
                 if (s.site_created) return '正在生成页面...';
                 if (s.dns_resolved) return '正在创建站点...';
@@ -4212,7 +4212,7 @@ async function loadProfileCategories() {
                                     <i v-if="agnesVerifying" class="fas fa-spinner fa-spin mr-1"></i>
                                     {{ agnesVerifying ? '验证中...' : '验证并保存' }}
                                 </button>
-                                <p class="text-xs text-on-surface-variant mt-2">Agnes AI 用于快速生成商城页面（约3-5秒/页），替代Stitch</p>
+                                <p class="text-xs text-on-surface-variant mt-2">Agnes AI 用于快速生成商城页面（约3-5秒/页），替代Agnes</p>
                             </div>
 
                             <!-- Tab: DeepSeek -->

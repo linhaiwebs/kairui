@@ -2299,11 +2299,11 @@ def render_policy_pages(design, brand_kit):
 # ---------------------------------------------------------------------------
 # 8. render_site — main entry point
 # ---------------------------------------------------------------------------
-STITCH_PAGES = ["home", "product", "cart", "checkout", "order",
+DESIGN_PAGES = ["home", "product", "cart", "checkout", "order",
                  "about", "contact", "faq", "privacy", "terms", "shipping", "returns"]
 
 def _render_page_by_type(page_type, design, brand_kit, products):
-    """Fallback: render a page using built-in CSS when Stitch didn't generate it."""
+    """Fallback: render a page using built-in CSS when Agnes didn't generate it."""
     if page_type == "home":
         return render_homepage(products, design, brand_kit)
     elif page_type == "cart":
@@ -2330,14 +2330,14 @@ def try_agnes_design(brand_kit, progress_callback=None):
         if progress_callback: progress_callback(f"Agnes AI正在为 {brand_name} 生成商城设计...")
         pages = client.generate_store_design(
             brand_kit=brand_kit,
-            pages=STITCH_PAGES,
+            pages=DESIGN_PAGES,
             progress_callback=progress_callback,
         )
         if pages and len(pages) >= 2:
             if progress_callback: progress_callback(f"Agnes已完成 {len(pages)} 个页面设计")
             logger.info(f"Agnes design for {brand_name}: {list(pages.keys())}")
             return pages
-        if progress_callback: progress_callback("Agnes生成不足，尝试Stitch...")
+        if progress_callback: progress_callback("Agnes生成不足，尝试Agnes...")
         return None
     except Exception as e:
         if progress_callback: progress_callback(f"Agnes失败: {str(e)[:40]}")
@@ -2345,164 +2345,23 @@ def try_agnes_design(brand_kit, progress_callback=None):
         return None
 
 
-def try_stitch_design(brand_kit, progress_callback=None):
-    """Try to generate store design via Google Stitch. Returns dict {page: html} or None."""
-    brand_name = brand_kit.get("brand_name") or brand_kit.get("name", "Store")
-    try:
-        from stitch_client import StitchClient
-        stitch = StitchClient()
-        if not stitch.is_authenticated:
-            if progress_callback: progress_callback("Stitch未认证，使用默认设计...")
-            return None
-        if progress_callback: progress_callback(f"Stitch AI正在为 {brand_name} 生成商城设计...")
-
-        # Callback to save each screen_id immediately after generation
-        def _save_screen(page_type, screen_id):
-            if not brand_kit.get("id"):
-                return
-            try:
-                import json as _json
-                from models import update_brand_kit, get_brand_kit
-                bk = get_brand_kit(brand_kit["id"])
-                existing = {}
-                try:
-                    raw = (bk or {}).get("stitch_screens", "")
-                    existing = _json.loads(raw) if raw and raw.strip() else {}
-                except (_json.JSONDecodeError, TypeError):
-                    pass
-                existing[page_type] = screen_id
-                update_brand_kit(brand_kit["id"], {"stitch_screens": _json.dumps(existing)})
-            except Exception:
-                pass
-
-        result = stitch.generate_store_design(
-            brand_kit=brand_kit,
-            pages=STITCH_PAGES,
-            progress_callback=progress_callback,
-            on_screen=_save_screen,
-        )
-
-        # If project not found, clear cache and retry with new project
-        if not result and brand_kit.get("stitch_project_id"):
-            if progress_callback: progress_callback("Stitch项目已失效，重新创建...")
-            logger.info("Stitch project %s not found, clearing and recreating", brand_kit["stitch_project_id"])
-            if brand_kit.get("id"):
-                try:
-                    from models import update_brand_kit
-                    update_brand_kit(brand_kit["id"], {"stitch_project_id": "", "stitch_screens": "{}"})
-                except Exception:
-                    pass
-            brand_kit["stitch_project_id"] = ""
-            brand_kit["stitch_screens"] = "{}"
-            result = stitch.generate_store_design(
-                brand_kit=brand_kit,
-                pages=STITCH_PAGES,
-                progress_callback=progress_callback,
-                on_screen=_save_screen,
-            )
-        if result and isinstance(result, dict):
-            screens = result.get("screens", {})
-            project_id = result.get("project_id", "")
-            screen_ids = result.get("screen_ids", {})
-            if screens and len(screens) >= 2:
-                if progress_callback: progress_callback(f"Stitch已完成 {len(screens)} 个页面设计")
-                logger.info(f"Stitch design for {brand_name}: {list(screens.keys())}")
-                # Save project_id and screen_ids to brand_kit for future reuse
-                if project_id and brand_kit.get("id"):
-                    try:
-                        import json as _json
-                        from models import update_brand_kit
-                        update_brand_kit(brand_kit["id"], {
-                            "stitch_project_id": project_id,
-                            "stitch_screens": _json.dumps(screen_ids) if screen_ids else "",
-                        })
-                    except Exception:
-                        pass
-                return screens
-        if progress_callback: progress_callback("Stitch生成不足，使用默认设计...")
-        return None
-    except Exception as e:
-        if progress_callback: progress_callback(f"Stitch失败: {str(e)[:40]}")
-        logger.warning(f"Stitch design failed for {brand_name}: {e}")
-        return None
-
-
-# Link text → filename mapping for fixing Stitch navigation links
-_LINK_TEXT_MAP = {
-    "home": "index.html", "shop": "index.html",
-    "products": "index.html", "product": "index.html",
-    "cart": "cart.html", "bag": "cart.html", "basket": "cart.html",
-    "checkout": "checkout.html",
-    "order": "order.html", "orders": "order.html", "track order": "order.html",
-    "about": "about.html", "about us": "about.html", "our story": "about.html",
-    "contact": "contact.html", "contact us": "contact.html", "support": "contact.html",
-    "faq": "faq.html", "help": "faq.html",
-    "privacy": "privacy.html", "privacy policy": "privacy.html",
-    "terms": "terms.html", "terms of service": "terms.html", "terms & conditions": "terms.html",
-    "shipping": "shipping.html", "shipping info": "shipping.html", "delivery": "shipping.html",
-    "returns": "returns.html", "returns & refunds": "returns.html", "refund": "returns.html",
-}
-
-def _fix_stitch_links(html, current_page, page_map):
-    """Replace # links in Stitch HTML with correct page URLs.
-
-    Matches <a> tags by their visible text and replaces href="#" with the
-    corresponding filename from page_map.
-    """
-    import re
-
-    def _replace_href(match):
-        full_tag = match.group(0)
-        # Extract link text (strip HTML tags inside <a>)
-        inner = match.group(1)
-        text = re.sub(r"<[^>]+>", "", inner).strip().lower()
-
-        # Find matching page from link text
-        target = None
-        for keyword, filename in _LINK_TEXT_MAP.items():
-            if keyword in text:
-                target = filename
-                break
-
-        if target and target != page_map.get(current_page, ""):
-            full_tag = re.sub(r"""href=["']#["']""", 'href="' + target + '"', full_tag, count=1)
-        return full_tag
-
-    # Match <a ...>...</a> tags with href="#"
-    html = re.sub(
-        r"""<a\s[^>]*href=["']#["'][^>]*>(.*?)</a>""",
-        _replace_href,
-        html,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-    return html
-
-
 def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
     """Same as render_site but returns dict {filename: content} without writing to disk.
-    Tries Stitch design first; falls back to built-in CSS."""
+    Tries Agnes AI first; falls back to built-in CSS."""
     brand_name = brand_kit.get("brand_name") or brand_kit.get("name", domain)
     design = _load_design(brand_kit)
     global _INLINE_CSS, _INLINE_JS
 
-    # Try Agne's AI first (fast), then Stitch (slow), then built-in CSS
+    # Try Agnes AI first, then built-in CSS
     design_pages = try_agnes_design(brand_kit, progress_callback)
-    if not design_pages:
-        if progress_callback: progress_callback("Agnes未生成，尝试Stitch...")
-        design_pages = try_stitch_design(brand_kit, progress_callback)
-    if not design_pages:
-        design_pages = None
 
-    stitch_pages = design_pages
-
-    if stitch_pages and stitch_pages.get("home"):
-        # Stitch provides complete standalone HTML with Tailwind + Google Fonts
-        logger.info(f"Using Stitch design for {domain} ({len(stitch_pages)} pages)")
+    if design_pages and design_pages.get("home"):
+        logger.info(f"Using Agnes design for {domain} ({len(design_pages)} pages)")
         _INLINE_CSS = build_css(design, brand_kit)
         _INLINE_JS = STORE_JS
 
         result = {}
-        # Map Stitch pages to filenames
+        # Map design pages to filenames
         page_map = {
             "home": "index.html", "cart": "cart.html", "checkout": "checkout.html",
             "order": "order.html", "about": "about.html", "contact": "contact.html",
@@ -2510,14 +2369,14 @@ def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
             "shipping": "shipping.html", "returns": "returns.html",
         }
         for page_type, filename in page_map.items():
-            if stitch_pages.get(page_type):
-                html = stitch_pages[page_type]
+            if design_pages.get(page_type):
+                html = design_pages[page_type]
                 result[filename] = _fix_stitch_links(html, page_type, page_map)
             else:
                 # Fallback to built-in for missing pages
                 result[filename] = _render_page_by_type(page_type, design, brand_kit, products)
 
-        # Product pages always use built-in (Stitch can't generate per-product)
+        # Product pages always use built-in (Agnes can't generate per-product)
         for p in (products or []):
             pid = p.get("id", "")
             if pid:

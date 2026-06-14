@@ -519,10 +519,10 @@ def _migrate_add_columns(conn):
             conn.execute("ALTER TABLE brand_kits ADD COLUMN static_style TEXT DEFAULT '{}'")
         if "design_system" not in bk_cols:
             conn.execute("ALTER TABLE brand_kits ADD COLUMN design_system TEXT DEFAULT '{}'")
-        if "stitch_project_id" not in bk_cols:
-            conn.execute("ALTER TABLE brand_kits ADD COLUMN stitch_project_id TEXT DEFAULT ''")
-        if "stitch_screens" not in bk_cols:
-            conn.execute("ALTER TABLE brand_kits ADD COLUMN stitch_screens TEXT DEFAULT '{}'")
+        if "design_project_id" not in bk_cols:
+            conn.execute("ALTER TABLE brand_kits ADD COLUMN design_project_id TEXT DEFAULT ''")
+        if "design_screens" not in bk_cols:
+            conn.execute("ALTER TABLE brand_kits ADD COLUMN design_screens TEXT DEFAULT '{}'")
     except Exception:
         pass
 
@@ -2631,7 +2631,7 @@ def update_brand_kit(kit_id: int, data: dict) -> dict | None:
             "html_site", "static_style", "design_system",
             "cloakbrowser_profile_name", "proxy", "proxy_id",
             "google_account_id",
-            "stitch_project_id", "stitch_screens",
+            "design_project_id", "design_screens",
         ]
         sets = []
         vals = []
