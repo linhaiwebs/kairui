@@ -962,32 +962,41 @@ async def _execute_action(page, action, log_callback=None):
             ("role_button", lambda: page.get_by_role("button", name=selector).first),
             ("role_link", lambda: page.get_by_role("link", name=selector).first),
         ]
-        clicked = False
-        for strat_name, strat_fn in strategies:
-            try:
-                el = strat_fn()
-                if await el.count() > 0 and await el.is_visible():
-                    await el.click(timeout=5000)
-                    if log_callback: log_callback("info", f"Click({strat_name}): {selector}", "click")
-                    await asyncio.sleep(2)
-                    clicked = True
-                    break
-            except Exception:
-                continue
-        if not clicked:
-            # Last resort: force click via JavaScript by text content
-            try:
-                await page.evaluate(f"""
-                    const els = document.querySelectorAll('a, button, [role=\"button\"], [role=\"link\"]');
-                    for (const el of els) {{
-                        if (el.textContent.includes('{selector}')) {{ el.click(); break; }}
+        # Try JS click first for GMC sign-in buttons (more reliable than Playwright click)
+        try:
+            js_result = await page.evaluate(f"""
+                (() => {{
+                    const texts = ['{selector}', '{selector.lower()}', '{selector.upper()}'];
+                    for (const a of document.querySelectorAll('a, button, [role=\"button\"], [role=\"link\"]')) {{
+                        const t = a.textContent.trim();
+                        for (const txt of texts) {{
+                            if (t === txt || t.includes(txt)) {{ a.click(); return t; }}
+                        }}
                     }}
-                """)
+                    return null;
+                }})()
+            """)
+            if js_result:
                 if log_callback: log_callback("info", f"Click(js): {selector}", "click")
-                await asyncio.sleep(2)
+                await asyncio.sleep(3)
                 clicked = True
-            except Exception:
-                pass
+        except Exception:
+            pass
+
+        if not clicked:
+            for strat_name, strat_fn in strategies:
+                try:
+                    el = strat_fn()
+                    if await el.count() > 0 and await el.is_visible():
+                        await el.click(timeout=5000)
+                        if log_callback: log_callback("info", f"Click({strat_name}): {selector}", "click")
+                        await asyncio.sleep(2)
+                        clicked = True
+                        break
+                except Exception:
+                    continue
+        if not clicked:
+            raise RuntimeError(f"Cannot click: {selector}")
         if not clicked:
             raise RuntimeError(f"Cannot click: {selector}")
 
@@ -1185,7 +1194,9 @@ async def register_gmc_ai(
                     # No popup, try direct Google login
                     if google_email and google_password:
                         _emit("info", "No popup found, trying direct Google login...", "stuck")
-                        await page.goto("https://accounts.google.com/signin/v2/identifier?service=merchantcenter&continue=https://merchants.google.com/", wait_until="domcontentloaded", timeout=60000)
+                        await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=60000)
+                        await asyncio.sleep(3)
+                        await page.evaluate("""() => { const a = document.querySelector('a[href*=\"accounts.google.com\"]'); if (a) a.click(); }""")
                         await asyncio.sleep(3)
                 same_action_count = 0
 
