@@ -224,27 +224,32 @@ class StitchClient:
             "deviceType": device_type,
         })
         if "error" in result:
+            logger.warning(f"generate_screen MCP error: {result['error'][:120]}")
+            return None
+        if isinstance(result, str):
+            logger.warning(f"generate_screen returned string: {result[:120]}")
             return None
         # Parse response structure
         try:
             components = result.get("outputComponents", [])
             if not components:
+                logger.warning(f"generate_screen: no outputComponents in {str(result.keys())}")
                 return None
-            design = components[0].get("design", {})
-            screens = design.get("screens", [])
-            if not screens:
-                return None
-            screen = screens[0]
-            html_url = screen.get("htmlCode", {}).get("downloadUrl", "")
-            image_url = screen.get("screenshot", {}).get("downloadUrl", "")
-            screen_id = screen.get("id", "")
-            return {
-                "screenId": screen_id,
-                "htmlUrl": html_url,
-                "imageUrl": image_url,
-                "sessionId": result.get("sessionId", ""),
-            }
-        except Exception:
+            for i, comp in enumerate(components):
+                design = comp.get("design", {})
+                screens = design.get("screens", [])
+                if screens:
+                    screen = screens[0]
+                    return {
+                        "screenId": screen.get("id", ""),
+                        "htmlUrl": screen.get("htmlCode", {}).get("downloadUrl", ""),
+                        "imageUrl": screen.get("screenshot", {}).get("downloadUrl", ""),
+                        "sessionId": result.get("sessionId", ""),
+                    }
+            logger.warning(f"generate_screen: no screens in {len(components)} components")
+            return None
+        except Exception as e:
+            logger.warning(f"generate_screen parse error: {e}")
             return None
 
     def _get_latest_screen_html(self, project_id):
