@@ -5080,11 +5080,25 @@ def register_routes(app):
             from cloakbrowser import launch_persistent_context_async
             context, page = await launch_persistent_context_async(**launch_kwargs)
             try:
-                resp = await page.goto("http://httpbin.org/ip", wait_until="domcontentloaded", timeout=20000)
+                # Test 1: check exit IP via httpbin
+                await page.goto("http://httpbin.org/ip", wait_until="domcontentloaded", timeout=20000)
                 await asyncio.sleep(1)
                 body = await page.inner_text("body")
-                ip_info = body.strip() if body else "(empty)"
-                return {"success": True, "message": f"Profile 可用，出口IP: {ip_info}", "ip": ip_info}
+                ip_info = body.strip() if body else "(unknown)"
+
+                # Test 2: verify Google accessibility (critical for GMC)
+                await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=30000)
+                await asyncio.sleep(2)
+                title = await page.title()
+                body = await page.inner_text("body")
+                body_lower = body.lower()
+
+                if "unusual traffic" in body_lower or "captcha" in body_lower or "not a robot" in body_lower:
+                    return {"success": False, "message": f"Google 检测到异常流量/验证码 (IP: {ip_info})", "ip": ip_info}
+                if "google" not in title.lower() and "search" not in title.lower():
+                    return {"success": False, "message": f"Google 页面异常: {title[:100]} (IP: {ip_info})", "ip": ip_info}
+
+                return {"success": True, "message": f"Profile 可用 (Google 正常), 出口IP: {ip_info}", "ip": ip_info}
             finally:
                 await context.close()
 
