@@ -295,7 +295,7 @@ class StitchClient:
 
         Args:
             brand_name: Brand/company name
-            pages: List of page types: "home", "product", "cart", "checkout"
+            pages: List of page types: home/product/cart/checkout/order/about/contact/faq/privacy/terms/shipping/returns
 
         Returns:
             dict: {page_type: html_content} or None on failure
@@ -305,7 +305,7 @@ class StitchClient:
             return None
 
         if pages is None:
-            pages = ["home", "product", "cart"]
+            pages = ["home", "product", "cart", "checkout"]
 
         try:
             # 1. Create project
@@ -315,42 +315,96 @@ class StitchClient:
                 return None
             logger.info(f"Stitch project created: {project_id}")
 
-            # 2. Generate screens
+            # 2. Generate screens — all page types
             page_prompts = {
-                "home": f"Modern e-commerce homepage for {brand_name}. Hero section with product showcase, "
-                        f"clean navigation, featured products grid. Minimalist luxury style, white background, "
-                        f"elegant typography, generous whitespace. Professional and high-end look.",
-                "product": f"Product detail page for {brand_name}. Image gallery on left, product info on right — "
-                           f"title, price, description, add to cart button. Clean modern layout with related products.",
-                "cart": f"Shopping cart page for {brand_name}. Cart items with thumbnails, quantities, subtotal, "
-                        f"checkout button. Clean and simple design matching the store aesthetic.",
-                "checkout": f"Checkout page for {brand_name}. Contact info form, shipping address, order summary. "
-                            f"Clean multi-step layout, secure and trustworthy design.",
+                "home": (
+                    f"Complete e-commerce homepage for {brand_name}. "
+                    "Include: sticky navigation with logo and cart icon, hero banner with headline and CTA button, "
+                    "featured products grid (4 columns with images, titles, prices), trust badges, "
+                    "and a full footer with brand info, quick links, policies, and contact. "
+                    "Luxury minimalist style, white background, elegant serif headings, dark navy text, gold accents."
+                ),
+                "product": (
+                    f"Product detail page for {brand_name}. "
+                    "Two-column layout: left side has image gallery with thumbnails, right side has "
+                    "product title, price, description, quantity selector, Add to Cart button, "
+                    "SKU, category, and share buttons. Below: product tabs (Description/Reviews), related products grid. "
+                    "Same luxury minimalist style as homepage."
+                ),
+                "cart": (
+                    f"Shopping cart page for {brand_name}. "
+                    "Full-width table layout: product thumbnails, names, prices, quantity controls, remove buttons. "
+                    "Right sidebar or bottom section with subtotal, shipping estimate, and Proceed to Checkout button. "
+                    "Empty state when no items. Matching luxury minimalist style."
+                ),
+                "checkout": (
+                    f"Checkout page for {brand_name}. "
+                    "Multi-step or single-page layout: contact information form, shipping address form, "
+                    "payment method section, order summary sidebar. "
+                    "Secure and professional design with the same luxury minimalist aesthetic."
+                ),
+                "order": (
+                    f"Order confirmation page for {brand_name}. "
+                    "Thank you message, order number, order details summary, shipping address, "
+                    "estimated delivery date, and Continue Shopping button. "
+                    "Celebratory but clean design, matching the store aesthetic."
+                ),
+                "about": (
+                    f"About Us page for {brand_name}. "
+                    "Brand story, mission statement, values section with icons, team section, "
+                    "and a timeline or history. Clean typography-focused layout. Same luxury style."
+                ),
+                "contact": (
+                    f"Contact page for {brand_name}. "
+                    "Contact form (name, email, subject, message), store address, phone, email, "
+                    "business hours, and embedded map placeholder. Clean professional layout."
+                ),
+                "faq": (
+                    f"FAQ page for {brand_name}. "
+                    "Accordion-style questions and answers grouped by category (Orders, Shipping, Returns, Products). "
+                    "Clean, scannable layout with search bar at top."
+                ),
+                "privacy": (
+                    f"Privacy Policy page for {brand_name}. "
+                    "Professional legal-style layout with clear headings, sections for data collection, "
+                    "cookies, third-party sharing, user rights. Clean typography."
+                ),
+                "terms": (
+                    f"Terms of Service page for {brand_name}. "
+                    "Professional legal-style layout with clear sections, numbered clauses. "
+                    "Clean typography matching the brand."
+                ),
+                "shipping": (
+                    f"Shipping Information page for {brand_name}. "
+                    "Shipping rates table, delivery timeframes, international shipping info, "
+                    "tracking information. Clean organized layout."
+                ),
+                "returns": (
+                    f"Returns & Refunds page for {brand_name}. "
+                    "Return policy, step-by-step return process, refund timeline, exchange info. "
+                    "Clean organized layout with the luxury brand aesthetic."
+                ),
             }
 
             screens = {}
             for page_type in pages:
-                prompt = page_prompts.get(page_type, f"{page_type} page for {brand_name} e-commerce store")
+                prompt = page_prompts.get(page_type)
+                if not prompt:
+                    continue
                 logger.info(f"Stitch generating {page_type} page...")
                 result = self.generate_screen(project_id, prompt)
 
-                if "error" in result:
-                    logger.warning(f"Stitch {page_type} generation failed: {result['error']}")
+                if not result or result.get("error"):
+                    logger.warning(f"Stitch {page_type}: {result.get('error','no result') if result else 'no result'}")
                     continue
 
-                screen_name = result.get("name", "")
-                if not screen_name:
-                    screen_name = result.get("screen", {}).get("name", "")
-                if not screen_name:
-                    logger.warning(f"Stitch {page_type}: no screen name in response")
-                    continue
-
-                # Wait briefly for screen render, then get HTML
-                time.sleep(3)
-                html = self.get_screen_code(screen_name)
-                if html:
-                    screens[page_type] = html
-                    logger.info(f"Stitch {page_type}: got {len(html)} chars HTML")
+                html_url = result.get("htmlUrl", "")
+                if html_url:
+                    time.sleep(2)
+                    html = self.download_screen_html(html_url)
+                    if html:
+                        screens[page_type] = html
+                        logger.info(f"Stitch {page_type}: {len(html)} chars")
 
             return screens if screens else None
 

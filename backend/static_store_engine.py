@@ -2299,6 +2299,25 @@ def render_policy_pages(design, brand_kit):
 # ---------------------------------------------------------------------------
 # 8. render_site — main entry point
 # ---------------------------------------------------------------------------
+STITCH_PAGES = ["home", "product", "cart", "checkout", "order",
+                 "about", "contact", "faq", "privacy", "terms", "shipping", "returns"]
+
+def _render_page_by_type(page_type, design, brand_kit, products):
+    """Fallback: render a page using built-in CSS when Stitch didn't generate it."""
+    if page_type == "home":
+        return render_homepage(products, design, brand_kit)
+    elif page_type == "cart":
+        return render_cart_page(design, brand_kit)
+    elif page_type == "checkout":
+        return render_checkout_page(design, brand_kit)
+    elif page_type == "order":
+        return render_order_page(design, brand_kit)
+    elif page_type in ("about", "contact", "faq", "privacy", "terms", "shipping", "returns"):
+        pages = render_policy_pages(design, brand_kit)
+        return pages.get(f"{page_type}.html", "")
+    return ""
+
+
 def try_stitch_design(brand_name):
     """Try to generate store design via Google Stitch. Returns dict {page: html} or None."""
     try:
@@ -2308,7 +2327,7 @@ def try_stitch_design(brand_name):
             return None
         pages = stitch.generate_store_design(
             brand_name=brand_name,
-            pages=["home", "product", "cart"]
+            pages=STITCH_PAGES
         )
         if pages and len(pages) >= 2:
             logger.info(f"Stitch design generated for {brand_name}: {list(pages.keys())}")
@@ -2330,25 +2349,27 @@ def render_site_to_dict(domain, brand_kit, products):
     stitch_pages = try_stitch_design(brand_name)
 
     if stitch_pages and stitch_pages.get("home"):
-        # Stitch provides complete standalone HTML (Tailwind + Google Fonts)
-        # Use it directly for index.html; generate the rest with built-in CSS
-        logger.info(f"Using Stitch design for {domain}")
+        # Stitch provides complete standalone HTML with Tailwind + Google Fonts
+        logger.info(f"Using Stitch design for {domain} ({len(stitch_pages)} pages)")
         _INLINE_CSS = build_css(design, brand_kit)
         _INLINE_JS = STORE_JS
 
         result = {}
-        result["index.html"] = stitch_pages.get("home", "")
-        if stitch_pages.get("product"):
-            # Store product template for future use
-            result["_stitch_product_template.html"] = stitch_pages["product"]
-        if stitch_pages.get("cart"):
-            result["cart.html"] = stitch_pages["cart"]
-        else:
-            result["cart.html"] = render_cart_page(design, brand_kit)
-        result["checkout.html"] = render_checkout_page(design, brand_kit)
-        result["order.html"] = render_order_page(design, brand_kit)
-        for fname, content in render_policy_pages(design, brand_kit).items():
-            result[fname] = content
+        # Map Stitch pages to filenames
+        page_map = {
+            "home": "index.html", "cart": "cart.html", "checkout": "checkout.html",
+            "order": "order.html", "about": "about.html", "contact": "contact.html",
+            "faq": "faq.html", "privacy": "privacy.html", "terms": "terms.html",
+            "shipping": "shipping.html", "returns": "returns.html",
+        }
+        for page_type, filename in page_map.items():
+            if stitch_pages.get(page_type):
+                result[filename] = stitch_pages[page_type]
+            else:
+                # Fallback to built-in for missing pages
+                result[filename] = _render_page_by_type(page_type, design, brand_kit, products)
+
+        # Product pages always use built-in (Stitch can't generate per-product)
         for p in (products or []):
             pid = p.get("id", "")
             if pid:
