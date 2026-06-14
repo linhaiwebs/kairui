@@ -2349,8 +2349,8 @@ def try_stitch_design(brand_kit, progress_callback=None):
 
 
 _LINK_TEXT_MAP = {
-    "home": "index.html", "shop": "index.html",
-    "products": "index.html", "product": "index.html",
+    "home": "index.html", "shop": "index.html", "store": "index.html",
+    "products": "index.html", "product": "index.html", "catalog": "index.html",
     "cart": "cart.html", "bag": "cart.html", "basket": "cart.html",
     "checkout": "checkout.html",
     "order": "order.html", "orders": "order.html", "track order": "order.html",
@@ -2361,25 +2361,39 @@ _LINK_TEXT_MAP = {
     "terms": "terms.html", "terms of service": "terms.html", "terms & conditions": "terms.html",
     "shipping": "shipping.html", "shipping info": "shipping.html", "delivery": "shipping.html",
     "returns": "returns.html", "returns & refunds": "returns.html", "refund": "returns.html",
+    "account": "#", "login": "#", "sign in": "#", "register": "#", "sign up": "#",
+    "search": "#", "wishlist": "#",
 }
 
 def _fix_page_links(html, current_page, page_map):
-    """Replace # links in generated HTML with correct page URLs."""
+    """Replace # links in generated HTML with correct page URLs.
+    Handles text links, logo links (img inside a), and icon-only links (aria-label)."""
     import re
     def _replace_href(match):
         full_tag = match.group(0)
         inner = match.group(1)
         text = re.sub(r"<[^>]+>", "", inner).strip().lower()
-        target = None
-        for keyword, filename in _LINK_TEXT_MAP.items():
-            if keyword in text:
-                target = filename
-                break
+
+        # Detect logo/home links: contains img, or class/id contains "logo" or "brand"
+        is_logo = bool(re.search(r'<img\s', inner, re.I)) or bool(re.search(r'class=["\'][^"\']*logo|id=["\'][^"\']*logo|class=["\'][^"\']*brand', full_tag, re.I))
+
+        if is_logo:
+            target = "index.html"
+        else:
+            target = None
+            for keyword, filename in _LINK_TEXT_MAP.items():
+                if keyword in text:
+                    target = filename
+                    break
+
         if target and target != page_map.get(current_page, ""):
-            full_tag = re.sub(r"""href=["']#["']""", "href=\"" + target + "\"", full_tag, count=1)
+            # Replace any empty/placeholder href
+            full_tag = re.sub(r"""href=["'](?:#|javascript:void\(0\)|)["']""", 'href="' + target + '"', full_tag, count=1)
         return full_tag
+
+    # Match <a> tags with empty or # href
     html = re.sub(
-        r"""<a\s[^>]*href=["']#["'][^>]*>(.*?)</a>""",
+        r"""<a\s[^>]*href=["'](?:#|javascript:void\(0\)|)["'][^>]*>(.*?)</a>""",
         _replace_href, html,
         flags=re.DOTALL | re.IGNORECASE,
     )
