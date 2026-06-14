@@ -2299,8 +2299,11 @@ def render_policy_pages(design, brand_kit):
 # ---------------------------------------------------------------------------
 # 8. render_site — main entry point
 # ---------------------------------------------------------------------------
-DESIGN_PAGES = ["home", "product", "cart", "checkout", "order",
-                 "about", "contact", "faq", "privacy", "terms", "shipping", "returns"]
+# Essential pages for Stitch/Agnes generation (GMC review requirements)
+DESIGN_PAGES = ["home", "product", "cart", "checkout",
+                 "about", "contact", "privacy", "returns"]
+# Extra pages: always use built-in CSS fallback
+EXTRA_PAGES = ["order", "faq", "terms", "shipping"]
 
 def _render_page_by_type(page_type, design, brand_kit, products):
     """Fallback: render a page using built-in CSS when Agnes didn't generate it."""
