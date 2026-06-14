@@ -2928,11 +2928,11 @@ async function loadProfileCategories() {
                 <a @click="currentPage = 'brand-kits'; loadBrandKits()" :class="['sidebar-link', currentPage === 'brand-kits' || currentPage === 'brand-kits-detail' ? 'active' : '']">
                     <span class="material-symbols-outlined">branding_watermark</span> 品牌套件
                 </a>
-                <div class="sidebar-divider"></div>
-                <a @click="currentPage = 'users'; loadUsers()" :class="['sidebar-link', currentPage === 'users' ? 'active' : '']">
+                <div class="sidebar-divider" v-if="currentUserRole === 'admin'"></div>
+                <a v-if="currentUserRole === 'admin'" @click="currentPage = 'users'; loadUsers()" :class="['sidebar-link', currentPage === 'users' ? 'active' : '']">
                     <span class="material-symbols-outlined">group</span> 用户管理
                 </a>
-                <a @click="currentPage = 'settings'" :class="['sidebar-link', currentPage === 'settings' ? 'active' : '']">
+                <a v-if="currentUserRole === 'admin'" @click="currentPage = 'settings'" :class="['sidebar-link', currentPage === 'settings' ? 'active' : '']">
                     <span class="material-symbols-outlined">settings</span> 系统设置
                 </a>
 
@@ -4109,7 +4109,7 @@ async function loadProfileCategories() {
             </div>
 
             <!-- Settings (Tabbed) -->
-            <div v-if="currentPage === 'settings'" class="fade-in">
+            <div v-if="currentPage === 'settings' && currentUserRole === 'admin'" class="fade-in">
                 <div>
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1">
                         <!-- Tab Navigation -->
@@ -4418,7 +4418,7 @@ async function loadProfileCategories() {
             </div>
 
             <!-- User Management -->
-            <div v-if="currentPage === 'users'" class="fade-in">
+            <div v-if="currentPage === 'users' && currentUserRole === 'admin'" class="fade-in">
                 <div class="flex items-center justify-between mb-6">
                     <h3 class="font-semibold text-on-surface"><i class="fas fa-users mr-2 text-primary"></i>用户管理</h3>
                     <button @click="openUserModal(null)" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus mr-2"></i>创建用户</button>
