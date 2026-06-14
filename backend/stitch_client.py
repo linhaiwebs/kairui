@@ -188,10 +188,13 @@ class StitchClient:
         result = resp.get("result", {})
         content = result.get("content", [])
         if content and content[0].get("text"):
+            text = content[0]["text"]
             try:
-                return json.loads(content[0]["text"])
+                return json.loads(text)
             except (json.JSONDecodeError, KeyError):
-                return {"raw": content[0].get("text", "")}
+                # Log raw to debug Stitch response format
+                logger.info(f"MCP raw text ({len(text)} chars): {text[:500]}")
+                return {"raw": text}
         return result.get("structuredContent", result)
 
     # ---- High-level API ----
@@ -231,9 +234,19 @@ class StitchClient:
             return None
         # Parse response structure
         try:
+            # Handle raw text responses (MCP JSON parse failure)
+            if "raw" in result:
+                raw = result["raw"]
+                # Try re-parsing as JSON
+                if raw.strip().startswith("{"):
+                    try:
+                        result = json.loads(raw)
+                    except Exception:
+                        pass
+
             components = result.get("outputComponents", [])
             if not components:
-                logger.warning(f"generate_screen: no outputComponents in {str(result.keys())}")
+                logger.warning(f"generate_screen: no outputComponents, keys={list(result.keys())[:5]}, preview={str(result)[:200]}")
                 return None
             for i, comp in enumerate(components):
                 design = comp.get("design", {})
