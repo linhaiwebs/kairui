@@ -468,9 +468,6 @@ const API = {
     async getWooStatus(siteId) {
         return this.request('GET', `/api/sites/${siteId}/woo-status`);
     },
-    async verifyAgnesKey(apiKey) {
-        return this.request('POST', '/api/agnes/verify', { api_key: apiKey });
-    },
     async installWooCommerce(siteId) {
         return this.request('POST', `/api/sites/${siteId}/woo-install`);
     },

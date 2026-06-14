@@ -2348,33 +2348,6 @@ def try_stitch_design(brand_kit, progress_callback=None):
         return None
 
 
-def try_agnes_design(brand_kit, progress_callback=None):
-    """Try to generate store design via Agne's AI. Returns dict {page: html} or None."""
-    brand_name = brand_kit.get("brand_name") or brand_kit.get("name", "Store")
-    try:
-        from services.agnes_client import AgnesClient
-        client = AgnesClient()
-        if not client.is_available:
-            if progress_callback: progress_callback("Agnes未配置API密钥，跳过...")
-            return None
-        if progress_callback: progress_callback(f"Agnes AI正在为 {brand_name} 生成商城设计...")
-        pages = client.generate_store_design(
-            brand_kit=brand_kit,
-            pages=DESIGN_PAGES,
-            progress_callback=progress_callback,
-        )
-        if pages and len(pages) >= 2:
-            if progress_callback: progress_callback(f"Agnes已完成 {len(pages)} 个页面设计")
-            logger.info(f"Agnes design for {brand_name}: {list(pages.keys())}")
-            return pages
-        if progress_callback: progress_callback("Agnes生成不足，尝试Agnes...")
-        return None
-    except Exception as e:
-        if progress_callback: progress_callback(f"Agnes失败: {str(e)[:40]}")
-        logger.warning(f"Agnes design failed for {brand_name}: {e}")
-        return None
-
-
 _LINK_TEXT_MAP = {
     "home": "index.html", "shop": "index.html",
     "products": "index.html", "product": "index.html",
@@ -2420,10 +2393,8 @@ def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
     design = _load_design(brand_kit)
     global _INLINE_CSS, _INLINE_JS
 
-    # Try Stitch Flash → Agnes AI → built-in CSS
+    # Try Stitch Flash → built-in CSS
     design_pages = try_stitch_design(brand_kit, progress_callback)
-    if not design_pages:
-        design_pages = try_agnes_design(brand_kit, progress_callback)
 
     if design_pages and design_pages.get("home"):
         logger.info(f"Using Agnes design for {domain} ({len(design_pages)} pages)")

@@ -3060,7 +3060,7 @@ def register_routes(app):
 
     def _bg_deploy_static(task_id, site_id, alias, domain,
                          brand_kit=None, panel_host="", panel_port=3500, panel_api_key=""):
-        """Deploy static site: 1. create website  2. design (Agnes/built-in)  3. upload  4. activate."""
+        """Deploy static site: 1. create website  2. design (Stitch/built-in)  3. upload  4. activate."""
         import io as _io
         _get_pc = lambda: OnePanelClient(host=panel_host, port=panel_port, api_key=panel_api_key)
         total_files = 0
@@ -3082,7 +3082,7 @@ def register_routes(app):
             stitch_used = False
             def design_progress(msg):
                 nonlocal stitch_used
-                if "Agnes" in msg:
+                if "Stitch" in msg:
                     stitch_used = True
                     update_site_fields(site_id, {"stitch_design_status": "generating"})
                 update_bg_task(task_id, status="deploying", message=msg)
@@ -3091,7 +3091,7 @@ def register_routes(app):
                 progress_callback=design_progress)
 
             page_count = len(files)
-            stitch_msg = " (Agnes)" if stitch_used else ""
+            stitch_msg = " (Stitch)" if stitch_used else ""
             update_site_fields(site_id, {"stitch_design_status": "complete"})
             logger.info(f"Generated {page_count} files for {domain}{stitch_msg}")
             update_bg_task(task_id, status="deploying",
@@ -3137,7 +3137,7 @@ def register_routes(app):
                 "static_dir": site_dir_1panel,
                 "panel_website_id": site_data.get("website_id"),
             })
-            design_label = "Agnes设计" if stitch_used else "标准设计"
+            design_label = "Stitch设计" if stitch_used else "标准设计"
             update_bg_task(task_id, status="completed",
                           message=f"部署完成 — {design_label}，{uploaded} 个文件")
 
@@ -4418,24 +4418,6 @@ def register_routes(app):
                 "data": {"results": results},
             }), 400
 
-    # ---- Agnes AI Configuration ----
-
-    @app.route("/api/agnes/verify", methods=["POST"])
-    @jwt_required()
-    def agnes_verify():
-        """Verify Agnes AI API key."""
-        data = request.get_json(silent=True) or {}
-        api_key = (data.get("api_key") or "").strip()
-        if not api_key:
-            return jsonify({"code": 400, "message": "API Key 不能为空"}), 400
-
-        from services.agnes_client import verify_agnes_key
-        result = verify_agnes_key(api_key)
-        if result["success"]:
-            update_global_config("agnes_api_key", json.dumps([api_key]))
-            return jsonify({"code": 200, "message": "Agnes API 密钥验证通过"})
-        return jsonify({"code": 400, "message": result["message"]}), 400
-
     # ---- Crawlbase API Configuration ----
     @app.route("/api/crawlbase/verify", methods=["POST"])
     @jwt_required()
@@ -4787,11 +4769,11 @@ def register_routes(app):
             # Static site stages
             "dns_resolved": bool(site.get("cf_dns_record_id")),
             "site_created": bool(site.get("panel_website_id") or site.get("static_dir")),
-            # Design stage: for static sites, shows Agnes progress
+            # Design stage: for static sites, shows Stitch progress
             "design_started": stitch_status in ("starting", "generating", "complete"),
             "design_generating": stitch_status in ("starting", "generating"),
             "design_complete": stitch_status == "complete",
-            "design_label": "Agnes" if stitch_status == "complete" else ("生成中" if stitch_status in ("starting", "generating") else ""),
+            "design_label": "Stitch" if stitch_status == "complete" else ("生成中" if stitch_status in ("starting", "generating") else ""),
             "files_uploaded": is_active,
             "design_message": _get_design_progress_message(site_id),
             "stitch_screen_progress": stitch_screen_progress,

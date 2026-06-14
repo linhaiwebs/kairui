@@ -329,17 +329,12 @@ const app = createApp({
         const settingsTabs = [
             { key: 'wordpress', label: 'WordPress 默认' },
             { key: 'panel', label: '1Panel 环境' },
-            { key: 'agnes', label: 'Agnes AI' },
             { key: 'deepseek', label: 'DeepSeek API' },
             { key: 'crawlbase', label: 'Crawlbase' },
             { key: 'cloudflare', label: 'Cloudflare' },
             { key: 'google_account', label: '谷歌账户' },
             { key: 'fingerprint', label: '指纹环境' },
         ];
-        const agnesApiKey = ref('');
-        const agnesVisibleKey = ref(false);
-        const agnesVerifying = ref(false);
-        const agnesConnected = ref(false);
         const panelEnvironments = ref([]);
         const showPanelEnvModal = ref(false);
         const panelEnvEditId = ref(null);
@@ -626,7 +621,7 @@ pipelineStatuses[siteId].demo_importing = false;
             } catch (e) {}
         }
         async function loadConfig() {
-            try { const resp = await API.getConfig(); if (resp.code === 200) { Object.assign(globalConfig, resp.data); createForm.admin_name = resp.data.default_admin_name || 'admin'; createForm.db_service = resp.data.db_service || 'mariadb'; if (resp.data.deepseek_api_key) { const dk = resp.data.deepseek_api_key; const parsed = dk.startsWith('[') ? JSON.parse(dk) : [dk]; if (Array.isArray(parsed) && parsed.length) { deepseekApiKeys.value = parsed; deepseekConnected.value = true; } } if (resp.data.crawlbase_api_key) { const ck = resp.data.crawlbase_api_key; const parsed = ck.startsWith('[') ? JSON.parse(ck) : [ck]; if (Array.isArray(parsed) && parsed.length) { crawlbaseApiKeys.value = parsed; crawlbaseConnected.value = true; } } if (resp.data.agnes_api_key) { const ak = resp.data.agnes_api_key; const parsed = ak.startsWith('[') ? JSON.parse(ak) : (ak.startsWith('\"') ? JSON.parse(ak) : [ak]); if (Array.isArray(parsed) && parsed.length) { agnesApiKey.value = parsed[0]; agnesConnected.value = true; } else if (typeof parsed === 'string' && parsed) { agnesApiKey.value = parsed; agnesConnected.value = true; } } } } catch (e) {}
+            try { const resp = await API.getConfig(); if (resp.code === 200) { Object.assign(globalConfig, resp.data); createForm.admin_name = resp.data.default_admin_name || 'admin'; createForm.db_service = resp.data.db_service || 'mariadb'; if (resp.data.deepseek_api_key) { const dk = resp.data.deepseek_api_key; const parsed = dk.startsWith('[') ? JSON.parse(dk) : [dk]; if (Array.isArray(parsed) && parsed.length) { deepseekApiKeys.value = parsed; deepseekConnected.value = true; } } if (resp.data.crawlbase_api_key) { const ck = resp.data.crawlbase_api_key; const parsed = ck.startsWith('[') ? JSON.parse(ck) : [ck]; if (Array.isArray(parsed) && parsed.length) { crawlbaseApiKeys.value = parsed; crawlbaseConnected.value = true; } } } } catch (e) {}
         }
         async function refreshSites() {
             loading.value = true;
@@ -1458,19 +1453,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 }
             } catch (e) { showToast('网络错误: ' + (e.message || '未知'), 'error'); } finally { loading.value = false; }
         }
-        async function agnesVerify() {
-            agnesVerifying.value = true;
-            try {
-                const key = agnesApiKey.value.trim();
-                if (!key) { showToast('请输入Agnes API Key', 'error'); return; }
-                const resp = await API.verifyAgnesKey(key);
-                if (resp.code === 200) {
-                    agnesConnected.value = true;
-                    showToast('Agnes AI 验证通过');
-                } else {
-                    showToast(resp.message || '验证失败', 'error');
-                }
-            } catch (e) { showToast('网络错误', 'error'); } finally { agnesVerifying.value = false; }
+                    } catch (e) { showToast('网络错误', 'error'); } finally { agnesVerifying.value = false; }
         }
         async function crawlbaseVerify() {
             loading.value = true;
@@ -2777,7 +2760,6 @@ async function loadProfileCategories() {
             cloakbrowserProfiles, loadCloakbrowserProfiles,
             mcRegistering, mcFeedUrls, mcProfileDir,
             fingerprintEnabled, envTestBlocking,
-            agnesApiKey, agnesVisibleKey, agnesVerifying, agnesConnected, agnesVerify,
             taskLogVisible, taskLogTitle, taskLogLines, taskLogStatus, taskLogResult, taskLogRef,
             closeTaskLog,
             mcNewProfileName, mcNewGoogleEmail, mcNewProxy, mcNewCountry, mcNewPlatform,
@@ -4198,25 +4180,6 @@ async function loadProfileCategories() {
                                     </div>
                                 </div>
                             </div>
-                            <!-- Tab: Agnes AI -->
-                            <div v-else-if="settingsActiveTab === 'agnes'">
-                                <div class="flex items-center justify-between mb-3">
-                                    <span :class="agnesConnected ? 'text-[#146c2e]' : 'text-error'"><span class="material-symbols-outlined text-[10px]">circle</span>{{ agnesConnected ? '已连接' : '未连接' }}</span>
-                                    <span class="text-xs text-on-surface-variant">agnes-2.0-flash</span>
-                                </div>
-                                <label class="block text-sm font-medium text-on-surface mb-2">API Key</label>
-                                <div class="flex gap-2 mb-2 items-center">
-                                    <div class="flex-1 relative">
-                                        <input :type="agnesVisibleKey ? 'text' : 'password'" v-model="agnesApiKey" placeholder="输入 Agnes API Key" class="w-full px-4 py-3 border rounded-lg text-sm focus:border-primary pr-10">
-                                    </div>
-                                </div>
-                                <button @click="agnesVerify" :disabled="agnesVerifying" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm">
-                                    <i v-if="agnesVerifying" class="fas fa-spinner fa-spin mr-1"></i>
-                                    {{ agnesVerifying ? '验证中...' : '验证并保存' }}
-                                </button>
-                                <p class="text-xs text-on-surface-variant mt-2">Agnes AI 用于快速生成商城页面（约3-5秒/页），替代Agnes</p>
-                            </div>
-
                             <!-- Tab: DeepSeek -->
                             <div v-else-if="settingsActiveTab === 'deepseek'">
                                 <div class="flex items-center justify-between mb-3">
