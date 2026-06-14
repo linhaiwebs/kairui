@@ -557,67 +557,79 @@ class StitchClient:
             page_names = {"home":"首页","product":"产品页","cart":"购物车","checkout":"结账页",
                           "order":"订单确认","about":"关于我们","contact":"联系我们","faq":"FAQ",
                           "privacy":"隐私政策","terms":"服务条款","shipping":"配送信息","returns":"退换政策"}
-            total = len(pages)
-            for idx, page_type in enumerate(pages, 1):
-                prompt = prompts.get(page_type)
-                if not prompt:
-                    continue
-                cn_name = page_names.get(page_type, page_type)
-                progress_tag = f"({idx}/{total})"
 
-                # Try to reuse existing screen first
+            # First pass: reuse existing screens
+            pages_to_generate = []
+            for page_type in pages:
+                cn_name = page_names.get(page_type, page_type)
                 existing_sid = existing_ids.get(page_type, "")
                 if existing_sid:
-                    if progress_callback:
-                        progress_callback(f"Stitch {progress_tag} 复用已有{cn_name}...")
+                    if progress_callback: progress_callback(f"Stitch 复用已有{cn_name}...")
                     html = self.get_screen_code(f"projects/{project_id}/screens/{existing_sid}")
                     if html and len(html) > 500:
                         screens[page_type] = html
                         screen_ids[page_type] = existing_sid
-                        if progress_callback:
-                            progress_callback(f"Stitch {progress_tag} {cn_name}复用完成 ({len(html)//1024}KB)")
-                        if on_screen:
-                            on_screen(page_type, existing_sid)
+                        if progress_callback: progress_callback(f"Stitch {cn_name}复用完成 ({len(html)//1024}KB)")
+                        if on_screen: on_screen(page_type, existing_sid)
                         continue
-                    else:
-                        if progress_callback:
-                            progress_callback(f"Stitch {progress_tag} {cn_name}已过期，重新生成...")
+                pages_to_generate.append(page_type)
 
+            # Second pass: generate ALL new screens in parallel via thread pool
+            if pages_to_generate:
+                total = len(pages_to_generate)
                 if progress_callback:
-                    progress_callback(f"Stitch {progress_tag} 正在生成{cn_name}...")
+                    progress_callback(f"Stitch 并行生成 {total} 个页面...")
 
-                result = self.generate_screen(project_id, prompt)
-                if not result or result.get("error"):
-                    logger.warning(f"Stitch {page_type}: skipped")
-                    continue
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                import threading as _threading
 
-                html_url = result.get("htmlUrl", "")
-                screen_id = result.get("screenId", "")
-                if not html_url:
-                    # HTML not ready yet — poll via list_screens (max 3 attempts, 3s apart)
-                    for retry in range(3):
-                        time.sleep(3)
-                        latest = self._get_latest_screen_html(project_id)
-                        html_url = latest.get("htmlUrl", "")
-                        screen_id = latest.get("screenId", screen_id)
-                        if html_url:
-                            break
+                results_lock = _threading.Lock()
+                completed = [0]
+
+                def _gen_one(page_type):
+                    prompt = prompts.get(page_type)
+                    if not prompt:
+                        return page_type, None
+                    result = self.generate_screen(project_id, prompt)
+                    if not result or result.get("error"):
+                        logger.warning(f"Stitch {page_type}: generate failed")
+                        return page_type, None
+
+                    html_url = result.get("htmlUrl", "")
+                    sid = result.get("screenId", "")
                     if not html_url:
-                        logger.warning(f"Stitch {page_type}: htmlUrl still unavailable after retries")
+                        for retry in range(3):
+                            time.sleep(3)
+                            latest = self._get_latest_screen_html(project_id)
+                            html_url = latest.get("htmlUrl", "")
+                            sid = latest.get("screenId", sid)
+                            if html_url:
+                                break
 
-                if html_url:
-                    # Download and verify: signed URL returns 200 + Content-Length when render complete
-                    html = self.download_screen_html(html_url)
-                    if html:
-                        screens[page_type] = html
-                        screen_ids[page_type] = screen_id
-                        if progress_callback:
-                            progress_callback(f"Stitch {progress_tag} {cn_name}完成 ({len(html)//1024}KB)")
-                        # Immediately save this screen_id via callback
-                        if on_screen:
-                            on_screen(page_type, screen_id)
-                    else:
-                        logger.warning(f"Stitch {page_type}: download returned empty/error")
+                    if html_url:
+                        html = self.download_screen_html(html_url)
+                        if html:
+                            with results_lock:
+                                completed[0] += 1
+                            return page_type, {"html": html, "screen_id": sid}
+                    return page_type, None
+
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    futures = {pool.submit(_gen_one, pt): pt for pt in pages_to_generate}
+                    for f in as_completed(futures):
+                        pt, data = f.result()
+                        cn_name = page_names.get(pt, pt)
+                        if data and data["html"]:
+                            screens[pt] = data["html"]
+                            screen_ids[pt] = data["screen_id"]
+                            if progress_callback:
+                                progress_callback(f"Stitch {cn_name}完成 ({completed[0]}/{total}) ({len(data['html'])//1024}KB)")
+                            if on_screen:
+                                on_screen(pt, data["screen_id"])
+                        else:
+                            logger.warning(f"Stitch {pt}: skipped")
+                            if progress_callback:
+                                progress_callback(f"Stitch {cn_name}: 失败 ({completed[0]}/{total})")
 
             return {"screens": screens, "project_id": project_id, "screen_ids": screen_ids} if screens else None
 
