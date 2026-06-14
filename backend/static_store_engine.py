@@ -2573,6 +2573,7 @@ def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
 
         # Inject real products into Stitch homepage product grid
         if products and len(products) > 0 and result.get("index.html"):
+            logger.info(f"Injecting {len(products)} products into Stitch homepage for {domain}")
             result["index.html"] = _inject_products_into_homepage(result["index.html"], products, design, brand_kit)
 
         # Product pages always use built-in
