@@ -3541,6 +3541,20 @@ def register_routes(app):
         if not site:
             return jsonify({"code": 404, "message": "站点不存在"}), 404
 
+        # Support JSON body import (from preview selection)
+        json_data = request.get_json(silent=True) or {}
+        if json_data.get("action") == "import_list":
+            products = json_data.get("products", [])
+            if not products:
+                return jsonify({"code": 400, "message": "产品列表为空"}), 400
+            mapped = [{k: p.get(k, "") for k in ["title","description","price","currency","images","image_url","category","brand","sku","source_url"]} for p in products]
+            count = import_products_to_site(site_id, mapped)
+            try:
+                _regenerate_static_site_html(None, site_id)
+            except Exception as re:
+                logger.warning(f"Regenerate failed: {re}")
+            return jsonify({"code": 200, "data": {"imported": count, "total": len(products)}})
+
         if "file" not in request.files:
             return jsonify({"code": 400, "message": "请上传CSV文件"}), 400
 

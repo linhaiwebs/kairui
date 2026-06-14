@@ -141,7 +141,9 @@ const app = createApp({
         const csvPreview = ref([]);
         const csvUploading = ref(false);
         const csvImporting = ref(false);
+        const csvAllSelected = computed(() => csvPreview.value.length > 0 && csvSelected.value.size === csvPreview.value.length);
         const csvFileInput = ref(null);
+        const csvSelected = ref(new Set());
         const wooGeneratingFeed = ref(false);
 
         // Deploy progress overlay
@@ -1370,6 +1372,33 @@ pipelineStatuses[siteId].demo_importing = false;
                 csvImporting.value = false;
             }
         }
+        function csvToggleAll() {
+            if (csvAllSelected.value) { csvSelected.value = new Set(); }
+            else { csvSelected.value = new Set(csvPreview.value.map((_, i) => i)); }
+        }
+        function csvToggleOne(i) {
+            const s = new Set(csvSelected.value);
+            s.has(i) ? s.delete(i) : s.add(i);
+            csvSelected.value = s;
+        }
+        function csvClear() { csvPreview.value = []; csvSelected.value = new Set(); }
+        async function csvImportAll() { await doImportCsv(true); }
+        async function csvImportSelected() { await doImportCsv(false); }
+        async function doImportCsv(all) {
+            const items = all ? csvPreview.value : csvPreview.value.filter((_, i) => csvSelected.value.has(i));
+            if (!items.length || !wooSyncSiteId.value) return;
+            csvImporting.value = true;
+            try {
+                const resp = await API.request('POST', '/api/sites/' + wooSyncSiteId.value + '/import-csv', { products: items, action: 'import_list' });
+                if (resp.code === 200) {
+                    showToast('已导入 ' + (resp.data?.imported || items.length) + ' 件产品');
+                    csvClear();
+                    await loadWooProducts();
+                } else { showToast(resp.message || '导入失败', 'error'); }
+            } catch (ex) { showToast('导入失败', 'error'); }
+            csvImporting.value = false;
+        }
+
         async function syncWooToSite() {
             if (!wooSyncSiteId.value) { showToast('请先选择目标站点', 'error'); return; }
             if (syncingWoo.value) return;
@@ -2802,7 +2831,7 @@ async function loadProfileCategories() {
             feedSyncSiteId, wooSyncSiteId, syncingFeed, syncingWoo,
             convertToWooCommerce, loadWooProducts, toggleWooSelect, selectAllWoo, deleteSelectedWooProducts,
             createFeedForSite, cleanFeedFromSite, syncWooToSite, cleanWooFromSite, generateFeedFromWoo, wooGeneratingFeed, feedUrl,
-            csvPreview, csvUploading, csvImporting, csvFileInput, handleCsvUpload, importCsvToSite,
+            csvPreview, csvUploading, csvImporting, csvFileInput, csvSelected, csvAllSelected, handleCsvUpload, csvToggleAll, csvToggleOne, csvClear, csvImportAll, csvImportSelected,
             cfConnected, cfToken, cfAccounts, cfSelectedAccountId,
             deepseekApiKeys, deepseekVisibleKeys, deepseekKeyErrors, deepseekConnected, deepseekVerify,
             crawlbaseApiKeys, crawlbaseVisibleKeys, crawlbaseKeyErrors, crawlbaseConnected, crawlbaseVerify,
@@ -4084,6 +4113,38 @@ async function loadProfileCategories() {
                     </div>
                 </div>
 
+                <!-- CSV Preview -->
+                <div v-if="csvPreview.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden mb-4">
+                    <div class="px-4 py-3 bg-green-50 border-b flex items-center justify-between text-sm">
+                        <span><i class="fas fa-file-csv mr-2 text-green-600"></i>解析到 <b>{{ csvPreview.length }}</b> 件产品</span>
+                        <div class="flex items-center gap-2">
+                            <label class="text-xs cursor-pointer"><input type="checkbox" :checked="csvAllSelected" @change="csvToggleAll"> 全选</label>
+                            <button @click="csvClear" class="text-xs hover:underline">清除</button>
+                        </div>
+                    </div>
+                    <div class="max-h-96 overflow-y-auto">
+                        <table class="w-full text-xs"><thead class="bg-surface-container-low sticky top-0"><tr>
+                            <th class="px-2 py-2 w-8"><input type="checkbox" :checked="csvAllSelected" @change="csvToggleAll"></th>
+                            <th class="px-2 py-2 text-left">图片</th><th class="px-2 py-2 text-left">标题</th><th class="px-2 py-2">SKU</th>
+                            <th class="px-2 py-2">分类</th><th class="px-2 py-2">品牌</th><th class="px-2 py-2 text-right">价格</th>
+                        </tr></thead><tbody>
+                            <tr v-for="(p, i) in csvPreview" :key="i" :class="csvSelected.has(i) ? 'bg-blue-50' : ''" class="border-b hover:bg-surface-container-low cursor-pointer" @click="csvToggleOne(i)">
+                                <td class="px-2 py-2"><input type="checkbox" :checked="csvSelected.has(i)"></td>
+                                <td class="px-2 py-2"><img v-if="p.image_url" :src="p.image_url" class="w-8 h-8 object-cover rounded" onerror="this.style.display='''none'''"></td>
+                                <td class="px-2 py-2 font-medium max-w-48 truncate">{{ p.title }}</td>
+                                <td class="px-2 py-2 text-on-surface-variant">{{ p.sku }}</td>
+                                <td class="px-2 py-2 text-on-surface-variant max-w-24 truncate">{{ p.category }}</td>
+                                <td class="px-2 py-2 text-on-surface-variant">{{ p.brand }}</td>
+                                <td class="px-2 py-2 text-right font-medium">{{ p.price ? '''$''' + p.price : '''' }}</td>
+                            </tr>
+                        </tbody></table>
+                    </div>
+                    <div class="px-4 py-2 bg-surface-container-low border-t flex items-center gap-2">
+                        <button @click="csvImportAll" :disabled="!wooSyncSiteId || csvImporting" class="px-4 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50">{{ csvImporting ? '''导入中...''' : '''导入全部 (''' + csvPreview.length + ''')''' }}</button>
+                        <button @click="csvImportSelected" :disabled="!wooSyncSiteId || csvImporting || !csvSelected.size" class="px-4 py-1.5 bg-primary text-white rounded text-sm hover:bg-primary disabled:opacity-50">导入选中 ({{ csvSelected.size }})</button>
+                    </div>
+                </div>
+
                 <!-- Empty state -->
                 <div v-if="!wooProducts.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center">
                     <div class="w-20 h-20 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -4099,23 +4160,6 @@ async function loadProfileCategories() {
                         </label>
                         <span v-if="csvUploading" class="text-xs text-on-surface-variant"><i class="fas fa-spinner fa-spin mr-1"></i>解析中...</span>
                     </div>
-                    <!-- CSV preview list -->
-                    <div v-if="csvPreview.length" class="mt-4 text-left max-h-60 overflow-y-auto border rounded-lg">
-                        <div class="px-3 py-2 bg-surface-container-low text-xs font-medium flex justify-between">
-                            <span>解析到 {{ csvPreview.length }} 件产品</span>
-                            <button @click="importCsvToSite" :disabled="!wooSyncSiteId || csvImporting" class="text-primary hover:underline">
-                                {{ csvImporting ? '导入中...' : '一键导入全部' }}
-                            </button>
-                        </div>
-                        <div v-for="(p, i) in csvPreview" :key="i" class="px-3 py-2 border-b text-xs flex gap-2">
-                            <img v-if="p.image_url" :src="p.image_url" class="w-10 h-10 object-cover rounded" onerror="this.style.display='none'">
-                            <div class="flex-1 min-w-0">
-                                <div class="truncate font-medium">{{ p.title }}</div>
-                                <div class="text-on-surface-variant">\${{ p.price }} {{ p.category ? '| ' + p.category : '' }}</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
 
                 <!-- 网站产品 product table -->
                 <div v-else class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
