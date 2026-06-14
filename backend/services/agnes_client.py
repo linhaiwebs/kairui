@@ -48,7 +48,7 @@ class AgnesClient:
     def is_available(self):
         return bool(self._api_key)
 
-    def _call_api(self, messages, temperature=0.3, max_tokens=4096):
+    def _call_api(self, messages, temperature=0.3, max_tokens=2048):
         """Call Agne's AI chat/completions endpoint."""
         resp = http_requests.post(
             f"{AGNES_BASE_URL}/chat/completions",
