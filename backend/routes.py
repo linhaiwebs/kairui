@@ -5073,12 +5073,7 @@ def register_routes(app):
         async def _test_connectivity():
             config = load_profile_config(profile_dir) or {}
             proxy = (config.get("proxy", "") or "").replace("socks5h://", "socks5://")
-            launch_kwargs = {"headless": True, "user_data_dir": profile_dir, "timeout": 60000}
-            fp_args = _build_launch_args(config)
-            for arg in fp_args:
-                if "=" in arg:
-                    k, v = arg.split("=", 1)
-                    launch_kwargs[k.lstrip("-")] = v
+            launch_kwargs = {"headless": True, "user_data_dir": profile_dir, "timeout": 60000, "args": _build_launch_args(config)}
             if proxy:
                 launch_kwargs["proxy"] = _normalize_proxy_for_launch(proxy)
 

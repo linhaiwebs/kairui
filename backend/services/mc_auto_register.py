@@ -1067,11 +1067,8 @@ async def register_gmc_ai(
         "headless": headless,
         "user_data_dir": profile_dir,
         "timeout": timeout_ms,
+        "args": fingerprint_args,
     }
-    for arg in fingerprint_args:
-        if "=" in arg:
-            k, v = arg.split("=", 1)
-            launch_kwargs[k.lstrip("-")] = v
     if proxy:
         launch_kwargs["proxy"] = _normalize_proxy_for_launch(proxy)
 
