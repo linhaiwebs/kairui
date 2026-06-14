@@ -181,7 +181,7 @@ class StitchClient:
                     "Content-Type": "application/json",
                 },
                 json=body,
-                timeout=90,
+                timeout=180,
             )
             # Handle HTTP-level 401
             if resp.status_code == 401:
@@ -282,7 +282,7 @@ class StitchClient:
         """Create a Stitch TEXT_TO_UI project via REST API. Returns numeric project ID."""
         status, text = self._rest_authorized(
             "POST", "https://stitch.googleapis.com/v1/projects",
-            json={"displayName": title, "projectType": "TEXT_TO_UI_PRO", "visibility": "PRIVATE"},
+            json={"displayName": title, "projectType": "TEXT_TO_UI", "visibility": "PRIVATE"},
         )
         if status == 200 and text:
             try:
