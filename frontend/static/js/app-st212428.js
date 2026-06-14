@@ -4063,6 +4063,11 @@ async function loadProfileCategories() {
                             <option :value="null">-- 选择站点 --</option>
                             <option v-for="site in sites" :key="site.id" :value="site.id">{{ site.site_name }} ({{ site.url }})</option>
                         </select>
+                        <label class="px-3 py-2 bg-green-600 text-white rounded-lg text-sm cursor-pointer hover:bg-green-700 transition whitespace-nowrap">
+                            <i class="fas fa-file-csv mr-1"></i>上传 CSV
+                            <input type="file" accept=".csv" @change="handleCsvUpload" class="hidden" ref="csvFileInput">
+                        </label>
+                        <span v-if="csvUploading" class="text-xs text-on-surface-variant"><i class="fas fa-spinner fa-spin mr-1"></i>解析中...</span>
                         <button @click="syncWooToSite" :disabled="!wooSyncSiteId || syncingWoo || !wooProducts.length"
                             class="px-4 py-2 bg-primary-container text-on-primary rounded-lg text-sm hover:bg-primary disabled:opacity-50 transition whitespace-nowrap">
                             <i class="fas fa-cloud-upload-alt mr-1"></i>{{ syncingWoo ? '同步中...' : '同步' }}
