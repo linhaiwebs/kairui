@@ -580,6 +580,11 @@ class StitchClient:
                 if progress_callback:
                     progress_callback(f"Stitch 并行生成 {total} 个页面...")
 
+                # Pre-refresh token once, then give each thread its own client
+                self._force_refresh()
+                shared_token = self._access_token
+                shared_refresh = self._refresh_token
+
                 from concurrent.futures import ThreadPoolExecutor, as_completed
                 import threading as _threading
 
@@ -590,7 +595,9 @@ class StitchClient:
                     prompt = prompts.get(page_type)
                     if not prompt:
                         return page_type, None
-                    result = self.generate_screen(project_id, prompt)
+                    # Each thread gets its own client to avoid race conditions
+                    client = StitchClient(access_token=shared_token, refresh_token=shared_refresh)
+                    result = client.generate_screen(project_id, prompt)
                     if not result or result.get("error"):
                         logger.warning(f"Stitch {page_type}: generate failed")
                         return page_type, None
