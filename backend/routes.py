@@ -3092,8 +3092,7 @@ def register_routes(app):
 
             page_count = len(files)
             stitch_msg = " (Stitch)" if stitch_used else ""
-            if stitch_used:
-                update_site_fields(site_id, {"stitch_design_status": "complete"})
+            update_site_fields(site_id, {"stitch_design_status": "complete"})
             logger.info(f"Generated {page_count} files for {domain}{stitch_msg}")
             update_bg_task(task_id, status="deploying",
                           message=f"页面生成完成（{page_count} 个文件）{stitch_msg}")
@@ -4808,7 +4807,7 @@ def register_routes(app):
             # Design stage: for static sites, shows Stitch progress
             "design_started": stitch_status in ("starting", "generating", "complete"),
             "design_generating": stitch_status in ("starting", "generating"),
-            "design_complete": stitch_status == "complete" or is_active,
+            "design_complete": stitch_status == "complete",
             "design_label": "Stitch" if stitch_status == "complete" else ("生成中" if stitch_status in ("starting", "generating") else ""),
             "files_uploaded": is_active,
             # WordPress legacy stages
