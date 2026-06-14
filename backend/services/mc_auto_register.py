@@ -476,7 +476,12 @@ async def _detect_gmc_page(page) -> dict:
         state["phase"] = "wizard"
         return state
 
-    # 5. Fallback: try detecting based on buttons/inputs
+    # 5. Detect support / help pages (should NOT be on these)
+    if "support.google.com" in url:
+        state["phase"] = "support"
+        return state
+
+    # 6. Fallback: try detecting based on buttons/inputs
     try:
         has_continue = await page.locator("button:has-text('Continue'), button:has-text('Next')").count() > 0
         has_input = await page.locator("input:visible, mwc-textfield:visible, md-outlined-text-field:visible").count() > 0
@@ -486,6 +491,27 @@ async def _detect_gmc_page(page) -> dict:
         pass
 
     return state
+
+
+# List of URL patterns that the automation should NEVER navigate to
+_BLOCKED_URL_PATTERNS = [
+    "support.google.com",
+    "policies.google.com",
+    "about.google",
+    "safety.google",
+    "blog.google",
+    "ads.google.com/home",
+    "marketingplatform.google.com/about",
+]
+
+
+def _is_blocked_url(url: str) -> bool:
+    """Check if a URL should be avoided by the automation."""
+    url_lower = url.lower()
+    for pattern in _BLOCKED_URL_PATTERNS:
+        if pattern in url_lower:
+            return True
+    return False
 
 
 async def _dismiss_overlays(page):
@@ -883,16 +909,23 @@ Return ONLY JSON (no markdown, no explanation outside JSON):
   "reasoning": "brief explanation"
 }}
 
-RULES:
-- IMPORTANT: After Google login, if GMC landing page shows \"Sign in\" button again, it means this Google account does NOT have a GMC account yet. Instead of clicking \"Sign in\", look for and click: \"Get started\", \"Create account\", \"Sign up\", \"Start now\", \"Begin\", or similar registration buttons.
-- If this is a form asking for business info, fill it using the provided business_info JSON
-- Country should be United States unless business_info says otherwise
-- Store website URL is: {site_url}
-- Feed/product URL is: {feed_url}
-- Shipping and returns policy pages: just click continue/next/skip
-- If you see a captcha, verification challenge, or unexpected error: return action=fail
-- If you see GMC dashboard, MC account ID (numeric), or success message: return action=done
-- Use visible button/link TEXT as selector when possible (e.g. \"Next\", \"Continue\", \"Save\")"""
+CRITICAL RULES — FOLLOW STRICTLY:
+1. NEVER click links that go to support.google.com, policies.google.com, about.google, blog.google, or any help/support page. If the page is a support page, navigate back to https://merchants.google.com/
+2. After Google login, the GMC landing page has TWO paths:
+   - If already registered: shows dashboard ("Performance", "Products"). Return done.
+   - If NOT registered: shows "Get started" / "Create account" / "Sign up" / "Start now" / "Begin" button. Click that.
+   - IMPORTANT: If you see a "Sign in" button on GMC landing page, this account has NO GMC yet. DO NOT click "Sign in" — instead find and click "Get started" or "Create account".
+3. After clicking "Get started", you will see two account type options:
+   - FIRST option: "Merchant" / "Business" / "Online store" — CHOOSE THIS ONE
+   - SECOND option: "Advanced" / "Comparison Shopping Service" — SKIP THIS
+   - Always select the FIRST (simple merchant/business) option
+4. Registration form: fill using the provided business_info JSON. Country = United States unless specified otherwise.
+5. Store website URL: {site_url}
+6. Feed/product URL: {feed_url}
+7. Shipping/returns/policy pages: click "Continue" / "Next" / "Skip" to move forward
+8. If captcha, verification challenge, or unexpected error: return action=fail
+9. If GMC dashboard, MC account ID, or success message appears: return action=done
+10. Use visible button TEXT as selector (e.g. "Next", "Continue", "Save", "Get started")"""
 
 
 async def _call_deepseek_for_action(prompt, log_callback=None):
@@ -958,6 +991,27 @@ async def _execute_action(page, action, log_callback=None):
         log_callback("info", f"AI: {reasoning}", "ai_reason")
 
     if act == "click" and selector:
+        # Pre-check: skip clicks on links that lead to blocked URLs (support, policies, etc.)
+        try:
+            blocked_hrefs = await page.evaluate("""
+                (() => {
+                    const blocked = ['support.google.com', 'policies.google.com', 'about.google',
+                        'safety.google', 'blog.google', 'ads.google.com/home'];
+                    const results = [];
+                    for (const a of document.querySelectorAll('a[href]')) {
+                        const href = a.getAttribute('href').toLowerCase();
+                        for (const b of blocked) {
+                            if (href.includes(b)) { results.push(href); break; }
+                        }
+                    }
+                    return results;
+                })()
+            """)
+            if blocked_hrefs:
+                if log_callback: log_callback("warning", f"Skipping click — page has {len(blocked_hrefs)} blocked link(s): {blocked_hrefs[0][:80]}", "blocked_links")
+        except Exception:
+            pass
+
         # Multiple strategies to find and click the element
         strategies = [
             ("css", lambda: page.locator(selector).first),
@@ -1180,8 +1234,21 @@ async def register_gmc_ai(
         for step_num in range(1, MAX_STEPS + 1):
             _emit("info", f"--- AI Step {step_num}/{MAX_STEPS} ---", "ai_loop")
 
-            # Stuck detection: same action 3+ times without URL change
+            # Support page / blocked URL guard — navigate back to GMC
             current_url = page.url
+            if _is_blocked_url(current_url):
+                _emit("warning", f"On blocked page: {current_url[:100]}, navigating back to GMC...", "blocked_url")
+                try:
+                    await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=30000)
+                    await asyncio.sleep(3)
+                    await _dismiss_overlays(page)
+                    last_url = ""  # reset stuck detection
+                    same_action_count = 0
+                    continue
+                except Exception as e:
+                    _emit("error", f"Failed to navigate back from blocked page: {e}", "blocked_url")
+
+            # Stuck detection: same action 3+ times without URL change
             if current_url == last_url and last_action:
                 same_action_count += 1
             else:
