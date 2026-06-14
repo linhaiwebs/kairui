@@ -81,13 +81,19 @@ def create_app():
         # Try templates first
         templates_dir = os.path.join(frontend_dir, "templates")
         if os.path.isfile(os.path.join(templates_dir, path)):
-            return send_from_directory(templates_dir, path)
+            resp = send_from_directory(templates_dir, path)
+            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return resp
         # Then static
         static_dir = os.path.join(frontend_dir, "static")
         if os.path.isfile(os.path.join(static_dir, path)):
-            return send_from_directory(static_dir, path)
+            resp = send_from_directory(static_dir, path)
+            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return resp
         # Fallback to index.html for SPA
-        return send_from_directory(templates_dir, "index.html")
+        resp = send_from_directory(templates_dir, "index.html")
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return resp
 
     return app
 
