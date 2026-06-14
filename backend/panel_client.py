@@ -570,34 +570,26 @@ class OnePanelClient:
             # 1Panel creates site at sitePath (e.g. .../sites/maxc.lhwebs.com)
             # but nginx serves from sitePath/index/ — files go in the /index subdirectory
             site_dir = f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index"
-            resp["data"] = {"website_id": None, "site_dir": site_dir, "alias": alias}
+            # Try to get website_id from create response first
+            wid = (resp.get("data") or {}).get("id")
+            resp["data"] = {"website_id": wid, "site_dir": site_dir, "alias": alias}
 
-            # Search by domain (primaryDomain) to get actual website_id and siteDir
-            for attempt in range(3):
-                _time.sleep(1 if attempt == 0 else 2)
-                ws = self.search_websites(name=domain)
-                if ws.get("code") == 200:
-                    items = (ws.get("data") or {}).get("items", []) or []
-                    for w in items:
-                        if w.get("primaryDomain") == domain:
-                            resp["data"]["website_id"] = w.get("id")
-                            # sitePath is base dir, files go in sitePath/index/
-                            actual_dir = w.get("sitePath") or w.get("siteDir") or ""
-                            if actual_dir:
-                                resp["data"]["site_dir"] = actual_dir + "/index"
+            # Fallback: search by domain if no ID in response
+            if not wid:
+                for attempt in range(2):
+                    _time.sleep(1)
+                    ws = self.search_websites(name=domain)
+                    if ws.get("code") == 200 and isinstance(ws.get("data"), dict):
+                        items = (ws["data"] or {}).get("items", []) or []
+                        for w in items:
+                            if w.get("primaryDomain") == domain:
+                                resp["data"]["website_id"] = w.get("id")
+                                actual_dir = w.get("sitePath") or w.get("siteDir") or ""
+                                if actual_dir:
+                                    resp["data"]["site_dir"] = actual_dir + "/index"
+                                break
+                        if resp["data"].get("website_id"):
                             break
-                    if not resp["data"].get("website_id"):
-                        import logging
-                        logging.getLogger(__name__).warning(
-                            f"create_static_website: search found {len(items)} items but none matched primaryDomain={domain}"
-                        )
-                elif ws.get("code") != 200:
-                    import logging
-                    logging.getLogger(__name__).warning(
-                        f"create_static_website: search attempt {attempt+1} returned code={ws.get('code')} msg={ws.get('message','')[:100]}"
-                    )
-                if resp["data"].get("website_id"):
-                    break
         return resp
 
     def reload_openresty(self):
