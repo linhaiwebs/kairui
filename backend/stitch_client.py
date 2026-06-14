@@ -396,6 +396,37 @@ class StitchClient:
                 return None
         return None
 
+    def get_design_spec(self, project_id):
+        """Try to download the DESIGN.md design spec from a Stitch project.
+        Returns the markdown content or None."""
+        # Try common paths for the design spec file
+        for path in [
+            f"projects/{project_id}/files/DESIGN.md",
+            f"projects/{project_id}/files/design.md",
+            f"projects/{project_id}/design.md",
+        ]:
+            status, text = self._rest_authorized("GET", f"https://stitch.googleapis.com/v1/{path}/content")
+            if status == 200 and text:
+                try:
+                    data = json.loads(text)
+                    content = data.get("content") or data.get("text") or ""
+                    if content and len(content) > 100:
+                        return content
+                except Exception:
+                    pass
+        # Try listing screens to find DESIGN.md
+        try:
+            screens = self.list_screens(project_id)
+            for s in screens:
+                name = s.get("name", "").lower()
+                if "design" in name or "spec" in name or "style" in name:
+                    code = self.get_screen_code(s.get("name", ""))
+                    if code and len(code) > 100:
+                        return code
+        except Exception:
+            pass
+        return None
+
     # ---- Store Design Generation ----
     @staticmethod
     def _is_valid_page_html(html, page_type):

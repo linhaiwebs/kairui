@@ -2352,6 +2352,8 @@ def try_stitch_design(brand_kit, progress_callback=None):
                         })
                     except Exception:
                         pass
+                # Attach project_id so caller can fetch DESIGN.md
+                screens["_project_id"] = project_id
                 return screens
         if progress_callback: progress_callback("Stitch不足，尝试Agnes...")
         return None
@@ -2413,6 +2415,13 @@ def _fix_page_links(html, current_page, page_map):
     return html
 
 
+def _extract_colors_from_md(md_text):
+    """Extract color hex codes from DESIGN.md markdown."""
+    import re
+    colors = re.findall(r"#[0-9a-fA-F]{6}", md_text[:3000])
+    return list(dict.fromkeys(colors))[:2] if len(colors) >= 2 else None
+
+
 def _extract_dominant_colors(html):
     """Extract CSS --primary and --accent colors from Stitch HTML for CSS fallback consistency."""
     import re
@@ -2460,14 +2469,29 @@ def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
     if design_pages and design_pages.get("home"):
         logger.info(f"Using Agnes design for {domain} ({len(design_pages)} pages)")
 
-        # Extract colors from Stitch pages so CSS fallback matches visually
-        for pt in ["about", "contact", "privacy", "returns", "cart", "checkout", "product"]:
-            if design_pages.get(pt):
-                extracted = _extract_dominant_colors(design_pages[pt])
-                if extracted:
-                    brand_kit = dict(brand_kit)
-                    brand_kit["colors"] = extracted
-                    break
+        # Extract colors from Stitch DESIGN.md or pages so CSS fallback matches
+        try:
+            from stitch_client import StitchClient
+            stitch2 = StitchClient()
+            if stitch2.is_authenticated:
+                project_id = design_pages.get("_project_id") or brand_kit.get("design_project_id", "")
+                if project_id:
+                    spec = stitch2.get_design_spec(project_id)
+                    if spec:
+                        extracted = _extract_colors_from_md(spec)
+                        if extracted:
+                            brand_kit = dict(brand_kit)
+                            brand_kit["colors"] = extracted
+        except Exception:
+            pass
+        if not brand_kit.get("colors") or len(brand_kit.get("colors", [])) < 2:
+            for pt in ["about", "contact", "privacy", "returns", "cart", "checkout", "product"]:
+                if design_pages.get(pt):
+                    extracted = _extract_dominant_colors(design_pages[pt])
+                    if extracted:
+                        brand_kit = dict(brand_kit)
+                        brand_kit["colors"] = extracted
+                        break
 
         _INLINE_CSS = build_css(design, brand_kit)
         _INLINE_JS = STORE_JS
