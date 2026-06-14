@@ -2299,6 +2299,26 @@ def render_policy_pages(design, brand_kit):
 # ---------------------------------------------------------------------------
 # 8. render_site — main entry point
 # ---------------------------------------------------------------------------
+def try_stitch_design(brand_name):
+    """Try to generate store design via Google Stitch. Returns dict {page: html} or None."""
+    try:
+        from stitch_client import StitchClient
+        stitch = StitchClient()
+        if not stitch.is_authenticated:
+            return None
+        pages = stitch.generate_store_design(
+            brand_name=brand_name,
+            pages=["home", "product", "cart"]
+        )
+        if pages and len(pages) >= 2:
+            logger.info(f"Stitch design generated for {brand_name}: {list(pages.keys())}")
+            return pages
+        return None
+    except Exception as e:
+        logger.warning(f"Stitch design failed, using built-in: {e}")
+        return None
+
+
 def render_site_to_dict(domain, brand_kit, products):
     """Same as render_site but returns dict {filename: content} without writing to disk."""
     design = _load_design(brand_kit)
