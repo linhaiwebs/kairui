@@ -2464,14 +2464,19 @@ def register_routes(app):
             if pid:
                 try:
                     pc = site_pc or _get_panel_client()
-                    pc.delete_website(
+                    del_resp = pc.delete_website(
                         pid,
-                        delete_app=False,  # app already deleted in step 1
+                        delete_app=False,
                         delete_backup=True,
-                        force_delete=True,  # ForceDelete removes site directory too
+                        force_delete=True,
                         delete_db=False,
                     )
-                    logger.info(f"Deleted 1Panel website {pid} (directory auto-removed by 1Panel)")
+                    if del_resp.get("code") == 200:
+                        logger.info(f"Deleted 1Panel website {pid} (directory auto-removed by 1Panel)")
+                    else:
+                        msg = f"1Panel未删除(id={pid}): {del_resp.get('message', str(del_resp))[:100]}"
+                        logger.warning(msg)
+                        cleanup_errors.append(msg)
                 except Exception as e:
                     msg = f"网站删除失败: {str(e)[:80]}"
                     logger.warning(msg)
