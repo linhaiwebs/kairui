@@ -1544,9 +1544,9 @@ pipelineStatuses[siteId].demo_importing = false;
                     sites.value.forEach(s => {
                         const ps = pipelineStatuses[s.id];
                         if (!ps) return;
-                        // Static sites: poll while not fully complete
+                        // Static sites: poll while deploying, stop when complete
                         if (ps.site_type === 'static') {
-                            if (!ps.files_uploaded || !ps.brand_configured) {
+                            if (!ps.files_uploaded) {
                                 loadPipelineStatus(s.id);
                             }
                             return;
@@ -1557,7 +1557,7 @@ pipelineStatuses[siteId].demo_importing = false;
                             loadPipelineStatus(s.id);
                         }
                     });
-                }, 8000);
+                }, 3000);
             } else {
                 if (pipelinePollTimer) { clearInterval(pipelinePollTimer); pipelinePollTimer = null; }
             }

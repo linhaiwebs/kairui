@@ -2400,6 +2400,57 @@ def try_stitch_design(brand_kit, progress_callback=None):
         return None
 
 
+# Link text → filename mapping for fixing Stitch navigation links
+_LINK_TEXT_MAP = {
+    "home": "index.html", "shop": "index.html",
+    "products": "index.html", "product": "index.html",
+    "cart": "cart.html", "bag": "cart.html", "basket": "cart.html",
+    "checkout": "checkout.html",
+    "order": "order.html", "orders": "order.html", "track order": "order.html",
+    "about": "about.html", "about us": "about.html", "our story": "about.html",
+    "contact": "contact.html", "contact us": "contact.html", "support": "contact.html",
+    "faq": "faq.html", "help": "faq.html",
+    "privacy": "privacy.html", "privacy policy": "privacy.html",
+    "terms": "terms.html", "terms of service": "terms.html", "terms & conditions": "terms.html",
+    "shipping": "shipping.html", "shipping info": "shipping.html", "delivery": "shipping.html",
+    "returns": "returns.html", "returns & refunds": "returns.html", "refund": "returns.html",
+}
+
+def _fix_stitch_links(html, current_page, page_map):
+    """Replace # links in Stitch HTML with correct page URLs.
+
+    Matches <a> tags by their visible text and replaces href="#" with the
+    corresponding filename from page_map.
+    """
+    import re
+
+    def _replace_href(match):
+        full_tag = match.group(0)
+        # Extract link text (strip HTML tags inside <a>)
+        inner = match.group(1)
+        text = re.sub(r"<[^>]+>", "", inner).strip().lower()
+
+        # Find matching page from link text
+        target = None
+        for keyword, filename in _LINK_TEXT_MAP.items():
+            if keyword in text:
+                target = filename
+                break
+
+        if target and target != page_map.get(current_page, ""):
+            full_tag = re.sub(r"""href=["']#["']""", 'href="' + target + '"', full_tag, count=1)
+        return full_tag
+
+    # Match <a ...>...</a> tags with href="#"
+    html = re.sub(
+        r"""<a\s[^>]*href=["']#["'][^>]*>(.*?)</a>""",
+        _replace_href,
+        html,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    return html
+
+
 def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
     """Same as render_site but returns dict {filename: content} without writing to disk.
     Tries Stitch design first; falls back to built-in CSS."""
@@ -2426,7 +2477,8 @@ def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
         }
         for page_type, filename in page_map.items():
             if stitch_pages.get(page_type):
-                result[filename] = stitch_pages[page_type]
+                html = stitch_pages[page_type]
+                result[filename] = _fix_stitch_links(html, page_type, page_map)
             else:
                 # Fallback to built-in for missing pages
                 result[filename] = _render_page_by_type(page_type, design, brand_kit, products)
