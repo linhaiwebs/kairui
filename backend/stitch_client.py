@@ -662,8 +662,8 @@ class StitchClient:
                             break
                         err = result.get("error", "") if result else ""
                         if "exhausted" in str(err).lower() or "quota" in str(err).lower():
-                            wait = (attempt + 1) * 5
-                            logger.info(f"Stitch {page_type}: quota exhausted, retrying in {wait}s (attempt {attempt+1}/3)")
+                            wait = (attempt + 1) * 5 + random.uniform(0.5, 4.0)
+                            logger.info(f"Stitch {page_type}: quota exhausted, retrying in {wait:.1f}s (attempt {attempt+1}/3)")
                             time.sleep(wait)
                             continue
                         break
