@@ -62,7 +62,7 @@ class AgnesClient:
                 "temperature": temperature,
                 "max_tokens": max_tokens,
             },
-            timeout=60,
+            timeout=120,
         )
         if resp.status_code == 200:
             body = resp.json()
