@@ -2448,9 +2448,9 @@ def register_routes(app):
             if not site_pc:
                 site_pc = _get_panel_client()
 
-            pid = site.get("panel_website_id")
-            if not pid and domain:
-                # Search by domain name (primaryDomain in 1Panel)
+            # Always search by domain name to find the real 1Panel website ID
+            pid = None
+            if domain:
                 try:
                     pc = site_pc or _get_panel_client()
                     ws = pc.search_websites(name=domain)
@@ -2462,8 +2462,8 @@ def register_routes(app):
                                 break
                 except Exception as e:
                     logger.warning(f"Search website by domain failed: {e}")
-                if not pid:
-                    logger.warning(f"Could not find 1Panel website for domain={domain}")
+            if not pid:
+                logger.warning(f"Could not find 1Panel website for domain={domain}")
 
             if pid:
                 try:
