@@ -183,16 +183,43 @@ class StitchClient:
                 json=body,
                 timeout=90,
             )
+            # Handle HTTP-level 401
             if resp.status_code == 401:
                 # Token expired — ensure refresh_token loaded, refresh and retry once
                 if not self._refresh_token:
                     _, self._refresh_token = get_stitch_token()
+                logger.info("MCP 401: refreshing token (len=%d)...", len(self._refresh_token or ""))
                 self._access_token = _refresh_access_token(self._refresh_token)
                 if self._access_token:
                     save_stitch_token(self._access_token, self._refresh_token)
+                    logger.info("MCP 401: token refreshed, retrying...")
                     return self._mcp_call(method, params)
                 return {"error": "Stitch token expired, refresh failed."}
-            return resp.json()
+
+            # Parse JSON response
+            try:
+                data = resp.json()
+            except Exception:
+                logger.warning("MCP non-JSON response (HTTP %d): %s", resp.status_code, resp.text[:200])
+                return {"raw": resp.text}
+
+            # Handle JSON-RPC level auth errors (isError with auth message)
+            result_block = data.get("result", {})
+            if result_block.get("isError"):
+                content = result_block.get("content", [])
+                err_text = content[0].get("text", "") if content else ""
+                if "authentication" in err_text.lower() or "unauthorized" in err_text.lower() or "missing" in err_text.lower():
+                    logger.info("MCP auth error in response: %s", err_text[:120])
+                    if not self._refresh_token:
+                        _, self._refresh_token = get_stitch_token()
+                    self._access_token = _refresh_access_token(self._refresh_token)
+                    if self._access_token:
+                        save_stitch_token(self._access_token, self._refresh_token)
+                        logger.info("MCP auth error: token refreshed, retrying...")
+                        return self._mcp_call(method, params)
+                return {"error": err_text}
+
+            return data
         except Exception as e:
             logger.error(f"Stitch MCP call failed: {e}")
             return {"error": str(e)}
