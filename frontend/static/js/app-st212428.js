@@ -459,8 +459,9 @@ const app = createApp({
             const s = pipelineStatuses[site.id] || {};
             const progress = s.stitch_screen_progress || [];
             if (!progress.length) {
+                if (s.design_message) return s.design_message;
                 if (s.design_complete) return '设计完成' + (s.design_label ? ' (' + s.design_label + ')' : '');
-                if (s.design_generating) return 'Agnes AI正在生成设计...';
+                if (s.design_generating) return 'AI正在生成设计...';
                 return '商城设计';
             }
             const done = progress.filter(p => p.status === 'complete').length;
@@ -481,7 +482,8 @@ const app = createApp({
                 // 4-step flow: DNS → 1Panel创建 → 设计生成 → 上传文件 → 上线
                 if (s.files_uploaded) return '已上线';
                 if (s.design_complete) return '正在上传文件...';
-                if (s.design_generating) return 'Agnes AI生成设计中...';
+                if (s.design_message) return s.design_message.substring(0, 40);
+                if (s.design_generating) return 'AI生成设计中...';
                 if (s.design_started) return '正在生成设计...';
                 if (s.site_created) return '正在生成页面...';
                 if (s.dns_resolved) return '正在创建站点...';

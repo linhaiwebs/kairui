@@ -4712,6 +4712,19 @@ def register_routes(app):
 
     @app.route("/api/sites/<int:site_id>/pipeline-status", methods=["GET"])
     @jwt_required()
+    def _get_design_progress_message(site_id):
+        """Get the current design progress message from bg_task."""
+        try:
+            row = get_db().execute(
+                "SELECT message FROM bg_tasks WHERE site_id = ? AND task_type = 'deploy_static' ORDER BY id DESC LIMIT 1",
+                (site_id,),
+            ).fetchone()
+            if row and row[0]:
+                return row[0]
+        except Exception:
+            pass
+        return ""
+
     def get_pipeline_status(site_id):
         """Get timeline pipeline status for a site.
 
@@ -4780,6 +4793,7 @@ def register_routes(app):
             "design_complete": stitch_status == "complete",
             "design_label": "Agnes" if stitch_status == "complete" else ("生成中" if stitch_status in ("starting", "generating") else ""),
             "files_uploaded": is_active,
+            "design_message": _get_design_progress_message(site_id),
             "stitch_screen_progress": stitch_screen_progress,
             # WordPress legacy stages
             "wp_deployed": bool(site.get("panel_website_id")) if not is_static else False,
