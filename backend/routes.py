@@ -5733,8 +5733,7 @@ def register_routes(app):
                     loop.close()
 
             threading.Thread(target=_launch, daemon=True).start()
-            # VNC on the project server (noVNC exposed on port 6080)
-            vnc_host = os.environ.get("SERVER_HOST", "ads.lhwebs.com")
+            vnc_host = os.environ.get("SERVER_HOST", "127.0.0.1")
             vnc_url = f"http://{vnc_host}:6080/vnc.html?autoconnect=true&resize=scale"
             return jsonify({
                 "code": 200,
