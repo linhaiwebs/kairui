@@ -2413,6 +2413,21 @@ def _fix_page_links(html, current_page, page_map):
     return html
 
 
+def _extract_dominant_colors(html):
+    """Extract CSS --primary and --accent colors from Stitch HTML for CSS fallback consistency."""
+    import re
+    colors = []
+    for var in ["--primary", "--accent", "--bg", "--text"]:
+        m = re.search(rf"{var}\s*:\s*(#[0-9a-fA-F]{{3,6}})", html)
+        if m:
+            colors.append(m.group(1))
+    # Fallback: grab first two hex colors from :root or style blocks
+    if len(colors) < 2:
+        hexes = re.findall(r"#[0-9a-fA-F]{6}", html[:5000])
+        colors = list(dict.fromkeys(hexes))[:2]  # deduplicate, take 2
+    return colors if len(colors) >= 2 else None
+
+
 def _is_valid_html(html):
     """Check if HTML is a valid page (not just an SVG/icon/image)."""
     if not html or len(html) < 500:
@@ -2444,6 +2459,16 @@ def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
 
     if design_pages and design_pages.get("home"):
         logger.info(f"Using Agnes design for {domain} ({len(design_pages)} pages)")
+
+        # Extract colors from Stitch pages so CSS fallback matches visually
+        for pt in ["about", "contact", "privacy", "returns", "cart", "checkout", "product"]:
+            if design_pages.get(pt):
+                extracted = _extract_dominant_colors(design_pages[pt])
+                if extracted:
+                    brand_kit = dict(brand_kit)
+                    brand_kit["colors"] = extracted
+                    break
+
         _INLINE_CSS = build_css(design, brand_kit)
         _INLINE_JS = STORE_JS
 
