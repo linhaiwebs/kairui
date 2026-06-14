@@ -282,7 +282,7 @@ class StitchClient:
         """Create a Stitch TEXT_TO_UI project via REST API. Returns numeric project ID."""
         status, text = self._rest_authorized(
             "POST", "https://stitch.googleapis.com/v1/projects",
-            json={"displayName": title, "projectType": "TEXT_TO_UI", "visibility": "PRIVATE"},
+            json={"displayName": title, "projectType": "TEXT_TO_UI_PRO", "visibility": "PRIVATE"},
         )
         if status == 200 and text:
             try:
@@ -621,7 +621,7 @@ class StitchClient:
                             return page_type, {"html": html, "screen_id": sid}
                     return page_type, None
 
-                with ThreadPoolExecutor(max_workers=8) as pool:
+                with ThreadPoolExecutor(max_workers=4) as pool:
                     futures = {pool.submit(_gen_one, pt): pt for pt in pages_to_generate}
                     for f in as_completed(futures):
                         pt, data = f.result()
