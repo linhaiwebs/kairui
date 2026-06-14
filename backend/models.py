@@ -477,6 +477,8 @@ def _migrate_add_columns(conn):
             conn.execute("ALTER TABLE sites ADD COLUMN brand_kit_id INTEGER DEFAULT NULL")
         if "stitch_design_status" not in cols:
             conn.execute("ALTER TABLE sites ADD COLUMN stitch_design_status TEXT DEFAULT ''")
+        if "panel_environment_id" not in cols:
+            conn.execute("ALTER TABLE sites ADD COLUMN panel_environment_id INTEGER DEFAULT NULL")
     except Exception:
         pass
 
@@ -1164,6 +1166,7 @@ def update_site_fields(site_id, fields):
             "google_feed_url", "google_verification_method", "google_verification_done",
             "google_mc_account_id", "cloakbrowser_profile_name",
             "stitch_design_status", "site_type", "static_dir", "brand_kit_id",
+            "panel_environment_id",
             "demo_imported", "demo_name", "brand_configured",
         }
         sets = []

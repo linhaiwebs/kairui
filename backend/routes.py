@@ -2435,13 +2435,17 @@ def register_routes(app):
             #   - Website entry from 1Panel DB
             #   - Nginx config file
             #   - Site directory (/opt/1panel/apps/openresty/openresty/www/sites/{alias}/)
-            # Use site creator's panel env, not current user's
+            # Use the exact panel env that created this site
             site_pc = None
-            try:
-                site_env = get_user_panel_environment(site.get("created_by") or 1)
-                if site_env:
-                    site_pc = OnePanelClient(host=site_env["host"], port=site_env["port"], api_key=site_env["api_key"])
-            except Exception:
+            pe_id = site.get("panel_environment_id")
+            if pe_id:
+                try:
+                    site_env = get_panel_environment(pe_id)
+                    if site_env:
+                        site_pc = OnePanelClient(host=site_env["host"], port=site_env["port"], api_key=site_env["api_key"])
+                except Exception:
+                    pass
+            if not site_pc:
                 site_pc = _get_panel_client()
 
             pid = site.get("panel_website_id")
@@ -3253,6 +3257,7 @@ def register_routes(app):
                     "nginx_alias": alias,
                     "created_by": user_id,
                     "cloakbrowser_profile_name": brand_kit.get("cloakbrowser_profile_name") if brand_kit else None,
+                    "panel_environment_id": panel_env["id"] if panel_env and panel_env.get("id") else None,
                 }
                 site = create_site(site_data)
                 site_id = site["id"]
