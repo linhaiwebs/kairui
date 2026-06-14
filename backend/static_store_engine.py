@@ -2456,6 +2456,60 @@ def _is_valid_html(html):
     return True
 
 
+def _inject_products_into_homepage(html, products, design, brand_kit):
+    """Inject real product cards into Stitch homepage product grid."""
+    import re
+    # Find the product grid section
+    grid_match = re.search(r'(<div[^>]*class="[^"]*product-grid[^"]*"[^>]*>)', html, re.IGNORECASE)
+    if not grid_match:
+        return html
+
+    # Build product cards HTML
+    cards_html = ""
+    for p in products:
+        pid = p.get("id", "")
+        title = _esc(p.get("title", "Product"))
+        price_val = p.get("price", "0")
+        image = p.get("images", "")
+        if isinstance(image, list):
+            image = image[0] if image else ""
+        elif isinstance(image, str) and image.startswith("["):
+            try:
+                image = json.loads(image)[0]
+            except Exception:
+                pass
+        img_tag = f'<img src="{_esc(image)}" alt="{_esc(title)}" class="product-card-img">' if image else '<div class="product-card-img placeholder"></div>'
+
+        cards_html += f"""
+        <div class="product-card">
+            <a href="/products/{pid}.html">
+                {img_tag}
+                <div class="product-card-body">
+                    <h3 class="product-card-title">{_esc(title)}</h3>
+                    <p class="product-card-price">${_esc(str(price_val))}</p>
+                </div>
+            </a>
+        </div>"""
+
+    # Replace the content between product-grid opening tag and its closing tag
+    grid_start = grid_match.end()
+    # Find closing </div> for the grid
+    depth = 0
+    close_pos = grid_start
+    for m in re.finditer(r'</div>|<div[^>]*>', html[grid_start:], re.IGNORECASE):
+        if m.group().startswith('</div'):
+            if depth == 0:
+                close_pos = grid_start + m.start()
+                break
+            depth -= 1
+        else:
+            depth += 1
+
+    if close_pos > grid_start:
+        html = html[:grid_start] + cards_html + html[close_pos:]
+    return html
+
+
 def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
     """Same as render_site but returns dict {filename: content} without writing to disk.
     Tries Agnes AI first; falls back to built-in CSS."""
@@ -2517,7 +2571,11 @@ def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
                 # Fallback to built-in for missing pages
                 result[filename] = _render_page_by_type(page_type, design, brand_kit, products)
 
-        # Product pages always use built-in (Agnes can't generate per-product)
+        # Inject real products into Stitch homepage product grid
+        if products and len(products) > 0 and result.get("index.html"):
+            result["index.html"] = _inject_products_into_homepage(result["index.html"], products, design, brand_kit)
+
+        # Product pages always use built-in
         for p in (products or []):
             pid = p.get("id", "")
             if pid:
