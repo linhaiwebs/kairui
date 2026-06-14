@@ -2328,15 +2328,25 @@ def try_stitch_design(brand_kit, progress_callback=None):
             if progress_callback: progress_callback("Stitch未认证，使用默认设计...")
             return None
         if progress_callback: progress_callback(f"Stitch AI正在为 {brand_name} 生成商城设计...")
-        pages = stitch.generate_store_design(
+        result = stitch.generate_store_design(
             brand_kit=brand_kit,
             pages=STITCH_PAGES,
             progress_callback=progress_callback,
         )
-        if pages and len(pages) >= 2:
-            if progress_callback: progress_callback(f"Stitch已完成 {len(pages)} 个页面设计")
-            logger.info(f"Stitch design for {brand_name}: {list(pages.keys())}")
-            return pages
+        if result and isinstance(result, dict):
+            screens = result.get("screens", {})
+            project_id = result.get("project_id", "")
+            if screens and len(screens) >= 2:
+                if progress_callback: progress_callback(f"Stitch已完成 {len(screens)} 个页面设计")
+                logger.info(f"Stitch design for {brand_name}: {list(screens.keys())}")
+                # Save project_id to brand_kit for future reuse
+                if project_id and brand_kit.get("id"):
+                    try:
+                        from models import update_brand_kit
+                        update_brand_kit(brand_kit["id"], {"stitch_project_id": project_id})
+                    except Exception:
+                        pass
+                return screens
         if progress_callback: progress_callback("Stitch生成不足，使用默认设计...")
         return None
     except Exception as e:

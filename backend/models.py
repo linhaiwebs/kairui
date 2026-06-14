@@ -519,6 +519,8 @@ def _migrate_add_columns(conn):
             conn.execute("ALTER TABLE brand_kits ADD COLUMN static_style TEXT DEFAULT '{}'")
         if "design_system" not in bk_cols:
             conn.execute("ALTER TABLE brand_kits ADD COLUMN design_system TEXT DEFAULT '{}'")
+        if "stitch_project_id" not in bk_cols:
+            conn.execute("ALTER TABLE brand_kits ADD COLUMN stitch_project_id TEXT DEFAULT ''")
     except Exception:
         pass
 

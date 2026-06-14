@@ -232,6 +232,25 @@ class StitchClient:
         return result.get("structuredContent", result)
 
     # ---- High-level API ----
+    def list_projects(self):
+        """List all Stitch projects. Returns list of {name, displayName} dicts."""
+        status, text = self._rest_authorized("GET", "https://stitch.googleapis.com/v1/projects")
+        if status == 200 and text:
+            try:
+                data = json.loads(text)
+                return data.get("projects", [])
+            except Exception:
+                return []
+        return []
+
+    def find_project_by_title(self, title):
+        """Find an existing Stitch project by displayName. Returns project_id or None."""
+        projects = self.list_projects()
+        for p in projects:
+            if p.get("displayName") == title:
+                return p.get("name", "").split("/")[-1]
+        return None
+
     def create_project(self, title):
         """Create a Stitch TEXT_TO_UI_PRO project via REST API. Returns numeric project ID."""
         status, text = self._rest_authorized(
@@ -411,11 +430,15 @@ class StitchClient:
         )
 
         try:
-            # 1. Create project
-            project_id = self.create_project(f"{brand_name} Store")
-            if not project_id:
-                return None
-            logger.info(f"Stitch project: {project_id} for {brand_name}")
+            # 1. Find or create project (reuse existing for same brand_kit)
+            project_id = brand_kit.get("stitch_project_id", "").strip()
+            if project_id:
+                logger.info(f"Stitch project REUSED: {project_id} for {brand_name}")
+            else:
+                project_id = self.create_project(f"{brand_name} Store")
+                if not project_id:
+                    return None
+                logger.info(f"Stitch project CREATED: {project_id} for {brand_name}")
 
             # 2. Build prompts dynamically
             prompts = {
@@ -531,7 +554,7 @@ class StitchClient:
                     else:
                         logger.warning(f"Stitch {page_type}: download returned empty/error")
 
-            return screens if screens else None
+            return {"screens": screens, "project_id": project_id} if screens else None
 
         except Exception as e:
             logger.error(f"Stitch design generation failed: {e}")
