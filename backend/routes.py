@@ -3008,7 +3008,7 @@ def register_routes(app):
         })
 
     def _regenerate_static_site_html(task_id_or_none, site_id):
-        """Regenerate static site files and upload to 1Panel."""
+        """Regenerate static site files and upload to 1Panel (used after product sync)."""
         site = get_site(site_id)
         if not site or site.get("site_type") != "static":
             return
@@ -3026,7 +3026,6 @@ def register_routes(app):
         static_dir = site.get("static_dir", "")
         if static_dir:
             import os
-            # static_dir is like /www/sites/domain/index (relative) or full path
             if static_dir.startswith("/www/"):
                 site_dir_1panel = f"/opt/1panel/apps/openresty/openresty{static_dir}"
             elif static_dir.startswith("/opt/"):
@@ -3034,13 +3033,9 @@ def register_routes(app):
             else:
                 site_dir_1panel = f"/opt/1panel/apps/openresty/openresty/www/sites/{site.get('nginx_alias', domain.replace('.', '-'))}/index"
 
-            # Get panel client for this site's user
             try:
                 env = get_user_panel_environment(site.get("created_by") or 1)
-                if env:
-                    pc = OnePanelClient(host=env["host"], port=env["port"], api_key=env["api_key"])
-                else:
-                    pc = panel_client
+                pc = OnePanelClient(host=env["host"], port=env["port"], api_key=env["api_key"]) if env else panel_client
             except Exception:
                 pc = panel_client
 
@@ -3055,11 +3050,9 @@ def register_routes(app):
                     pc.create_file(parent_dir, is_dir=True)
                     created_dirs.add(parent_dir)
                 pc.delete_file(remote_path)
-                cr = pc.create_file(remote_path, is_dir=False)
-                if cr.get("code") in (200, 500):
-                    sr = pc.save_file(remote_path, content)
-                    if sr.get("code") == 200:
-                        uploaded += 1
+                pc.create_file(remote_path, is_dir=False)
+                if pc.save_file(remote_path, content).get("code") == 200:
+                    uploaded += 1
             pc.reload_openresty()
             logger.info(f"Regenerate uploaded {uploaded} files to 1Panel for {domain}")
 
@@ -3067,71 +3060,81 @@ def register_routes(app):
 
     def _bg_deploy_static(task_id, site_id, alias, domain,
                          brand_kit=None, panel_host="", panel_port=3500, panel_api_key=""):
-        """Deploy static site: create 1Panel website + upload files via multipart."""
+        """Deploy static site: 1. create website  2. design (Stitch/built-in)  3. upload  4. activate."""
         import io as _io
         _get_pc = lambda: OnePanelClient(host=panel_host, port=panel_port, api_key=panel_api_key)
+        total_files = 0
 
         try:
-            update_bg_task(task_id, status="deploying", message="1Panel正在创建静态网站...")
-
-            # Step 1: Create static website on 1Panel
+            # ── Step 1: Create website on 1Panel ──
+            update_bg_task(task_id, status="deploying", message="正在1Panel创建网站...")
             site_resp = _get_pc().create_static_website(domain=domain, alias=alias)
             site_data = site_resp.get("data", {}) if site_resp.get("code") == 200 else {}
             site_dir_1panel = site_data.get("site_dir", f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index")
             logger.info(f"Deploy static site: domain={domain} site_dir_1panel={site_dir_1panel} website_id={site_data.get('website_id')}")
 
-            # Step 2: Generate files (try Stitch first, then built-in)
-            update_bg_task(task_id, status="deploying", message="Stitch AI正在生成商城设计...")
+            # ── Step 2: Generate page designs ──
+            update_bg_task(task_id, status="deploying", message="正在生成商城页面...")
             from static_store_engine import render_site_to_dict
-            files = render_site_to_dict(domain, brand_kit or {}, [],
-                progress_callback=lambda msg: update_bg_task(task_id, status="deploying", message=msg))
-            logger.info(f"Generated {len(files)} files for {domain}: {sorted(files.keys())[:5]}...")
 
-            # Step 3: Upload to 1Panel via save_file API (create + save)
-            update_bg_task(task_id, status="deploying", message="正在上传商城文件到1Panel...")
+            stitch_used = False
+            def design_progress(msg):
+                nonlocal stitch_used
+                if "Stitch" in msg: stitch_used = True
+                update_bg_task(task_id, status="deploying", message=msg)
+
+            files = render_site_to_dict(domain, brand_kit or {}, [],
+                progress_callback=design_progress)
+
+            page_count = len(files)
+            stitch_msg = " (Stitch)" if stitch_used else ""
+            logger.info(f"Generated {page_count} files for {domain}{stitch_msg}")
+            update_bg_task(task_id, status="deploying",
+                          message=f"页面生成完成（{page_count} 个文件）{stitch_msg}")
+
+            # ── Step 3: Upload files to 1Panel ──
             pc = _get_pc()
             uploaded = 0
+            pending = [r for r in files if not r.endswith(".css") and not r.endswith(".js")]
+            total_files = len(pending)
             created_dirs = set()
 
             for rel_path, content in files.items():
                 if rel_path.endswith(".css") or rel_path.endswith(".js"):
-                    continue  # CSS/JS already inlined in HTML
+                    continue
                 remote_path = f"{site_dir_1panel}/{rel_path}"
                 parent_dir = os.path.dirname(remote_path)
 
-                # Ensure parent directory exists (only once per dir)
+                # Ensure parent dir
                 if parent_dir not in created_dirs:
                     result = pc.create_file(parent_dir, is_dir=True)
-                    if result.get("code") in (200, 500):  # 500 = already exists
+                    if result.get("code") in (200, 500):
                         created_dirs.add(parent_dir)
-                    else:
-                        logger.warning(f"Failed to create dir {parent_dir}: {result.get('message','')[:80]}")
-                        continue
 
-                # Delete previous file if exists (may be a dir from old deploy)
+                # Delete old, create new, save content
                 pc.delete_file(remote_path)
+                pc.create_file(remote_path, is_dir=False)
+                save_res = pc.save_file(remote_path, content)
+                if save_res.get("code") == 200:
+                    uploaded += 1
 
-                # Create file and write content via save_file
-                create_res = pc.create_file(remote_path, is_dir=False)
-                if create_res.get("code") in (200, 500):
-                    save_res = pc.save_file(remote_path, content)
-                    if save_res.get("code") == 200:
-                        uploaded += 1
-                    else:
-                        logger.warning(f"Failed to save {rel_path}: {save_res.get('message','')[:80]}")
-                else:
-                    logger.warning(f"Failed to create file {rel_path}: {create_res.get('message','')[:80]}")
+                # Progress every 3 files
+                if uploaded % 3 == 0 or uploaded == total_files:
+                    update_bg_task(task_id, status="deploying",
+                                  message=f"正在上传文件... ({uploaded}/{total_files})")
 
             pc.reload_openresty()
-            logger.info(f"Uploaded {uploaded} files to 1Panel for {domain}")
+            logger.info(f"Uploaded {uploaded}/{total_files} files to 1Panel for {domain}")
 
+            # ── Step 4: Activate site ──
             update_site_fields(site_id, {
                 "status": "active",
                 "static_dir": site_dir_1panel,
                 "panel_website_id": site_data.get("website_id"),
             })
+            design_label = "Stitch设计" if stitch_used else "标准设计"
             update_bg_task(task_id, status="completed",
-                          message=f"站点 {domain} 部署完成 ({uploaded} 文件)")
+                          message=f"部署完成 — {design_label}，{uploaded} 个文件")
 
         except Exception as e:
             logger.error(f"Static deployment failed for {domain}: {traceback.format_exc()}")
