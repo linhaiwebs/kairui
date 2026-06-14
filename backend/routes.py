@@ -5681,7 +5681,10 @@ def register_routes(app):
             tz = config.get("timezone", "America/Chicago")
             locale = config.get("locale", "en-US")
             fingerprint_args = _build_launch_args(config)
-            site_url = (site.get("url") or f"http://{site['site_name']}").rstrip("/")
+            domain = (site.get("url") or site.get("site_name", "")).rstrip("/")
+            if not domain.startswith("http"):
+                domain = f"https://{domain.lstrip('*.').lstrip('.')}"
+            site_url = domain
 
             def _launch():
                 import asyncio
