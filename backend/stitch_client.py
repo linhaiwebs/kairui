@@ -184,7 +184,9 @@ class StitchClient:
                 timeout=90,
             )
             if resp.status_code == 401:
-                # Token expired — refresh and retry once
+                # Token expired — ensure refresh_token loaded, refresh and retry once
+                if not self._refresh_token:
+                    _, self._refresh_token = get_stitch_token()
                 self._access_token = _refresh_access_token(self._refresh_token)
                 if self._access_token:
                     save_stitch_token(self._access_token, self._refresh_token)
