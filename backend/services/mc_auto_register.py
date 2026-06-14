@@ -794,11 +794,20 @@ async def _google_login(
             _emit("error", "密码错误", "google_login")
             return False
 
-    success = "accounts.google.com" not in page.url
+    # Check if login succeeded: we're on a Google service page (GMC, business, etc)
+    current_url = page.url
+    success = (
+        "accounts.google.com" not in current_url
+        or "/signin/" not in current_url  # Past signin, maybe on consent/check page
+    )
+    # Additional check: if we see merchant or business Google URLs
+    if not success:
+        if any(d in current_url for d in ["merchants.google.com", "business.google.com", "myaccount.google.com"]):
+            success = True
     if success:
         _emit("info", "Google 登录完成", "google_login")
     else:
-        _emit("warning", f"可能仍在登录页面: {page.url[:80]}", "google_login")
+        _emit("warning", f"可能仍在登录页面: {current_url[:80]}", "google_login")
     return success
 
 
@@ -946,27 +955,41 @@ async def _execute_action(page, action, log_callback=None):
         log_callback("info", f"AI: {reasoning}", "ai_reason")
 
     if act == "click" and selector:
-        # Try CSS selector first, then text matching
-        try:
-            el = page.locator(selector).first
-            if await el.count() > 0:
-                await el.click(timeout=5000)
-                if log_callback: log_callback("info", f"Click: {selector}", "click")
+        # Multiple strategies to find and click the element
+        strategies = [
+            ("css", lambda: page.locator(selector).first),
+            ("text", lambda: page.get_by_text(selector, exact=False).first),
+            ("role_button", lambda: page.get_by_role("button", name=selector).first),
+            ("role_link", lambda: page.get_by_role("link", name=selector).first),
+        ]
+        clicked = False
+        for strat_name, strat_fn in strategies:
+            try:
+                el = strat_fn()
+                if await el.count() > 0 and await el.is_visible():
+                    await el.click(timeout=5000)
+                    if log_callback: log_callback("info", f"Click({strat_name}): {selector}", "click")
+                    await asyncio.sleep(2)
+                    clicked = True
+                    break
+            except Exception:
+                continue
+        if not clicked:
+            # Last resort: force click via JavaScript by text content
+            try:
+                await page.evaluate(f"""
+                    const els = document.querySelectorAll('a, button, [role=\"button\"], [role=\"link\"]');
+                    for (const el of els) {{
+                        if (el.textContent.includes('{selector}')) {{ el.click(); break; }}
+                    }}
+                """)
+                if log_callback: log_callback("info", f"Click(js): {selector}", "click")
                 await asyncio.sleep(2)
-                return
-        except Exception:
-            pass
-        # Fallback: click by visible text
-        try:
-            el = page.get_by_text(selector, exact=False).first
-            if await el.count() > 0:
-                await el.click(timeout=5000)
-                if log_callback: log_callback("info", f"Click(text): {selector}", "click")
-                await asyncio.sleep(2)
-                return
-        except Exception:
-            pass
-        raise RuntimeError(f"Cannot click: {selector}")
+                clicked = True
+            except Exception:
+                pass
+        if not clicked:
+            raise RuntimeError(f"Cannot click: {selector}")
 
     elif act == "fill" and selector and value:
         try:
@@ -1085,7 +1108,8 @@ async def register_gmc_ai(
     try:
         # Step 2: Navigate to GMC
         _emit("info", "Navigating to Google Merchant Center...", "navigate")
-        await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=30000)
+        page.set_default_navigation_timeout(90000)
+        await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=90000)
         await asyncio.sleep(3)
         await _dismiss_overlays(page)
 
@@ -1098,7 +1122,7 @@ async def register_gmc_ai(
                 _emit("info", f"Logging in as {google_email}...", "login")
                 logged_in = await _google_login(
                     page, google_email, google_password, google_totp_secret,
-                    log_callback=log_callback, timeout_ms=60000
+                    log_callback=log_callback, timeout_ms=120000
                 )
                 email_on_page = await _get_logged_in_email(page)
                 if email_on_page:
@@ -1114,13 +1138,76 @@ async def register_gmc_ai(
                 return {"success": False, "message": "No Google credentials", "steps": 1}
 
         # Step 4: AI-driven loop
-        MAX_STEPS = 30
+        MAX_STEPS = 50
         completed_steps = []
         mc_account_id = ""
         step_num = 0
+        last_url = ""
+        same_action_count = 0
+        last_action = ""
 
         for step_num in range(1, MAX_STEPS + 1):
             _emit("info", f"--- AI Step {step_num}/{MAX_STEPS} ---", "ai_loop")
+
+            # Stuck detection: same action 3+ times without URL change
+            current_url = page.url
+            if current_url == last_url and last_action:
+                same_action_count += 1
+            else:
+                same_action_count = 0
+                last_url = current_url
+            if same_action_count >= 3:
+                _emit("warning", f"Stuck detected (same page x{same_action_count}), checking for popup/login...", "stuck")
+                # Check if a popup window was opened by the sign-in click
+                if len(context.pages) > 1:
+                    popup = context.pages[-1]
+                    if "accounts.google.com" in popup.url:
+                        _emit("info", f"Found Google login popup: {popup.url[:80]}", "popup")
+                        logged_in = await _google_login(
+                            popup, google_email, google_password, google_totp_secret,
+                            log_callback=log_callback, timeout_ms=120000
+                        )
+                        if logged_in:
+                            _emit("info", "Popup login successful", "popup")
+                            await asyncio.sleep(2)
+                            # Return to main page
+                            page.bring_to_front()
+                            await page.reload(wait_until="domcontentloaded", timeout=30000)
+                    elif "google.com" in popup.url:
+                        _emit("info", f"Popup on Google domain, switching to it...", "popup")
+                        popup.bring_to_front()
+                        try:
+                            await popup.close()
+                        except Exception:
+                            pass
+                else:
+                    # No popup, try direct Google login
+                    if google_email and google_password:
+                        _emit("info", "No popup found, trying direct Google login...", "stuck")
+                        await page.goto("https://accounts.google.com/signin/v2/identifier?service=merchantcenter&continue=https://merchants.google.com/", wait_until="domcontentloaded", timeout=60000)
+                        await asyncio.sleep(3)
+                same_action_count = 0
+
+            # Check if we landed on Google login after previous action
+            if "accounts.google.com" in page.url and google_email and google_password:
+                _emit("info", "Detected Google login page, logging in...", "login_detect")
+                logged_in = await _google_login(
+                    page, google_email, google_password, google_totp_secret,
+                    log_callback=log_callback, timeout_ms=120000
+                )
+                if logged_in:
+                    _emit("info", "Google login successful, resuming...", "login_detect")
+                    await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=60000)
+                    await asyncio.sleep(3)
+                    await _dismiss_overlays(page)
+                    continue
+                elif "accounts.google.com" not in page.url:
+                    # Might have succeeded with redirect
+                    _emit("info", "Login might have succeeded (redirect detected), resuming...", "login_detect")
+                    continue
+                else:
+                    _emit("error", "Google login failed", "login_detect")
+                    return {"success": False, "message": "Google login failed at step " + str(step_num), "steps": step_num}
 
             # Dump page DOM for AI
             dom_text = await _dump_dom_json(page, log_callback)
@@ -1136,6 +1223,7 @@ async def register_gmc_ai(
                 return {"success": False, "message": f"AI error at step {step_num}: {e}", "steps": step_num}
 
             act_type = action.get("action", "done")
+            last_action = act_type + ":" + action.get("selector", "")
             _emit("info", f"Action: {act_type} | {str(action.get('reasoning',''))[:120]}", "ai_decision")
 
             if act_type == "done":
