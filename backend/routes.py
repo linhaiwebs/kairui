@@ -2444,20 +2444,24 @@ def register_routes(app):
             except Exception:
                 pass
 
-            # Always search by domain name to find the real 1Panel website ID
-            pid = None
-            if domain:
-                try:
-                    pc = site_pc or _get_panel_client()
-                    ws = pc.search_websites(name=domain)
-                    if ws.get("code") == 200:
-                        for w in (ws.get("data") or {}).get("items", []) or []:
-                            if w.get("primaryDomain") == domain:
-                                pid = w.get("id")
-                                logger.info(f"Found 1Panel website id={pid} for domain={domain}")
-                                break
-                except Exception as e:
-                    logger.warning(f"Search website by domain failed: {e}")
+            # Try stored website_id first, then fallback to domain search
+            pid = site.get("panel_website_id")
+            if pid:
+                logger.info(f"Using stored website_id={pid} for {domain}")
+            else:
+                pid = None
+                if domain:
+                    try:
+                        pc = site_pc or _get_panel_client()
+                        ws = pc.search_websites(name=domain)
+                        if ws.get("code") == 200:
+                            for w in (ws.get("data") or {}).get("items", []) or []:
+                                if w.get("primaryDomain") == domain:
+                                    pid = w.get("id")
+                                    logger.info(f"Found 1Panel website id={pid} for domain={domain}")
+                                    break
+                    except Exception as e:
+                        logger.warning(f"Search website by domain failed: {e}")
             if not pid:
                 logger.warning(f"Could not find 1Panel website for domain={domain}")
 
