@@ -540,8 +540,28 @@ class StitchClient:
             # 1. Find or create project (reuse existing for same brand_kit)
             project_id = brand_kit.get("design_project_id", "").strip()
             if project_id:
-                logger.info(f"Stitch project REUSED: {project_id} for {brand_name}")
-            else:
+                # Test if project is still accessible with current token
+                accessible = True
+                try:
+                    test = self.list_screens(project_id)
+                    if isinstance(test, dict) and test.get("error"):
+                        accessible = False
+                except Exception:
+                    accessible = False
+                if accessible:
+                    logger.info(f"Stitch project REUSED: {project_id} for {brand_name}")
+                else:
+                    logger.warning(f"Stitch project {project_id} inaccessible, recreating")
+                    if brand_kit.get("id"):
+                        try:
+                            from models import update_brand_kit
+                            update_brand_kit(brand_kit["id"], {"design_project_id": "", "design_screens": "{}"})
+                        except Exception:
+                            pass
+                    brand_kit["design_project_id"] = ""
+                    brand_kit["design_screens"] = "{}"
+                    project_id = ""
+            if not project_id:
                 project_id = self.create_project(f"{brand_name} Store")
                 if not project_id:
                     return None
