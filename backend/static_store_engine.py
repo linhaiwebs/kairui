@@ -2524,17 +2524,43 @@ def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
                 result[f"products/{pid}.html"] = render_product_page(p, design, brand_kit, products)
         return result
 
-    # Fallback: built-in CSS design
+    # Fallback: try saved screens from previous Stitch generation first
+    saved_pages = {}
+    project_id = brand_kit.get("design_project_id", "")
+    if project_id:
+        try:
+            from stitch_client import StitchClient
+            sc = StitchClient()
+            if sc.is_authenticated:
+                raw = brand_kit.get("design_screens", "")
+                saved_ids = json.loads(raw) if raw and raw.strip() else {}
+                if saved_ids:
+                    if progress_callback: progress_callback("Stitch失败，尝试复用已保存页面...")
+                    for page_type, sid in saved_ids.items():
+                        html = sc.get_screen_code(f"projects/{project_id}/screens/{sid}")
+                        if html and _is_valid_html(html):
+                            saved_pages[page_type] = html
+                            if progress_callback: progress_callback(f"复用已保存: {page_type}")
+                    if saved_pages:
+                        logger.info(f"Reused {len(saved_pages)} saved screens for {domain}")
+        except Exception as e:
+            logger.warning(f"Failed to reuse saved screens: {e}")
+
+    # Build pages: saved screens first, CSS fallback for missing
     _INLINE_CSS = build_css(design, brand_kit)
     _INLINE_JS = STORE_JS
-
     result = {}
-    result["index.html"] = render_homepage(products, design, brand_kit)
-    result["cart.html"] = render_cart_page(design, brand_kit)
-    result["checkout.html"] = render_checkout_page(design, brand_kit)
-    result["order.html"] = render_order_page(design, brand_kit)
-    for fname, content in render_policy_pages(design, brand_kit).items():
-        result[fname] = content
+    page_map = {
+        "home": "index.html", "cart": "cart.html", "checkout": "checkout.html",
+        "order": "order.html", "about": "about.html", "contact": "contact.html",
+        "faq": "faq.html", "privacy": "privacy.html", "terms": "terms.html",
+        "shipping": "shipping.html", "returns": "returns.html",
+    }
+    for page_type, filename in page_map.items():
+        if saved_pages.get(page_type):
+            result[filename] = _fix_page_links(saved_pages[page_type], page_type, page_map)
+        else:
+            result[filename] = _render_page_by_type(page_type, design, brand_kit, products)
     for p in (products or []):
         pid = p.get("id", "")
         if pid:

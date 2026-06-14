@@ -5248,7 +5248,10 @@ async function loadProfileCategories() {
                             {{ taskLogStatus === 'running' ? '运行中' : taskLogStatus === 'success' ? '成功' : '失败' }}
                         </span>
                     </div>
-                    <button @click="closeTaskLog" class="text-on-surface-variant hover:text-on-primary text-lg leading-none">&times;</button>
+                    <div class="flex items-center gap-3">
+                        <a href="http://163.123.236.110:6080/vnc.html?autoconnect=true&resize=scale" target="_blank" class="text-green-400 hover:text-green-300 text-xs underline">🖥 查看浏览器画面</a>
+                        <button @click="closeTaskLog" class="text-on-surface-variant hover:text-on-primary text-lg leading-none">&times;</button>
+                    </div>
                 </div>
                 <!-- Log lines -->
                 <div ref="taskLogRef" class="flex-1 overflow-y-auto p-4 font-mono text-xs leading-relaxed space-y-0.5" style="max-height: 55vh; background: #1a1a2e;">
