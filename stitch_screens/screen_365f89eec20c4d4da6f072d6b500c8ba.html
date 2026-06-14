@@ -1,0 +1,505 @@
+﻿<!DOCTYPE html><html lang="zh-CN" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>鎭虹憺鎶曟祦 - 閿€鍞粺璁?/title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .material-symbols-outlined.fill {
+            font-variation-settings: 'FILL' 1;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #faf8ff;
+        }
+        
+        /* Ambient shadow for cards */
+        .ambient-shadow {
+            box-shadow: 0px 1px 3px rgba(0,0,0,0.10);
+        }
+        
+        /* Custom scrollbar for sidebar */
+        .sidebar-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+        .sidebar-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .sidebar-scroll::-webkit-scrollbar-thumb {
+            background-color: #e1e2ec;
+            border-radius: 4px;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "surface-variant": "#e1e2ec",
+                        "surface-container-low": "#f3f3fd",
+                        "primary": "#003d9b",
+                        "on-secondary-container": "#54637d",
+                        "tertiary-container": "#a33500",
+                        "secondary-container": "#d1e0fe",
+                        "on-tertiary-container": "#ffc6b2",
+                        "surface-container-highest": "#e1e2ec",
+                        "on-surface-variant": "#434654",
+                        "on-primary-fixed": "#001848",
+                        "surface-container-lowest": "#ffffff",
+                        "on-background": "#191b23",
+                        "tertiary": "#7b2600",
+                        "inverse-surface": "#2e3038",
+                        "surface-container-high": "#e7e7f2",
+                        "on-secondary-fixed": "#0c1c32",
+                        "secondary": "#505f78",
+                        "primary-fixed": "#dae2ff",
+                        "tertiary-fixed": "#ffdbcf",
+                        "secondary-fixed": "#d5e3ff",
+                        "primary-container": "#0052cc",
+                        "surface-dim": "#d9d9e4",
+                        "primary-fixed-dim": "#b2c5ff",
+                        "error-container": "#ffdad6",
+                        "surface-tint": "#0c56d0",
+                        "surface": "#faf8ff",
+                        "on-secondary-fixed-variant": "#38475f",
+                        "surface-bright": "#faf8ff",
+                        "on-primary-fixed-variant": "#0040a2",
+                        "surface-container": "#ededf8",
+                        "on-tertiary-fixed": "#380d00",
+                        "on-error-container": "#93000a",
+                        "outline-variant": "#c3c6d6",
+                        "on-secondary": "#ffffff",
+                        "inverse-on-surface": "#f0f0fb",
+                        "secondary-fixed-dim": "#b8c7e4",
+                        "on-primary-container": "#c4d2ff",
+                        "on-primary": "#ffffff",
+                        "background": "#faf8ff",
+                        "on-surface": "#191b23",
+                        "error": "#ba1a1a",
+                        "tertiary-fixed-dim": "#ffb59b",
+                        "outline": "#737685",
+                        "inverse-primary": "#b2c5ff",
+                        "on-tertiary-fixed-variant": "#812800",
+                        "on-tertiary": "#ffffff",
+                        "on-error": "#ffffff"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    spacing: {
+                        "md": "16px",
+                        "sm": "8px",
+                        "margin": "24px",
+                        "xs": "4px",
+                        "lg": "24px",
+                        "gutter": "16px",
+                        "xl": "32px"
+                    },
+                    fontFamily: {
+                        "label-sm": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "display-lg-mobile": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "label-md": ["Inter"],
+                        "display-md": ["Inter"],
+                        "body-md": ["Inter"]
+                    },
+                    fontSize: {
+                        "label-sm": ["11px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "display-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "display-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.04em", "fontWeight": "600" }],
+                        "display-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-background text-on-surface h-screen overflow-hidden flex">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full flex flex-col z-40 bg-surface border-r border-outline-variant w-[240px] flex-shrink-0">
+<div class="p-lg border-b border-outline-variant">
+<div class="flex items-center gap-sm">
+<div class="w-8 h-8 rounded-DEFAULT bg-primary flex items-center justify-center text-on-primary font-bold">OM</div>
+<div>
+<h1 class="font-display-md text-display-md font-bold text-primary">鎭虹憺鎶曟祦</h1>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Enterprise E-commerce</p>
+</div>
+</div>
+</div>
+<nav class="flex-1 overflow-y-auto sidebar-scroll py-md px-sm">
+<ul class="space-y-sm">
+<li class="">
+<a class="flex items-center gap-md px-md py-sm rounded-DEFAULT bg-secondary-container text-on-secondary-container font-bold scale-[0.98]" href="#">
+<span class="material-symbols-outlined fill">dashboard</span>
+<span class="font-body-md text-body-md">浠〃鐩?/span>
+</a>
+</li>
+<li class="">
+<a class="flex items-center gap-md px-md py-sm rounded-DEFAULT text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">language</span>
+<span class="font-body-md text-body-md">绔欑偣鍒楄〃</span>
+</a>
+</li>
+<li class="">
+<a class="flex items-center gap-md px-md py-sm rounded-DEFAULT text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">inventory_2</span>
+<span class="font-body-md text-body-md">浜у搧鏉ユ簮</span>
+</a>
+</li>
+<li class="">
+<a class="flex items-center gap-md px-md py-sm rounded-DEFAULT text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">shopping_cart</span>
+<span class="font-body-md text-body-md">WooCommerce</span>
+</a>
+</li>
+<li class="">
+<a class="flex items-center gap-md px-md py-sm rounded-DEFAULT text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">rss_feed</span>
+<span class="font-body-md text-body-md">Feed 鐢熸垚</span>
+</a>
+</li>
+<li class="">
+<a class="flex items-center gap-md px-md py-sm rounded-DEFAULT text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">palette</span>
+<span class="font-body-md text-body-md">鍝佺墝濂椾欢</span>
+</a>
+</li>
+<li class="">
+<a class="flex items-center gap-md px-md py-sm rounded-DEFAULT text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">hub</span>
+<span class="font-body-md text-body-md">Google MC</span>
+</a>
+</li>
+<li class="">
+<a class="flex items-center gap-md px-md py-sm rounded-DEFAULT text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">group</span>
+<span class="font-body-md text-body-md">鐢ㄦ埛绠＄悊</span>
+</a>
+</li>
+<li class="">
+<a class="flex items-center gap-md px-md py-sm rounded-DEFAULT text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-body-md text-body-md">绯荤粺璁剧疆</span>
+</a>
+</li>
+</ul>
+</nav>
+<div class="p-lg border-t border-outline-variant mt-auto">
+<button class="w-full flex items-center justify-center gap-sm py-sm px-md rounded-DEFAULT border border-outline-variant text-on-surface hover:bg-surface-container-low transition-colors duration-200">
+<span class="material-symbols-outlined">logout</span>
+<span class="font-label-md text-label-md">鐧诲嚭</span>
+</button>
+</div>
+</aside>
+<!-- Main Content Wrapper -->
+<div class="flex-1 ml-[240px] flex flex-col h-screen overflow-hidden">
+<!-- TopNavBar -->
+<header class="h-16 bg-surface-container-lowest shadow-sm flex items-center justify-between px-lg z-30 flex-shrink-0">
+<div class="flex items-center gap-md">
+<h2 class="font-headline-sm text-headline-sm font-black text-primary">鎭虹憺鎶曟祦</h2>
+</div>
+<div class="flex items-center gap-lg">
+<div class="flex items-center gap-sm">
+<button class="w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary transition-all hover:bg-surface-container-low">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary transition-all hover:bg-surface-container-low">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+</div>
+<div class="h-8 w-px bg-outline-variant"></div>
+<div class="flex items-center gap-sm cursor-pointer hover:opacity-80 transition-opacity">
+<div class="w-8 h-8 rounded-full bg-primary-fixed flex items-center justify-center">
+<span class="material-symbols-outlined text-on-primary-fixed">person</span>
+</div>
+<span class="font-label-md text-label-md text-on-surface">鐢ㄦ埛璧勬枡</span>
+</div>
+</div>
+</header>
+<!-- Main Canvas -->
+<main class="flex-1 overflow-y-auto p-margin bg-surface-container-low">
+<div class="max-w-[1440px] mx-auto space-y-xl">
+<!-- KPI Cards -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-gutter">
+<!-- Total Sales -->
+<div class="bg-surface-container-lowest rounded-[12px] p-lg ambient-shadow border border-outline-variant/30 flex flex-col justify-between h-[120px]">
+<div class="flex justify-between items-start">
+<h3 class="font-body-md text-body-md text-on-surface-variant">鎬婚攢鍞 (鏈湀)</h3>
+<div class="w-8 h-8 rounded-full bg-primary-fixed flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-[18px]">payments</span>
+</div>
+</div>
+<div class="flex items-end justify-between">
+<span class="font-display-lg text-display-lg text-on-surface">楼1,245,000</span>
+<span class="font-label-md text-label-md text-[var(--success,#146c2e)] flex items-center bg-[#e2f6e7] px-xs py-[2px] rounded-DEFAULT">
+<span class="material-symbols-outlined text-[14px]">arrow_upward</span>
+                                12.5%
+                            </span>
+</div>
+</div>
+<!-- Total Orders -->
+<div class="bg-surface-container-lowest rounded-[12px] p-lg ambient-shadow border border-outline-variant/30 flex flex-col justify-between h-[120px]">
+<div class="flex justify-between items-start">
+<h3 class="font-body-md text-body-md text-on-surface-variant">鎬昏鍗曟暟</h3>
+<div class="w-8 h-8 rounded-full bg-secondary-fixed flex items-center justify-center">
+<span class="material-symbols-outlined text-on-secondary-fixed text-[18px]">shopping_bag</span>
+</div>
+</div>
+<div class="flex items-end justify-between">
+<span class="font-display-lg text-display-lg text-on-surface">8,432</span>
+<span class="font-label-md text-label-md text-[var(--success,#146c2e)] flex items-center bg-[#e2f6e7] px-xs py-[2px] rounded-DEFAULT">
+<span class="material-symbols-outlined text-[14px]">arrow_upward</span>
+                                8.2%
+                            </span>
+</div>
+</div>
+<!-- Average Order Value -->
+<div class="bg-surface-container-lowest rounded-[12px] p-lg ambient-shadow border border-outline-variant/30 flex flex-col justify-between h-[120px]">
+<div class="flex justify-between items-start">
+<h3 class="font-body-md text-body-md text-on-surface-variant">瀹㈠崟浠?(AOV)</h3>
+<div class="w-8 h-8 rounded-full bg-tertiary-fixed flex items-center justify-center">
+<span class="material-symbols-outlined text-on-tertiary-fixed text-[18px]">receipt_long</span>
+</div>
+</div>
+<div class="flex items-end justify-between">
+<span class="font-display-lg text-display-lg text-on-surface">楼147.65</span>
+<span class="font-label-md text-label-md text-on-surface-variant flex items-center bg-surface-variant px-xs py-[2px] rounded-DEFAULT">
+<span class="material-symbols-outlined text-[14px]">horizontal_rule</span>
+                                0.0%
+                            </span>
+</div>
+</div>
+<!-- Conversion Rate -->
+<div class="bg-surface-container-lowest rounded-[12px] p-lg ambient-shadow border border-outline-variant/30 flex flex-col justify-between h-[120px]">
+<div class="flex justify-between items-start">
+<h3 class="font-body-md text-body-md text-on-surface-variant">杞寲鐜?/h3>
+<div class="w-8 h-8 rounded-full bg-surface-container-highest flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface text-[18px]">show_chart</span>
+</div>
+</div>
+<div class="flex items-end justify-between">
+<span class="font-display-lg text-display-lg text-on-surface">3.24%</span>
+<span class="font-label-md text-label-md text-[var(--error,#ba1a1a)] flex items-center bg-error-container px-xs py-[2px] rounded-DEFAULT">
+<span class="material-symbols-outlined text-[14px]">arrow_downward</span>
+                                -1.1%
+                            </span>
+</div>
+</div>
+</div>
+<!-- Charts Section -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-gutter">
+<!-- Main Trend Chart -->
+<div class="bg-surface-container-lowest rounded-[12px] p-lg ambient-shadow border border-outline-variant/30 lg:col-span-2 flex flex-col">
+<div class="flex justify-between items-center mb-md">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">閿€鍞秼鍔?/h3>
+<div class="flex gap-sm">
+<button class="px-md py-[6px] text-label-md font-label-md bg-surface-container-low border border-outline-variant rounded-DEFAULT hover:bg-surface-variant transition-colors">7澶?/button>
+<button class="px-md py-[6px] text-label-md font-label-md bg-primary text-on-primary rounded-DEFAULT">30澶?/button>
+<button class="px-md py-[6px] text-label-md font-label-md bg-surface-container-low border border-outline-variant rounded-DEFAULT hover:bg-surface-variant transition-colors">90澶?/button>
+</div>
+</div>
+<div class="flex-1 relative h-[200px]">
+<canvas id="salesTrendChart" width="606" height="390" style="display: block; box-sizing: border-box; height: 390px; width: 606px;"></canvas>
+</div>
+</div>
+<!-- Doughnut Chart - Site Distribution -->
+<div class="bg-surface-container-lowest rounded-[12px] p-lg ambient-shadow border border-outline-variant/30 flex flex-col">
+<h3 class="font-headline-sm text-headline-sm text-on-surface mb-md">绔欑偣閿€鍞崰姣?/h3>
+<div class="flex-1 relative flex items-center justify-center h-[160px]">
+<canvas id="siteDistributionChart" width="270" height="300" style="display: block; box-sizing: border-box; height: 300px; width: 270px;"></canvas>
+</div>
+<div class="mt-md space-y-sm">
+<div class="flex justify-between items-center">
+<div class="flex items-center gap-sm">
+<div class="w-3 h-3 rounded-full bg-primary"></div>
+<span class="font-body-md text-body-md text-on-surface-variant">Apex Supplies</span>
+</div>
+<span class="font-label-md text-label-md font-bold">45%</span>
+</div>
+<div class="flex justify-between items-center">
+<div class="flex items-center gap-sm">
+<div class="w-3 h-3 rounded-full bg-secondary-fixed"></div>
+<span class="font-body-md text-body-md text-on-surface-variant">Zenith Equip</span>
+</div>
+<span class="font-label-md text-label-md font-bold">30%</span>
+</div>
+<div class="flex justify-between items-center">
+<div class="flex items-center gap-sm">
+<div class="w-3 h-3 rounded-full bg-tertiary-fixed"></div>
+<span class="font-body-md text-body-md text-on-surface-variant">Nexus Retail</span>
+</div>
+<span class="font-label-md text-label-md font-bold">25%</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Data Table -->
+<div class="bg-surface-container-lowest rounded-[12px] ambient-shadow border border-outline-variant/30 overflow-hidden">
+<div class="p-lg border-b border-outline-variant flex justify-between items-center">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">绔欑偣琛ㄧ幇鏄庣粏</h3>
+<button class="flex items-center gap-xs px-md py-sm border border-outline-variant rounded-DEFAULT hover:bg-surface-container-low transition-colors">
+<span class="material-symbols-outlined text-[18px]">download</span>
+<span class="font-label-md text-label-md">瀵煎嚭鏁版嵁</span>
+</button>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low border-b border-outline-variant">
+<th class="py-md px-lg font-label-md text-label-md text-on-surface-variant font-semibold">绔欑偣鍚嶇О</th>
+<th class="py-md px-lg font-label-md text-label-md text-on-surface-variant font-semibold">鐘舵€?/th>
+<th class="py-md px-lg font-label-md text-label-md text-on-surface-variant font-semibold">鎬昏惀鏀?/th>
+<th class="py-md px-lg font-label-md text-label-md text-on-surface-variant font-semibold">璁㈠崟閲?/th>
+<th class="py-md px-lg font-label-md text-label-md text-on-surface-variant font-semibold">鏈€鐣呴攢浜у搧</th>
+<th class="py-md px-lg font-label-md text-label-md text-on-surface-variant font-semibold text-right">澧為暱鐜?(MoM)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="border-b border-outline-variant/50 hover:bg-surface-container-low/50 transition-colors h-[56px]">
+<td class="py-sm px-lg font-body-md text-body-md font-medium text-on-surface">Apex Supplies</td>
+<td class="py-sm px-lg">
+<span class="inline-flex items-center px-xs py-[2px] rounded-DEFAULT bg-[#e2f6e7] text-[var(--success,#146c2e)] font-label-sm text-label-sm">Active</span>
+</td>
+<td class="py-sm px-lg font-body-md text-body-md">楼560,250</td>
+<td class="py-sm px-lg font-body-md text-body-md">3,850</td>
+<td class="py-sm px-lg font-body-md text-body-md text-on-surface-variant">Pro Office Chair V2</td>
+<td class="py-sm px-lg text-right">
+<span class="font-body-md text-body-md text-[var(--success,#146c2e)]">+15.2%</span>
+</td>
+</tr>
+<tr class="border-b border-outline-variant/50 hover:bg-surface-container-low/50 transition-colors h-[56px]">
+<td class="py-sm px-lg font-body-md text-body-md font-medium text-on-surface">Zenith Equip</td>
+<td class="py-sm px-lg">
+<span class="inline-flex items-center px-xs py-[2px] rounded-DEFAULT bg-[#e2f6e7] text-[var(--success,#146c2e)] font-label-sm text-label-sm">Active</span>
+</td>
+<td class="py-sm px-lg font-body-md text-body-md">楼375,400</td>
+<td class="py-sm px-lg font-body-md text-body-md">2,540</td>
+<td class="py-sm px-lg font-body-md text-body-md text-on-surface-variant">Heavy Duty Rack</td>
+<td class="py-sm px-lg text-right">
+<span class="font-body-md text-body-md text-[var(--success,#146c2e)]">+8.7%</span>
+</td>
+</tr>
+<tr class="border-b border-outline-variant/50 hover:bg-surface-container-low/50 transition-colors h-[56px]">
+<td class="py-sm px-lg font-body-md text-body-md font-medium text-on-surface">Nexus Retail</td>
+<td class="py-sm px-lg">
+<span class="inline-flex items-center px-xs py-[2px] rounded-DEFAULT bg-surface-variant text-on-surface-variant font-label-sm text-label-sm">Maintenance</span>
+</td>
+<td class="py-sm px-lg font-body-md text-body-md">楼309,350</td>
+<td class="py-sm px-lg font-body-md text-body-md">2,042</td>
+<td class="py-sm px-lg font-body-md text-body-md text-on-surface-variant">Basic Desk Lamp</td>
+<td class="py-sm px-lg text-right">
+<span class="font-body-md text-body-md text-[var(--error,#ba1a1a)]">-2.4%</span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</main>
+</div>
+<script>
+        // Chart.js Configuration
+        document.addEventListener('DOMContentLoaded', function() {
+            // Colors from Tailwind config
+            const colorPrimary = '#003d9b';
+            const colorPrimaryFixed = '#dae2ff';
+            const colorSecondaryFixed = '#d5e3ff';
+            const colorTertiaryFixed = '#ffdbcf';
+            const colorOutlineVariant = '#c3c6d6';
+            const colorOnSurfaceVariant = '#434654';
+
+            // Trend Chart
+            const trendCtx = document.getElementById('salesTrendChart').getContext('2d');
+            new Chart(trendCtx, {
+                type: 'line',
+                data: {
+                    labels: ['1', '5', '10', '15', '20', '25', '30'],
+                    datasets: [{
+                        label: 'Total Sales (楼)',
+                        data: [12000, 19000, 15000, 25000, 22000, 30000, 28000],
+                        borderColor: colorPrimary,
+                        backgroundColor: colorPrimaryFixed,
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointBackgroundColor: '#ffffff',
+                        pointBorderColor: colorPrimary,
+                        pointBorderWidth: 2,
+                        pointRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#191b23',
+                            padding: 12,
+                            titleFont: { family: 'Inter', size: 12 },
+                            bodyFont: { family: 'Inter', size: 14, weight: 'bold' }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: colorOutlineVariant + '40', drawBorder: false },
+                            ticks: { font: { family: 'Inter', size: 12 }, color: colorOnSurfaceVariant }
+                        },
+                        x: {
+                            grid: { display: false, drawBorder: false },
+                            ticks: { font: { family: 'Inter', size: 12 }, color: colorOnSurfaceVariant }
+                        }
+                    }
+                }
+            });
+
+            // Distribution Chart
+            const distCtx = document.getElementById('siteDistributionChart').getContext('2d');
+            new Chart(distCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Apex Supplies', 'Zenith Equip', 'Nexus Retail'],
+                    datasets: [{
+                        data: [45, 30, 25],
+                        backgroundColor: [colorPrimary, colorSecondaryFixed, colorTertiaryFixed],
+                        borderWidth: 0,
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '75%',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#191b23',
+                            padding: 12,
+                            bodyFont: { family: 'Inter', size: 14 }
+                        }
+                    }
+                }
+            });
+        });
+    </script>
+
+
+</body></html>

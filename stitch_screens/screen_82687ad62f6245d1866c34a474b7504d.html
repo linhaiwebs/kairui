@@ -1,0 +1,384 @@
+﻿<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>鐢ㄦ埛绠＄悊 - 鎭虹憺鎶曟祦</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-fixed-dim": "#ffb59b",
+                        "on-secondary": "#ffffff",
+                        "inverse-primary": "#b2c5ff",
+                        "background": "#faf8ff",
+                        "primary-fixed-dim": "#b2c5ff",
+                        "surface-variant": "#e1e2ec",
+                        "surface": "#faf8ff",
+                        "primary-fixed": "#dae2ff",
+                        "on-tertiary-container": "#ffc6b2",
+                        "on-surface-variant": "#434654",
+                        "on-tertiary-fixed": "#380d00",
+                        "secondary-fixed-dim": "#b8c7e4",
+                        "outline": "#737685",
+                        "tertiary-container": "#a33500",
+                        "surface-container": "#ededf8",
+                        "error": "#ba1a1a",
+                        "primary": "#003d9b",
+                        "tertiary": "#7b2600",
+                        "surface-dim": "#d9d9e4",
+                        "outline-variant": "#c3c6d6",
+                        "on-primary-container": "#c4d2ff",
+                        "secondary-container": "#d1e0fe",
+                        "on-error": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "secondary": "#505f78",
+                        "primary-container": "#0052cc",
+                        "on-primary-fixed-variant": "#0040a2",
+                        "on-primary": "#ffffff",
+                        "surface-bright": "#faf8ff",
+                        "on-tertiary-fixed-variant": "#812800",
+                        "surface-container-lowest": "#ffffff",
+                        "on-secondary-fixed": "#0c1c32",
+                        "on-error-container": "#93000a",
+                        "surface-container-high": "#e7e7f2",
+                        "tertiary-fixed": "#ffdbcf",
+                        "secondary-fixed": "#d5e3ff",
+                        "surface-tint": "#0c56d0",
+                        "on-secondary-container": "#54637d",
+                        "on-secondary-fixed-variant": "#38475f",
+                        "surface-container-highest": "#e1e2ec",
+                        "on-primary-fixed": "#001848",
+                        "on-surface": "#191b23",
+                        "on-background": "#191b23",
+                        "surface-container-low": "#f3f3fd",
+                        "on-tertiary": "#ffffff",
+                        "inverse-on-surface": "#f0f0fb",
+                        "inverse-surface": "#2e3038"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "16px",
+                        "md": "16px",
+                        "sm": "8px",
+                        "lg": "24px",
+                        "xs": "4px",
+                        "margin": "24px",
+                        "xl": "32px"
+                    },
+                    "fontFamily": {
+                        "display-lg-mobile": ["Inter"],
+                        "label-md": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "display-md": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "body-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "display-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.04em", "fontWeight": "600" }],
+                        "display-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "display-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "label-sm": ["11px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #F4F5F7; }
+        .shadow-level-1 { box-shadow: 0px 1px 3px rgba(0,0,0,0.10); }
+        .shadow-level-2 { box-shadow: 0px 4px 12px rgba(0,0,0,0.15); }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex flex-col md:flex-row">
+<!-- SideNavBar -->
+<nav class="hidden md:flex flex-col fixed left-0 top-0 h-screen w-60 bg-surface border-r border-outline-variant z-40">
+<div class="p-lg border-b border-outline-variant flex items-center gap-md">
+<div class="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-on-primary font-display-md text-display-md font-bold" data-icon="hub">
+<span class="material-symbols-outlined">hub</span>
+</div>
+<div>
+<h1 class="font-display-md text-display-md font-bold text-primary">鎭虹憺鎶曟祦</h1>
+<p class="font-label-sm text-label-sm text-on-surface-variant">浼佷笟绾х數瀛愬晢鍔?/p>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto py-md px-sm flex flex-col gap-sm">
+<a class="flex items-center gap-md px-md py-sm rounded-lg text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-body-md text-body-md">浠〃鐩?/span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="language">language</span>
+<span class="font-body-md text-body-md">绔欑偣鍒楄〃</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="inventory_2">inventory_2</span>
+<span class="font-body-md text-body-md">浜у搧鏉ユ簮</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="shopping_cart">shopping_cart</span>
+<span class="font-body-md text-body-md">WooCommerce</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="rss_feed">rss_feed</span>
+<span class="font-body-md text-body-md">Feed 鐢熸垚</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="hub">hub</span>
+<span class="font-body-md text-body-md">Google MC</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg bg-secondary-container text-on-secondary-container font-bold transition-colors duration-200 transform scale-[0.98]" href="#">
+<span class="material-symbols-outlined" data-icon="group" data-weight="fill" style="font-variation-settings: 'FILL' 1;">group</span>
+<span class="font-body-md text-body-md">鐢ㄦ埛绠＄悊</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg text-on-surface-variant hover:bg-surface-container-low transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-body-md text-body-md">绯荤粺璁剧疆</span>
+</a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<div class="flex-1 flex flex-col md:ml-60 min-h-screen">
+<!-- TopNavBar -->
+<header class="fixed top-0 right-0 left-0 md:left-60 h-16 bg-surface-container-lowest shadow-sm flex justify-between items-center px-lg z-30">
+<div class="flex items-center gap-md md:hidden">
+<button class="text-on-surface-variant hover:text-primary transition-all p-sm rounded-full hover:bg-surface-container-low">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<span class="font-headline-sm text-headline-sm font-black text-primary">鎭虹憺鎶曟祦</span>
+</div>
+<div class="hidden md:flex items-center gap-md w-full max-w-md">
+<div class="relative w-full">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" data-icon="search">search</span>
+<input class="w-full h-10 pl-10 pr-4 bg-surface-container-low border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all" placeholder="鎼滅储..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-lg">
+<div class="hidden lg:flex gap-sm">
+<button class="text-on-surface-variant hover:text-primary transition-all p-sm rounded-full hover:bg-surface-container-low">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-all p-sm rounded-full hover:bg-surface-container-low">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+</button>
+</div>
+<div class="flex items-center gap-sm cursor-pointer hover:opacity-80 transition-opacity">
+<span class="font-label-md text-label-md text-on-surface-variant hidden sm:block">绠＄悊鍛?/span>
+<img alt="User Avatar" class="w-8 h-8 rounded-full border border-outline-variant object-cover" data-alt="A professional corporate portrait of an administrative user in a modern office setting. The lighting is soft and neutral, reflecting a clean, high-utility business environment. The color palette emphasizes professional blues and crisp whites." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCRhtoaH6IW-olgU7VPAC8zLACeginUbLAlzQWaR2Vz6rsqXTspVxmNKU_06EWzmWQOwqeBjFX10XfOoSuAcvC_3IqdZfIeVqZ1zlhhnGGB-Sp4vvZaIIHorDxDtbaME5glpPLtPmuJ-YEaA3xNJ05CQQ5TQaQfdy27du6lXNSK3JzpdxzJaazpzHI6BatsGTFA8azqfETTOM640E35n0F6O26Z9zIOJIIWAms7wyQhHow4WtBtfyA91-YniBhabwmu218S5AkhxNmy"/>
+</div>
+</div>
+</header>
+<!-- Canvas -->
+<main class="flex-1 mt-16 p-margin md:p-xl max-w-[1440px] mx-auto w-full">
+<!-- Header Section -->
+<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-md mb-lg">
+<div>
+<h2 class="font-display-lg text-display-lg md:font-display-lg text-on-surface">鐢ㄦ埛绠＄悊</h2>
+<p class="font-body-md text-body-md text-on-surface-variant mt-xs">绠＄悊绯荤粺璁块棶鏉冮檺銆佽鑹插拰鐢ㄦ埛璧勬枡銆?/p>
+</div>
+<button class="bg-primary-container text-on-primary h-10 px-md rounded-lg font-label-md text-label-md flex items-center gap-sm hover:opacity-90 transition-opacity shadow-sm">
+<span class="material-symbols-outlined text-[18px]" data-icon="add">add</span>
+                    娣诲姞鐢ㄦ埛
+                </button>
+</div>
+<!-- Main Data Card -->
+<div class="bg-surface-container-lowest rounded-xl shadow-level-1 border border-outline-variant overflow-hidden">
+<!-- Table Controls -->
+<div class="p-lg border-b border-outline-variant flex flex-col sm:flex-row justify-between gap-md items-center bg-surface-bright">
+<div class="flex items-center gap-md w-full sm:w-auto">
+<div class="relative w-full sm:w-64">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px]" data-icon="filter_list">filter_list</span>
+<select class="w-full h-10 pl-10 pr-8 bg-surface border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface appearance-none focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer">
+<option value="all">鎵€鏈夎鑹?/option>
+<option value="admin">绠＄悊鍛?/option>
+<option value="user">鐢ㄦ埛</option>
+</select>
+</div>
+</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant">
+                        鏄剧ず 1-4 涓敤鎴凤紝鍏?4 涓?                    </div>
+</div>
+<!-- Data Table -->
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse min-w-[800px]">
+<thead>
+<tr class="bg-surface-container-low border-b border-outline-variant">
+<th class="p-md font-label-md text-label-md text-on-surface-variant font-semibold pl-lg w-16">
+<input class="rounded border-outline-variant text-primary focus:ring-primary" type="checkbox"/>
+</th>
+<th class="p-md font-label-md text-label-md text-on-surface-variant font-semibold">鐢ㄦ埛</th>
+<th class="p-md font-label-md text-label-md text-on-surface-variant font-semibold">瑙掕壊</th>
+<th class="p-md font-label-md text-label-md text-on-surface-variant font-semibold">涓婃鐧诲綍</th>
+<th class="p-md font-label-md text-label-md text-on-surface-variant font-semibold">鐘舵€?/th>
+<th class="p-md font-label-md text-label-md text-on-surface-variant font-semibold pr-lg text-right">鎿嶄綔</th>
+</tr>
+</thead>
+<tbody class="font-body-md text-body-md text-on-surface divide-y divide-outline-variant">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-container-low transition-colors duration-150 h-[56px] group">
+<td class="p-md pl-lg">
+<input class="rounded border-outline-variant text-primary focus:ring-primary" type="checkbox"/>
+</td>
+<td class="p-md">
+<div class="flex items-center gap-md">
+<img alt="Sarah Jenkins" class="w-10 h-10 rounded-full border border-outline-variant object-cover" data-alt="A clean, professional headshot of a female technology executive. The background is a minimalist, modern office environment with bright, natural lighting. The overall tone conveys efficiency, authority, and approachability suitable for an enterprise software dashboard." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA7Aa2m443EoE1MgzkEFFXu73M3mafzkXbk1KtfieGpq-UUzmrRLu3Nckgn51wEHqSPqK1umXgySbSIH6PM9GL0e9Ni7YpSWmGVbsGg9y3VRsmQBDvPDU1TCuD80_zdedvQzcXYkI_bv3opPoloVUgHtbRxe0qiJ1X_esNgj4JE5K3BuyM015Zq5q3MQI7ExBDZww8zQmDHY-NDGEp8rtmzu4a_yXta955tA5KnpDkBPEiB1jhrc6_xZH5vcfIga6DT-cFJHf12jlfB"/>
+<div>
+<div class="font-semibold text-on-surface">Sarah Jenkins</div>
+<div class="text-on-surface-variant text-sm">s.jenkins@omnimanager.com</div>
+</div>
+</div>
+</td>
+<td class="p-md text-on-surface-variant">绠＄悊鍛?/td>
+<td class="p-md text-on-surface-variant">Oct 24, 2023 09:12 AM</td>
+<td class="p-md">
+<span class="inline-flex items-center px-2 py-1 rounded-full bg-[#E3FCEF] text-[#006644] font-label-sm text-label-sm font-semibold">
+                                        娲昏穬
+                                    </span>
+</td>
+<td class="p-md pr-lg text-right">
+<div class="flex items-center justify-end gap-sm opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-fixed rounded transition-all" title="缂栬緫">
+<span class="material-symbols-outlined text-[20px]" data-icon="edit">edit</span>
+</button>
+<button class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container rounded transition-all" title="鍒犻櫎">
+<span class="material-symbols-outlined text-[20px]" data-icon="delete">delete</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-low transition-colors duration-150 h-[56px] group">
+<td class="p-md pl-lg">
+<input class="rounded border-outline-variant text-primary focus:ring-primary" type="checkbox"/>
+</td>
+<td class="p-md">
+<div class="flex items-center gap-md">
+<div class="w-10 h-10 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center font-bold font-body-md border border-outline-variant">
+                                            MC
+                                        </div>
+<div>
+<div class="font-semibold text-on-surface">Marcus Chen</div>
+<div class="text-on-surface-variant text-sm">m.chen@omnimanager.com</div>
+</div>
+</div>
+</td>
+<td class="p-md text-on-surface-variant">鐢ㄦ埛</td>
+<td class="p-md text-on-surface-variant">Oct 23, 2023 14:45 PM</td>
+<td class="p-md">
+<span class="inline-flex items-center px-2 py-1 rounded-full bg-[#E3FCEF] text-[#006644] font-label-sm text-label-sm font-semibold">
+                                        娲昏穬
+                                    </span>
+</td>
+<td class="p-md pr-lg text-right">
+<div class="flex items-center justify-end gap-sm opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-fixed rounded transition-all" title="缂栬緫">
+<span class="material-symbols-outlined text-[20px]" data-icon="edit">edit</span>
+</button>
+<button class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container rounded transition-all" title="鍒犻櫎">
+<span class="material-symbols-outlined text-[20px]" data-icon="delete">delete</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-surface-container-low transition-colors duration-150 h-[56px] group">
+<td class="p-md pl-lg">
+<input class="rounded border-outline-variant text-primary focus:ring-primary" type="checkbox"/>
+</td>
+<td class="p-md">
+<div class="flex items-center gap-md">
+<img alt="David Miller" class="w-10 h-10 rounded-full border border-outline-variant object-cover" data-alt="A professional portrait of a male data analyst in a contemporary business setting. The image uses a clean, light-mode aesthetic with soft shadows, conveying precision and modern corporate culture." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBMY_cBY8IUpqc7JehUcG5u_ypzjs1zQuepN6aVwETKIhwe_gWG9salXacrgDowwo16bmvRdWms077Hkzd7lR-2RyNV8YsCugXC1D3AeRCy20vFKOWi-sUMOYb7CE6l-nOmwL5saOtb47va2ntbpQX_a_KKbG70-rYBvgnLpmOiKebjcQlOtaNqFwguvaxRG6cFdIbLnCubIkq3yRS_5qi9F_Nhn_J_KIEvSlsU2i-uNh8rKD9EY0GOJp0fgS5T8PbyXTlb5-Ox3lL1"/>
+<div>
+<div class="font-semibold text-on-surface">David Miller</div>
+<div class="text-on-surface-variant text-sm">d.miller@omnimanager.com</div>
+</div>
+</div>
+</td>
+<td class="p-md text-on-surface-variant">绠＄悊鍛?/td>
+<td class="p-md text-on-surface-variant">Oct 20, 2023 11:30 AM</td>
+<td class="p-md">
+<span class="inline-flex items-center px-2 py-1 rounded-full bg-surface-container-high text-on-surface-variant font-label-sm text-label-sm font-semibold">
+                                        绂荤嚎
+                                    </span>
+</td>
+<td class="p-md pr-lg text-right">
+<div class="flex items-center justify-end gap-sm opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-fixed rounded transition-all" title="缂栬緫">
+<span class="material-symbols-outlined text-[20px]" data-icon="edit">edit</span>
+</button>
+<button class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container rounded transition-all" title="鍒犻櫎">
+<span class="material-symbols-outlined text-[20px]" data-icon="delete">delete</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-surface-container-low transition-colors duration-150 h-[56px] group">
+<td class="p-md pl-lg">
+<input class="rounded border-outline-variant text-primary focus:ring-primary" type="checkbox"/>
+</td>
+<td class="p-md">
+<div class="flex items-center gap-md">
+<div class="w-10 h-10 rounded-full bg-tertiary-fixed text-on-tertiary-fixed flex items-center justify-center font-bold font-body-md border border-outline-variant">
+                                            EL
+                                        </div>
+<div>
+<div class="font-semibold text-on-surface">Elena Rodriguez</div>
+<div class="text-on-surface-variant text-sm">e.rodriguez@omnimanager.com</div>
+</div>
+</div>
+</td>
+<td class="p-md text-on-surface-variant">鐢ㄦ埛</td>
+<td class="p-md text-on-surface-variant">Oct 18, 2023 16:05 PM</td>
+<td class="p-md">
+<span class="inline-flex items-center px-2 py-1 rounded-full bg-[#FFEBE6] text-[#BF2600] font-label-sm text-label-sm font-semibold">
+                                        宸叉殏鍋?                                    </span>
+</td>
+<td class="p-md pr-lg text-right">
+<div class="flex items-center justify-end gap-sm opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="p-sm text-on-surface-variant hover:text-primary hover:bg-primary-fixed rounded transition-all" title="缂栬緫">
+<span class="material-symbols-outlined text-[20px]" data-icon="edit">edit</span>
+</button>
+<button class="p-sm text-on-surface-variant hover:text-error hover:bg-error-container rounded transition-all" title="鍒犻櫎">
+<span class="material-symbols-outlined text-[20px]" data-icon="delete">delete</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination Footer -->
+<div class="p-md border-t border-outline-variant flex items-center justify-between bg-surface-bright">
+<div class="font-body-md text-body-md text-on-surface-variant">
+                        绗?1 椤碉紝鍏?1 椤?                    </div>
+<div class="flex gap-sm">
+<button class="h-8 px-3 rounded border border-outline-variant text-on-surface-variant hover:bg-surface-container-low disabled:opacity-50 flex items-center justify-center transition-colors" disabled="">
+<span class="material-symbols-outlined text-[18px]" data-icon="chevron_left">chevron_left</span>
+</button>
+<button class="h-8 px-3 rounded border border-outline-variant text-on-surface-variant hover:bg-surface-container-low disabled:opacity-50 flex items-center justify-center transition-colors" disabled="">
+<span class="material-symbols-outlined text-[18px]" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

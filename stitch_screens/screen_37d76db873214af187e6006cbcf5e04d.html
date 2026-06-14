@@ -1,0 +1,530 @@
+﻿<!DOCTYPE html>
+
+<html class="light" lang="zh"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>浜у搧鏉ユ簮 - 鎭虹憺鎶曟祦</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "outline": "#737685",
+                        "on-secondary-container": "#54637d",
+                        "on-primary-fixed-variant": "#0040a2",
+                        "on-secondary": "#ffffff",
+                        "on-secondary-fixed": "#0c1c32",
+                        "on-error": "#ffffff",
+                        "primary-fixed": "#dae2ff",
+                        "inverse-on-surface": "#f0f0fb",
+                        "tertiary-fixed-dim": "#ffb59b",
+                        "secondary": "#505f78",
+                        "surface-container-high": "#e7e7f2",
+                        "primary-fixed-dim": "#b2c5ff",
+                        "outline-variant": "#c3c6d6",
+                        "on-background": "#191b23",
+                        "tertiary": "#7b2600",
+                        "surface-tint": "#0c56d0",
+                        "on-primary-container": "#c4d2ff",
+                        "surface-container-low": "#f3f3fd",
+                        "surface-container-highest": "#e1e2ec",
+                        "on-tertiary": "#ffffff",
+                        "surface-bright": "#faf8ff",
+                        "secondary-container": "#d1e0fe",
+                        "tertiary-fixed": "#ffdbcf",
+                        "on-surface": "#191b23",
+                        "inverse-surface": "#2e3038",
+                        "error": "#ba1a1a",
+                        "surface-container": "#ededf8",
+                        "on-primary": "#ffffff",
+                        "inverse-primary": "#b2c5ff",
+                        "primary-container": "#0052cc",
+                        "secondary-fixed": "#d5e3ff",
+                        "secondary-fixed-dim": "#b8c7e4",
+                        "on-tertiary-fixed": "#380d00",
+                        "primary": "#003d9b",
+                        "on-tertiary-container": "#ffc6b2",
+                        "on-secondary-fixed-variant": "#38475f",
+                        "surface-variant": "#e1e2ec",
+                        "on-tertiary-fixed-variant": "#812800",
+                        "tertiary-container": "#a33500",
+                        "on-primary-fixed": "#001848",
+                        "background": "#faf8ff",
+                        "surface-dim": "#d9d9e4",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "surface": "#faf8ff",
+                        "on-surface-variant": "#434654",
+                        "error-container": "#ffdad6"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "sm": "8px",
+                        "md": "16px",
+                        "xl": "32px",
+                        "margin": "24px",
+                        "xs": "4px",
+                        "lg": "24px",
+                        "gutter": "16px"
+                    },
+                    "fontFamily": {
+                        "headline-sm": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "display-lg-mobile": ["Inter"],
+                        "label-md": ["Inter"],
+                        "display-md": ["Inter"],
+                        "display-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "label-sm": ["11px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "display-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.04em", "fontWeight": "600" }],
+                        "display-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "display-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .material-symbols-outlined.fill {
+            font-variation-settings: 'FILL' 1;
+        }
+        /* Hide scrollbar for clean UI but keep functionality */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body-md antialiased min-h-screen">
+<!-- TopNavBar -->
+<header class="fixed top-0 right-0 left-60 flex justify-between items-center px-lg z-30 shadow-sm bg-surface-container-lowest h-16 transition-all duration-300">
+<div class="flex items-center gap-4">
+<!-- Search Bar -->
+<div class="relative w-96 hidden md:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
+<input class="w-full pl-10 pr-4 py-2 bg-surface-container-low border border-outline-variant rounded-lg font-body-md text-on-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all" placeholder="鎼滅储浜у搧銆佽鍗曟垨瀹㈡埛..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<!-- Breadcrumbs -->
+<div class="hidden lg:flex items-center gap-2 text-on-surface-variant font-label-md">
+<span class="hover:text-primary cursor-pointer transition-colors">鐩綍</span>
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+<span class="text-primary font-bold border-b-2 border-primary">浜у搧鏉ユ簮</span>
+</div>
+<!-- Trailing Icons -->
+<div class="flex items-center gap-2">
+<button class="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-full transition-all duration-200">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-full transition-all duration-200">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+</button>
+</div>
+<!-- Profile -->
+<div class="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-all pl-4 border-l border-outline-variant">
+<img alt="User Avatar" class="w-8 h-8 rounded-full object-cover border border-outline-variant" data-alt="A professional headshot of a corporate manager in a bright, modern office setting. The lighting is soft and even, typical of a light-mode enterprise environment. The subject is wearing smart casual business attire. The background is a clean, softly blurred white office space." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBdpWdIMi1wAMWXu48T7lP93ALw6qtKDwxM6qOFI6qtWiSDJTIF6tncwsCkwkhUKNGdz7VFP-u1vUDjEWY5rsA64fNzS5IqHhS3QyqMkOJ0rX_4paFfUYT9friiwsqEN14Z8DiO8Mw97h0ZVnK6lQqwAnzDgbJ67gDvpAUrFst0sZUqe0ju0VDTRmPKWevYmR-Qi465ThuVKiMF0Arou3VMcTXGwbz9uoYPvbO4NWe9cYDiBQcvYSyhquXwlKLToTBWjjwrlNrQ3-4G"/>
+<div class="hidden sm:block">
+<p class="font-label-md text-on-surface">Alex Carter</p>
+<p class="font-label-sm text-on-surface-variant">绠＄悊鍛?/p>
+</div>
+</div>
+</div>
+</header>
+<!-- SideNavBar -->
+<nav class="fixed left-0 top-0 h-full flex flex-col z-40 bg-surface border-r border-outline-variant w-60 transition-transform duration-300">
+<!-- Header -->
+<div class="h-16 flex items-center px-6 border-b border-outline-variant bg-surface-container-lowest">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-primary-container flex items-center justify-center text-on-primary font-bold shadow-sm">
+                    鎭?                </div>
+<div>
+<h1 class="font-headline-sm font-black text-primary tracking-tight">鎭虹憺鎶曟祦</h1>
+</div>
+</div>
+</div>
+<!-- Navigation Links -->
+<div class="flex-1 overflow-y-auto py-6 px-4 flex flex-col gap-1 no-scrollbar">
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200 font-label-md" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+                浠〃鐩?            </a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200 font-label-md" href="#">
+<span class="material-symbols-outlined" data-icon="language">language</span>
+                绔欑偣鍒楄〃
+            </a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-secondary-container text-on-secondary-container font-bold transition-colors duration-200" href="#">
+<span class="material-symbols-outlined fill" data-icon="inventory_2" data-weight="fill">inventory_2</span>
+                浜у搧鏉ユ簮
+            </a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200 font-label-md" href="#">
+<span class="material-symbols-outlined" data-icon="shopping_cart">shopping_cart</span>
+                WooCommerce
+            </a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200 font-label-md" href="#">
+<span class="material-symbols-outlined" data-icon="rss_feed">rss_feed</span>
+                Feed 鐢熸垚
+            </a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200 font-label-md" href="#">
+<span class="material-symbols-outlined" data-icon="hub">hub</span>
+                Google MC
+            </a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200 font-label-md" href="#">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+                鐢ㄦ埛绠＄悊
+            </a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200 font-label-md" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+                绯荤粺璁剧疆
+            </a>
+</div>
+<!-- User Context/Footer Area -->
+<div class="p-4 border-t border-outline-variant bg-surface-container-lowest">
+<div class="flex items-center justify-between text-on-surface-variant font-label-sm px-2">
+<span class="">浼佷笟鐗堣鍒?/span>
+<span class="w-2 h-2 rounded-full bg-green-500"></span>
+</div>
+</div>
+</nav>
+<!-- Main Canvas -->
+<main class="ml-60 pt-16 min-h-screen bg-background">
+<div class="p-lg max-w-[1440px] mx-auto flex flex-col gap-margin">
+<!-- Page Header -->
+<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+<div>
+<h2 class="font-display-md text-on-surface">浜у搧鏉ユ簮涓績</h2>
+<p class="font-body-md text-on-surface-variant mt-1">璺ㄥ涓競鍦虹鐞嗗拰鐩戞帶浜у搧鎶撳彇鎿嶄綔銆?/p>
+</div>
+<div class="flex gap-3">
+<button class="px-4 py-2 border border-outline-variant text-on-surface rounded-lg font-label-md hover:bg-surface-container-low transition-colors flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">download</span>
+                        瀵煎嚭鍒楄〃
+                    </button>
+<button class="px-4 py-2 bg-primary-container text-on-primary rounded-lg font-label-md hover:bg-primary transition-colors flex items-center gap-2 shadow-[0px_1px_3px_rgba(0,0,0,0.10)]">
+<span class="material-symbols-outlined text-[18px]">add</span>
+                        鏂板缓鎶撳彇浠诲姟
+                    </button>
+</div>
+</div>
+<!-- Bento-style Analytics Overview -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-gutter">
+<div class="bg-surface-container-lowest rounded-xl p-6 border border-outline-variant shadow-[0px_1px_3px_rgba(0,0,0,0.10)]">
+<div class="flex justify-between items-start">
+<div>
+<p class="font-label-md text-on-surface-variant">鎬绘姄鍙栭噺</p>
+<h3 class="font-display-lg text-on-surface mt-2">12,408</h3>
+</div>
+<div class="w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-on-primary-fixed-variant">
+<span class="material-symbols-outlined">dataset</span>
+</div>
+</div>
+<div class="mt-4 flex items-center gap-2 text-sm">
+<span class="text-green-600 font-label-md flex items-center"><span class="material-symbols-outlined text-[14px]">arrow_upward</span> 12%</span>
+<span class="text-on-surface-variant font-label-sm">瀵规瘮涓婂懆</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-xl p-6 border border-outline-variant shadow-[0px_1px_3px_rgba(0,0,0,0.10)]">
+<div class="flex justify-between items-start">
+<div>
+<p class="font-label-md text-on-surface-variant">娲诲姩浠诲姟</p>
+<h3 class="font-display-lg text-on-surface mt-2">34</h3>
+</div>
+<div class="w-10 h-10 rounded-full bg-secondary-fixed flex items-center justify-center text-on-secondary-fixed-variant">
+<span class="material-symbols-outlined">sync</span>
+</div>
+</div>
+<div class="mt-4 flex items-center gap-2 text-sm">
+<span class="text-on-surface-variant font-label-sm">鍦?涓钩鍙颁笂杩愯</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-xl p-6 border border-outline-variant shadow-[0px_1px_3px_rgba(0,0,0,0.10)]">
+<div class="flex justify-between items-start">
+<div>
+<p class="font-label-md text-on-surface-variant">閿欒鐜?/p>
+<h3 class="font-display-lg text-on-surface mt-2">1.2%</h3>
+</div>
+<div class="w-10 h-10 rounded-full bg-error-container flex items-center justify-center text-on-error-container">
+<span class="material-symbols-outlined">warning</span>
+</div>
+</div>
+<div class="mt-4 flex items-center gap-2 text-sm">
+<span class="text-green-600 font-label-md flex items-center"><span class="material-symbols-outlined text-[14px]">arrow_downward</span> 0.5%</span>
+<span class="text-on-surface-variant font-label-sm">瀵规瘮涓婂懆</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-xl p-6 border border-outline-variant shadow-[0px_1px_3px_rgba(0,0,0,0.10)] relative overflow-hidden group">
+<div class="absolute inset-0 bg-gradient-to-br from-primary-fixed to-secondary-fixed opacity-50"></div>
+<div class="relative z-10 flex flex-col h-full justify-between">
+<div>
+<p class="font-label-md text-on-primary-fixed-variant">鏈嶅姟鍣ㄧ姸鎬?/p>
+<h3 class="font-display-md text-on-secondary-fixed mt-2">鏈€浣?/h3>
+</div>
+<div class="mt-4 flex items-center gap-2">
+<span class="relative flex h-3 w-3">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+</span>
+<span class="font-label-sm text-on-secondary-fixed-variant">鎵€鏈夎妭鐐瑰搷搴旀甯?/span>
+</div>
+</div>
+</div>
+</div>
+<!-- Main Data Interface -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-[0px_1px_3px_rgba(0,0,0,0.10)] flex flex-col flex-1 overflow-hidden">
+<!-- Horizontal Tabs -->
+<div class="border-b border-outline-variant flex px-4 pt-2 overflow-x-auto no-scrollbar">
+<button class="px-6 py-3 font-label-md text-primary border-b-2 border-primary bg-surface-container-low rounded-t-lg transition-colors whitespace-nowrap">
+                        娌冨皵鐜?                    </button>
+<button class="px-6 py-3 font-label-md text-on-surface-variant hover:text-primary hover:bg-surface-container-low rounded-t-lg transition-colors whitespace-nowrap">
+                        浜氶┈閫?                    </button>
+<button class="px-6 py-3 font-label-md text-on-surface-variant hover:text-primary hover:bg-surface-container-low rounded-t-lg transition-colors whitespace-nowrap">
+                        TikTok
+                    </button>
+<button class="px-6 py-3 font-label-md text-on-surface-variant hover:text-primary hover:bg-surface-container-low rounded-t-lg transition-colors whitespace-nowrap flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-orange-500">local_fire_department</span>
+                        鐑棬浜у搧
+                    </button>
+</div>
+<!-- Toolbar -->
+<div class="p-4 border-b border-outline-variant flex flex-wrap justify-between items-center gap-4 bg-surface-bright">
+<div class="flex items-center gap-3">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
+<input class="pl-9 pr-4 py-1.5 bg-surface border border-outline-variant rounded-md font-body-md text-sm text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all w-64" placeholder="鎼滅储SKU鎴栧悕绉?.." type="text"/>
+</div>
+<button class="px-3 py-1.5 border border-outline-variant text-on-surface rounded-md font-label-md hover:bg-surface-container-low transition-colors flex items-center gap-2 text-sm">
+<span class="material-symbols-outlined text-[16px]">filter_list</span>
+                            绛涢€?                        </button>
+</div>
+<div class="flex items-center gap-3">
+<span class="font-label-sm text-on-surface-variant">鎵归噺鎿嶄綔锛?/span>
+<select class="bg-surface border border-outline-variant text-on-surface text-sm rounded-md focus:ring-primary focus:border-primary block p-1.5 font-body-md">
+<option>鍚屾鍒癢ooCommerce</option>
+<option>鏇存柊浠锋牸</option>
+<option>鍒犻櫎宸查€?/option>
+</select>
+<button class="px-3 py-1.5 bg-surface-container-high text-on-surface rounded-md font-label-md hover:bg-surface-dim transition-colors text-sm">
+                            搴旂敤
+                        </button>
+</div>
+</div>
+<!-- Data Table -->
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b border-outline-variant bg-surface-container-low">
+<th class="p-4 w-12">
+<input class="rounded border-outline-variant text-primary focus:ring-primary cursor-pointer w-4 h-4" type="checkbox"/>
+</th>
+<th class="p-4 font-label-md text-on-surface-variant w-24">鍥剧墖</th>
+<th class="p-4 font-label-md text-on-surface-variant">浜у搧璇︽儏</th>
+<th class="p-4 font-label-md text-on-surface-variant">鏉ユ簮浠锋牸</th>
+<th class="p-4 font-label-md text-on-surface-variant">棰勪及鍒╂鼎鐜?/th>
+<th class="p-4 font-label-md text-on-surface-variant">鐘舵€?/th>
+<th class="p-4 font-label-md text-on-surface-variant text-right">鎿嶄綔</th>
+</tr>
+</thead>
+<tbody class="font-body-md text-on-surface">
+<!-- Row 1 -->
+<tr class="border-b border-outline-variant hover:bg-surface-bright transition-colors group h-14">
+<td class="p-4">
+<input class="rounded border-outline-variant text-primary focus:ring-primary cursor-pointer w-4 h-4" type="checkbox"/>
+</td>
+<td class="p-4">
+<div class="w-12 h-12 rounded border border-outline-variant overflow-hidden bg-white flex items-center justify-center p-1">
+<img alt="Headphones" class="w-full h-full object-contain" data-alt="High quality professional studio headphones resting on a clean white surface. Bright, even lighting highlights the sleek black and silver design of the audio equipment. The aesthetic is modern, commercial product photography suitable for an e-commerce catalog." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBuxg9Cxt-Zyff5XS8uJUnaEO4C8Wo336lM3Zwyp0xkmJCv59BZEgCoKfCRrpmj1tHmQpkoG0OElo0vrhwOjvdGuhmOmObr7OjBIYyUjB_GM5dE18jsmL186BJU2VGYPEcwlkQhHsXg-u_YUjUfN1ZEayek-Tpkqm4Nakzn-OR92e_bRBuqk1HgrpvcqjTmBwo7XX8L7NgXYN-OSpLOcRnemxKtePWZ8AoZ91hJI5IoEf7jn40SHb9rMv8o8sv0i-R-MhvkBszU9Jx3"/>
+</div>
+</td>
+<td class="p-4">
+<div class="flex flex-col">
+<span class="font-label-md text-on-surface truncate max-w-xs" title="Sony WH-1000XM4 Wireless Noise Canceling Headphones">Sony WH-1000XM4 Wireless Noise Canceling...</span>
+<span class="font-label-sm text-on-surface-variant mt-0.5">SKU: WM-SNY-1004 鈥?绫诲埆锛氱數瀛愪骇鍝?/span>
+</div>
+</td>
+<td class="p-4 font-body-md">$278.00</td>
+<td class="p-4">
+<span class="text-green-600 font-label-md">24%</span>
+</td>
+<td class="p-4">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-label-sm bg-green-100 text-green-800 border border-green-200">
+                                        娲昏穬
+                                    </span>
+</td>
+<td class="p-4 text-right">
+<div class="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="p-1.5 text-on-surface-variant hover:text-primary rounded hover:bg-surface-container-high transition-colors" title="鏌ョ湅鏉ユ簮">
+<span class="material-symbols-outlined text-[18px]">open_in_new</span>
+</button>
+<button class="p-1.5 text-on-surface-variant hover:text-primary rounded hover:bg-surface-container-high transition-colors" title="绔嬪嵆鍚屾">
+<span class="material-symbols-outlined text-[18px]">sync</span>
+</button>
+<button class="p-1.5 text-on-surface-variant hover:text-error rounded hover:bg-error-container transition-colors" title="鍒犻櫎">
+<span class="material-symbols-outlined text-[18px]">delete</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="border-b border-outline-variant hover:bg-surface-bright transition-colors group h-14 bg-surface-bright">
+<td class="p-4">
+<input checked="" class="rounded border-outline-variant text-primary focus:ring-primary cursor-pointer w-4 h-4" type="checkbox"/>
+</td>
+<td class="p-4">
+<div class="w-12 h-12 rounded border border-outline-variant overflow-hidden bg-white flex items-center justify-center p-1">
+<img alt="Sneakers" class="w-full h-full object-contain" data-alt="A striking pair of bright red athletic running shoes angled dynamically on a pristine white background. The lighting is crisp and commercial, emphasizing the texture of the fabric and the sleek design of the sole. Modern e-commerce product presentation style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBHgbVON3Hbtj27d-YpZ7hw7AmHWJ9ZkLqVx3wajippGJsMJxPLwrcJbupAxVhwPP3cAPA7YU7H5pd0qYxwsfFUnERk4dqjqqlm3rdeOlzI-YUgC-xaPWXlauDvZIBtYGKikUCndKyN7AKH7Qiq3yryemYqTvNuyTy8BgdXnib0TBztzZAas634XbFCFvZBuEYrERfohor06ZyRAy2h11gg-Ts_Udbr0RDQMlYCt_rFWL9Zau91KgtA2O0MbGnu_ZTrrePQxbDbvpw2"/>
+</div>
+</td>
+<td class="p-4">
+<div class="flex flex-col">
+<span class="font-label-md text-on-surface truncate max-w-xs" title="Nike Air Max 270 React Running Shoes Mens">Nike Air Max 270 React Running Shoes...</span>
+<span class="font-label-sm text-on-surface-variant mt-0.5">SKU: WM-NK-270R 鈥?绫诲埆锛氶瀷绫?/span>
+</div>
+</td>
+<td class="p-4 font-body-md">$129.99</td>
+<td class="p-4">
+<span class="text-green-600 font-label-md">31%</span>
+</td>
+<td class="p-4">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-label-sm bg-yellow-100 text-yellow-800 border border-yellow-200">
+                                        浠锋牸鍙樺姩璀﹀憡
+                                    </span>
+</td>
+<td class="p-4 text-right">
+<div class="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="p-1.5 text-on-surface-variant hover:text-primary rounded hover:bg-surface-container-high transition-colors" title="鏌ョ湅鏉ユ簮">
+<span class="material-symbols-outlined text-[18px]">open_in_new</span>
+</button>
+<button class="p-1.5 text-on-surface-variant hover:text-primary rounded hover:bg-surface-container-high transition-colors" title="绔嬪嵆鍚屾">
+<span class="material-symbols-outlined text-[18px]">sync</span>
+</button>
+<button class="p-1.5 text-on-surface-variant hover:text-error rounded hover:bg-error-container transition-colors" title="鍒犻櫎">
+<span class="material-symbols-outlined text-[18px]">delete</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="border-b border-outline-variant hover:bg-surface-bright transition-colors group h-14">
+<td class="p-4">
+<input class="rounded border-outline-variant text-primary focus:ring-primary cursor-pointer w-4 h-4" type="checkbox"/>
+</td>
+<td class="p-4">
+<div class="w-12 h-12 rounded border border-outline-variant overflow-hidden bg-white flex items-center justify-center p-1">
+<img alt="Smartwatch" class="w-full h-full object-contain" data-alt="A modern, minimalist smartwatch with a clean white band displayed against a solid white backdrop. The watch face is dark and sleek. High-key, shadowless lighting typical of premium consumer electronics e-commerce photography creates a crisp, professional look." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBrZD31yVuWK8SvN1ZfkOhar9Vv06QV-MkDDYZ5uHaBVFJ8GzyhlLFsnQAzZqCnGVdnFLwWbwfHn4CD_d3Iz5-4I2UDP9czzN6MnJBLsAKBK-07ocKmnl6Z0Zw4Ht0mZgIFtAZIL9sSexHeoZ0W9BbJ6v5IofHBhQxyb19wPYS8B-67vCAKw4uRdB15CHE_vE5oRwOlPIKCjk2m7m0qPosieGxCF9Y3xb1SCFJ-LrKvkERnqzwmPw2684NtL8wiazgg5K1a7o8i562v"/>
+</div>
+</td>
+<td class="p-4">
+<div class="flex flex-col">
+<span class="font-label-md text-on-surface truncate max-w-xs" title="Apple Watch Series 8 GPS 41mm Aluminum Case">Apple Watch Series 8 GPS 41mm Alum...</span>
+<span class="font-label-sm text-on-surface-variant mt-0.5">SKU: WM-APL-W8 鈥?绫诲埆锛氬彲绌挎埓璁惧</span>
+</div>
+</td>
+<td class="p-4 font-body-md">$389.00</td>
+<td class="p-4">
+<span class="text-orange-600 font-label-md">12%</span>
+</td>
+<td class="p-4">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-label-sm bg-red-100 text-red-800 border border-red-200">
+                                        缂鸿揣 (鏉ユ簮)
+                                    </span>
+</td>
+<td class="p-4 text-right">
+<div class="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="p-1.5 text-on-surface-variant hover:text-primary rounded hover:bg-surface-container-high transition-colors" title="鏌ョ湅鏉ユ簮">
+<span class="material-symbols-outlined text-[18px]">open_in_new</span>
+</button>
+<button class="p-1.5 text-on-surface-variant hover:text-primary rounded hover:bg-surface-container-high transition-colors" title="绔嬪嵆鍚屾">
+<span class="material-symbols-outlined text-[18px]">sync</span>
+</button>
+<button class="p-1.5 text-on-surface-variant hover:text-error rounded hover:bg-error-container transition-colors" title="鍒犻櫎">
+<span class="material-symbols-outlined text-[18px]">delete</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="border-b border-outline-variant hover:bg-surface-bright transition-colors group h-14">
+<td class="p-4">
+<input class="rounded border-outline-variant text-primary focus:ring-primary cursor-pointer w-4 h-4" type="checkbox"/>
+</td>
+<td class="p-4">
+<div class="w-12 h-12 rounded border border-outline-variant overflow-hidden bg-white flex items-center justify-center p-1">
+<div class="w-8 h-8 rounded-full border-2 border-dashed border-outline-variant flex items-center justify-center text-outline">
+<span class="material-symbols-outlined text-sm">image</span>
+</div>
+</div>
+</td>
+<td class="p-4">
+<div class="flex flex-col">
+<span class="font-label-md text-on-surface truncate max-w-xs" title="Generic Ergonomic Office Chair Mesh Back">Generic Ergonomic Office Chair Mesh...</span>
+<span class="font-label-sm text-on-surface-variant mt-0.5">SKU: WM-GEN-OC1 鈥?绫诲埆锛氬鍏?/span>
+</div>
+</td>
+<td class="p-4 font-body-md">$85.50</td>
+<td class="p-4">
+<span class="text-green-600 font-label-md">45%</span>
+</td>
+<td class="p-4">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-label-sm bg-blue-100 text-blue-800 border border-blue-200">
+                                        鎶撳彇涓?..
+                                    </span>
+</td>
+<td class="p-4 text-right">
+<div class="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="p-1.5 text-on-surface-variant hover:text-primary rounded hover:bg-surface-container-high transition-colors" title="鏌ョ湅鏉ユ簮">
+<span class="material-symbols-outlined text-[18px]">open_in_new</span>
+</button>
+<button class="p-1.5 text-on-surface-variant hover:text-primary rounded hover:bg-surface-container-high transition-colors" title="绔嬪嵆鍚屾">
+<span class="material-symbols-outlined text-[18px]">sync</span>
+</button>
+<button class="p-1.5 text-on-surface-variant hover:text-error rounded hover:bg-error-container transition-colors" title="鍒犻櫎">
+<span class="material-symbols-outlined text-[18px]">delete</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination -->
+<div class="p-4 border-t border-outline-variant flex items-center justify-between bg-surface-container-lowest">
+<span class="font-label-sm text-on-surface-variant">鏄剧ず绗?1 鑷?4 椤癸紝鍏?240 椤圭粨鏋?/span>
+<div class="flex items-center gap-1">
+<button class="p-1 rounded text-outline-variant hover:text-on-surface hover:bg-surface-container-high transition-colors disabled:opacity-50" disabled="">
+<span class="material-symbols-outlined">chevron_left</span>
+</button>
+<button class="w-8 h-8 rounded bg-primary-container text-on-primary font-label-md flex items-center justify-center">1</button>
+<button class="w-8 h-8 rounded text-on-surface-variant hover:bg-surface-container-high font-label-md flex items-center justify-center transition-colors">2</button>
+<button class="w-8 h-8 rounded text-on-surface-variant hover:bg-surface-container-high font-label-md flex items-center justify-center transition-colors">3</button>
+<span class="text-on-surface-variant px-1">...</span>
+<button class="w-8 h-8 rounded text-on-surface-variant hover:bg-surface-container-high font-label-md flex items-center justify-center transition-colors">12</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>
