@@ -124,6 +124,38 @@ class StitchClient:
                 save_stitch_token(self._access_token, self._refresh_token)
         return bool(self._access_token)
 
+    def _force_refresh(self):
+        """Force refresh access token (called on 401 retry)."""
+        if not self._refresh_token:
+            self._access_token, self._refresh_token = get_stitch_token()
+        if self._refresh_token:
+            self._access_token = _refresh_access_token(self._refresh_token)
+            if self._access_token:
+                save_stitch_token(self._access_token, self._refresh_token)
+                return True
+        return False
+
+    def _rest_authorized(self, method, url, **kwargs):
+        """Make an authenticated REST call with automatic 401 retry.
+        On first 401: force-refresh the access token and retry once.
+        Returns (status_code, response_text)."""
+        if not self._ensure_token():
+            return None, "Not authenticated"
+        for attempt in (1, 2):
+            headers = kwargs.pop("headers", {})
+            headers["Authorization"] = f"Bearer {self._access_token}"
+            try:
+                resp = http_requests.request(method, url, headers=headers, timeout=kwargs.pop("timeout", 30), **kwargs)
+                if resp.status_code != 401:
+                    return resp.status_code, resp.text
+                # 401 on first attempt → refresh & retry
+                if attempt == 1 and self._force_refresh():
+                    logger.info("Stitch token refreshed after 401, retrying...")
+                    continue
+            except Exception as e:
+                return None, str(e)
+        return 401, "Unauthorized after retry"
+
     @property
     def is_authenticated(self):
         return self._ensure_token()
@@ -200,23 +232,17 @@ class StitchClient:
     # ---- High-level API ----
     def create_project(self, title):
         """Create a Stitch TEXT_TO_UI_PRO project via REST API. Returns numeric project ID."""
-        if not self._ensure_token():
-            return None
-        try:
-            resp = http_requests.post(
-                "https://stitch.googleapis.com/v1/projects",
-                headers={"Authorization": f"Bearer {self._access_token}", "Content-Type": "application/json"},
-                json={"displayName": title, "projectType": "TEXT_TO_UI_PRO", "visibility": "PRIVATE"},
-                timeout=30,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                return data.get("name", "").split("/")[-1]
-            logger.warning(f"create_project failed: {resp.status_code} {resp.text[:200]}")
-            return None
-        except Exception as e:
-            logger.error(f"create_project error: {e}")
-            return None
+        status, text = self._rest_authorized(
+            "POST", "https://stitch.googleapis.com/v1/projects",
+            json={"displayName": title, "projectType": "TEXT_TO_UI_PRO", "visibility": "PRIVATE"},
+        )
+        if status == 200 and text:
+            try:
+                return json.loads(text).get("name", "").split("/")[-1]
+            except Exception:
+                return None
+        logger.warning(f"create_project failed: {status} {text[:200] if text else ''}")
+        return None
 
     def generate_screen(self, project_id, prompt, device_type="DESKTOP"):
         """Generate a screen. Returns {"screenId":..., "htmlUrl":..., "imageUrl":...} or None."""
@@ -310,22 +336,16 @@ class StitchClient:
 
     def get_screen_code(self, screen_name):
         """Get the HTML/CSS code for a screen via REST API."""
-        if not self._ensure_token():
-            return None
-        try:
-            # screen_name is like "projects/xxx/screens/yyy"
-            resp = http_requests.get(
-                f"https://stitch.googleapis.com/v1/{screen_name}/code",
-                headers={"Authorization": f"Bearer {self._access_token}"},
-                timeout=30,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
+        status, text = self._rest_authorized(
+            "GET", f"https://stitch.googleapis.com/v1/{screen_name}/code",
+        )
+        if status == 200 and text:
+            try:
+                data = json.loads(text)
                 return data.get("content") or data.get("html") or ""
-            return None
-        except Exception as e:
-            logger.warning(f"get_screen_code failed: {e}")
-            return None
+            except Exception:
+                return None
+        return None
 
     # ---- Store Design Generation ----
     def generate_store_design(self, brand_kit, pages=None, progress_callback=None):
