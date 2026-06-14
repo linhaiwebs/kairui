@@ -456,10 +456,13 @@ const app = createApp({
             const isStatic = s.site_type === 'static';
             if (s.gmc_registered && !isStatic) return '已完成';
             if (isStatic) {
+                // 4-step flow: DNS → 1Panel创建 → 设计生成 → 上传文件 → 上线
                 if (s.files_uploaded) return '已上线';
-                if (s.site_created) return '正在上传文件...';
+                if (s.design_complete) return '正在上传文件...';
+                if (s.design_generating) return 'Stitch AI生成设计中...';
+                if (s.design_started) return '正在生成设计...';
+                if (s.site_created) return '正在生成页面...';
                 if (s.dns_resolved) return '正在创建站点...';
-                if (w && w.status === 'installing') return '正在部署...';
                 return '等待部署';
             }
             if (s.brand_configured) {
