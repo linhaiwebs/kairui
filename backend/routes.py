@@ -3547,12 +3547,34 @@ def register_routes(app):
             products = json_data.get("products", [])
             if not products:
                 return jsonify({"code": 400, "message": "产品列表为空"}), 400
-            mapped = [{k: p.get(k, "") for k in ["title","description","price","currency","images","image_url","category","brand","sku","source_url"]} for p in products]
-            count = import_products_to_site(site_id, mapped)
+            count = 0
+            for p in products:
+                # Map CSV fields to woocommerce_products schema
+                images = p.get("images") or []
+                if isinstance(images, list):
+                    images_str = "|".join(images)
+                else:
+                    images_str = str(images)
+                save_woocommerce_product({
+                    "name": p.get("title", ""),
+                    "sku": p.get("sku", ""),
+                    "regular_price": str(p.get("price", "")),
+                    "description": p.get("description", "") or "",
+                    "categories": p.get("category", ""),
+                    "brand": p.get("brand", ""),
+                    "source_url": p.get("source_url", ""),
+                    "images": images_str,
+                    "stock_status": "instock",
+                    "extra_data": {"currency": p.get("currency", "USD")},
+                })
+                count += 1
+            # Also sync to static_site_products for site HTML regeneration
             try:
+                mapped = [{k: p.get(k, "") for k in ["title","description","price","currency","images","image_url","category","brand","sku","source_url"]} for p in products]
+                import_products_to_site(site_id, mapped)
                 _regenerate_static_site_html(None, site_id)
             except Exception as re:
-                logger.warning(f"Regenerate failed: {re}")
+                logger.warning(f"Regenerate after CSV import failed: {re}")
             return jsonify({"code": 200, "data": {"imported": count, "total": len(products)}})
 
         if "file" not in request.files:
