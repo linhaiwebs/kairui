@@ -2318,6 +2318,33 @@ def _render_page_by_type(page_type, design, brand_kit, products):
     return ""
 
 
+def try_stitch_design(brand_kit, progress_callback=None):
+    """Try to generate store design via Google Stitch (TEXT_TO_UI flash model)."""
+    brand_name = brand_kit.get("brand_name") or brand_kit.get("name", "Store")
+    try:
+        from stitch_client import StitchClient
+        stitch = StitchClient()
+        if not stitch.is_authenticated:
+            if progress_callback: progress_callback("Stitch未认证，跳过...")
+            return None
+        if progress_callback: progress_callback(f"Stitch Flash正在为 {brand_name} 生成设计...")
+        result = stitch.generate_store_design(
+            brand_kit=brand_kit, pages=DESIGN_PAGES, progress_callback=progress_callback,
+        )
+        if result and isinstance(result, dict):
+            screens = result.get("screens", {})
+            if screens and len(screens) >= 2:
+                if progress_callback: progress_callback(f"Stitch完成 {len(screens)} 页")
+                logger.info(f"Stitch design for {brand_name}: {list(screens.keys())}")
+                return screens
+        if progress_callback: progress_callback("Stitch不足，尝试Agnes...")
+        return None
+    except Exception as e:
+        if progress_callback: progress_callback(f"Stitch失败: {str(e)[:40]}")
+        logger.warning(f"Stitch failed for {brand_name}: {e}")
+        return None
+
+
 def try_agnes_design(brand_kit, progress_callback=None):
     """Try to generate store design via Agne's AI. Returns dict {page: html} or None."""
     brand_name = brand_kit.get("brand_name") or brand_kit.get("name", "Store")
@@ -2390,8 +2417,10 @@ def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
     design = _load_design(brand_kit)
     global _INLINE_CSS, _INLINE_JS
 
-    # Try Agnes AI first, then built-in CSS
-    design_pages = try_agnes_design(brand_kit, progress_callback)
+    # Try Stitch Flash → Agnes AI → built-in CSS
+    design_pages = try_stitch_design(brand_kit, progress_callback)
+    if not design_pages:
+        design_pages = try_agnes_design(brand_kit, progress_callback)
 
     if design_pages and design_pages.get("home"):
         logger.info(f"Using Agnes design for {domain} ({len(design_pages)} pages)")
