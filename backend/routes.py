@@ -3514,11 +3514,20 @@ def register_routes(app):
     @app.route("/api/static-products/<int:product_id>", methods=["DELETE"])
     @jwt_required()
     def delete_site_product(product_id):
-        """Delete a static site product."""
+        """Delete a static site product and regenerate the site."""
+        # Get site_id before deleting
+        product = get_static_site_product(product_id)
+        site_id = product["site_id"] if product else None
         deleted = delete_static_site_product(product_id)
         if not deleted:
             return jsonify({"code": 404, "message": "产品不存在"}), 404
-        return jsonify({"code": 200, "message": "已删除"})
+        # Regenerate site after product removal
+        if site_id:
+            try:
+                _regenerate_static_site_html(None, site_id)
+            except Exception as e:
+                logger.warning(f"Regenerate after delete failed: {e}")
+        return jsonify({"code": 200, "message": "已删除，站点已更新"})
 
     @app.route("/api/sites/<int:site_id>/regenerate-static", methods=["POST"])
     @jwt_required()
@@ -3534,100 +3543,13 @@ def register_routes(app):
             return jsonify({"code": 400, "message": "仅支持静态站点"}), 400
 
         try:
-            products = list_static_site_products(site_id)
-            nginx_alias = site.get("nginx_alias", "")
-            brand_kit_id = site.get("brand_kit_id")
-            brand_kit = get_brand_kit(brand_kit_id) if brand_kit_id else None
-
-            if not brand_kit or not brand_kit.get("html_site"):
-                return jsonify({"code": 400, "message": "品牌套件缺少html_site数据"}), 400
-
-            html_site = brand_kit["html_site"]
-            if isinstance(html_site, str):
-                html_site = json.loads(html_site)
-
-            # Build product cards HTML for index page
-            product_cards = ""
-            product_template = html_site.get("product.html", "")
-            for p in products:
-                card = product_template
-                # Simple placeholder replacement
-                for key in ["title", "description", "price", "image_url",
-                           "category", "brand", "sku"]:
-                    val = str(p.get(key, ""))
-                    card = card.replace("{{" + key + "}}", val)
-                card = card.replace("{{product_id}}", str(p.get("id", "")))
-                product_cards += card
-
-            # Update index.html with product cards
-            index_html = html_site.get("index.html", "")
-            index_html = index_html.replace("{{product_grid}}", product_cards)
-
-            # Replace business info placeholders
-            business = brand_kit.get("business_info", {})
-            if isinstance(business, str):
-                business = json.loads(business)
-            footer = brand_kit.get("footer_config", {})
-            if isinstance(footer, str):
-                footer = json.loads(footer)
-            tax = brand_kit.get("tax_config", {})
-            if isinstance(tax, str):
-                tax = json.loads(tax)
-            shipping = brand_kit.get("shipping_config", {})
-            if isinstance(shipping, str):
-                shipping = json.loads(shipping)
-
-            for page_name in ["index.html", "about.html", "contact.html",
-                             "privacy.html", "terms.html", "shipping.html", "returns.html"]:
-                content = html_site.get(page_name, "")
-                if not content:
-                    continue
-                replacements = {
-                    "{{business_name}}": business.get("name", brand_kit.get("brand_name", "")),
-                    "{{business_address}}": business.get("address", ""),
-                    "{{business_phone}}": business.get("phone", ""),
-                    "{{business_email}}": business.get("email", ""),
-                    "{{footer_text}}": footer.get("text", ""),
-                    "{{tax_rate}}": str(tax.get("rate", "")),
-                    "{{tax_region}}": tax.get("region", ""),
-                    "{{shipping_policy}}": shipping.get("policy", ""),
-                    "{{return_policy}}": shipping.get("returns", ""),
-                    "{{brand_name}}": brand_kit.get("brand_name", ""),
-                    "{{domain}}": site.get("url", ""),
-                    "{{current_year}}": str(datetime.utcnow().year),
-                }
-                for placeholder, value in replacements.items():
-                    content = content.replace(placeholder, value)
-                html_site[page_name] = content
-
-            # Re-apply index with actual products
-            html_site["index.html"] = index_html
-
-            # Upload updated files to 1Panel
-            files = {}
-            for page_name, content in html_site.items():
-                if page_name == "css":
-                    files["assets/style.css"] = content
-                elif page_name.endswith(".html") or page_name.endswith(".txt"):
-                    files[page_name] = content
-
-            if files and nginx_alias:
-                env = get_user_panel_environment(site.get("created_by") or 1)
-                if env:
-                    pc = OnePanelClient(
-                        host=env.get("host", ""),
-                        port=env.get("port", 3500),
-                        api_key=env.get("api_key", ""),
-                    )
-                    pc.upload_static_site_files(alias=nginx_alias, files=files)
-                    pc.reload_openresty()
-
+            _regenerate_static_site_html(None, site_id)
             # Also regenerate feed
             try:
                 _generate_static_feed(site_id, site)
             except Exception:
                 pass
-
+            products = list_static_site_products(site_id)
             return jsonify({
                 "code": 200,
                 "message": f"站点已重新生成 ({len(products)} 个产品)",
