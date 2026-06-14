@@ -1083,7 +1083,7 @@ async def register_gmc_ai(
     google_totp_secret: str = "",
     business_info: dict = None,
     feed_url: str = "",
-    headless: bool = True,
+    headless: bool = False,
     timeout_ms: int = 180000,
     log_callback = None,
 ) -> dict:
@@ -1096,6 +1096,9 @@ async def register_gmc_ai(
     Returns: {"success": bool, "mc_account_id": str, "message": str, "steps": int}
     """
     _emit = log_callback or (lambda level, msg, step=None: logger.info(f"[{step or 'gmc'}] {msg}"))
+
+    # Ensure DISPLAY is set so browser renders on Xvfb (visible via VNC)
+    os.environ.setdefault("DISPLAY", ":99")
 
     # Step 1: Load config and launch browser
     _emit("info", "Loading profile config...", "config")
