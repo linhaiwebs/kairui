@@ -4130,17 +4130,17 @@ async function loadProfileCategories() {
                         </tr></thead><tbody>
                             <tr v-for="(p, i) in csvPreview" :key="i" :class="csvSelected.has(i) ? 'bg-blue-50' : ''" class="border-b hover:bg-surface-container-low cursor-pointer" @click="csvToggleOne(i)">
                                 <td class="px-2 py-2"><input type="checkbox" :checked="csvSelected.has(i)"></td>
-                                <td class="px-2 py-2"><img v-if="p.image_url" :src="p.image_url" class="w-8 h-8 object-cover rounded" onerror="this.style.display='''none'''"></td>
+                                <td class="px-2 py-2"><img v-if="p.image_url" :src="p.image_url" class="w-8 h-8 object-cover rounded" onerror="this.style.display='none'"></td>
                                 <td class="px-2 py-2 font-medium max-w-48 truncate">{{ p.title }}</td>
                                 <td class="px-2 py-2 text-on-surface-variant">{{ p.sku }}</td>
                                 <td class="px-2 py-2 text-on-surface-variant max-w-24 truncate">{{ p.category }}</td>
                                 <td class="px-2 py-2 text-on-surface-variant">{{ p.brand }}</td>
-                                <td class="px-2 py-2 text-right font-medium">{{ p.price ? '''$''' + p.price : '''' }}</td>
+                                <td class="px-2 py-2 text-right font-medium">{{ p.price ? '$' + p.price : '' }}</td>
                             </tr>
                         </tbody></table>
                     </div>
                     <div class="px-4 py-2 bg-surface-container-low border-t flex items-center gap-2">
-                        <button @click="csvImportAll" :disabled="!wooSyncSiteId || csvImporting" class="px-4 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50">{{ csvImporting ? '''导入中...''' : '''导入全部 (''' + csvPreview.length + ''')''' }}</button>
+                        <button @click="csvImportAll" :disabled="!wooSyncSiteId || csvImporting" class="px-4 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50">{{ csvImporting ? '导入中...' : '导入全部 (' + csvPreview.length + ')' }}</button>
                         <button @click="csvImportSelected" :disabled="!wooSyncSiteId || csvImporting || !csvSelected.size" class="px-4 py-1.5 bg-primary text-white rounded text-sm hover:bg-primary disabled:opacity-50">导入选中 ({{ csvSelected.size }})</button>
                     </div>
                 </div>
