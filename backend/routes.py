@@ -5749,7 +5749,7 @@ def register_routes(app):
 
             threading.Thread(target=_launch, daemon=True).start()
             vnc_host = os.environ.get("SERVER_HOST", "ads.lhwebs.com")
-            vnc_url = f"http://{vnc_host}/vnc/vnc.html?autoconnect=true&resize=scale"
+            vnc_url = f"http://{vnc_host}/vnc/?autoconnect=true&resize=scale"
             return jsonify({
                 "code": 200,
                 "message": f"浏览器已启动，正在打开 {site_url}",
