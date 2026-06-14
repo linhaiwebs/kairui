@@ -3266,20 +3266,48 @@ def register_routes(app):
                                 # For root domain, name=domain; for subdomain, name=domain (full FQDN)
                                 # DNS target = 1Panel environment IP (always use panel env)
                                 target_ip = (panel_env.get("host", "") if panel_env else "") or panel_server_ip
-                                dns = cf_client.create_dns_record(
-                                    zone_id=zone_id,
-                                    record_type="A",
-                                    name=domain,
-                                    content=target_ip,
-                                    proxied=True,
-                                )
-                                if dns and dns.get("success"):
-                                    cf_result = dns
-                                    rec = dns.get("result", {})
-                                    update_site_fields(site_id, {
-                                        "cf_zone_id": zone_id,
-                                        "cf_dns_record_id": rec.get("id") if isinstance(rec, dict) else None,
-                                    })
+                                if not target_ip:
+                                    logger.warning(f"DNS: no target IP for {domain}, skipping")
+                                else:
+                                    # Check if A record already exists
+                                    existing = cf_client.list_dns_records(zone_id, "A", domain)
+                                    existing_rec = None
+                                    if existing and existing.get("success") and existing.get("result"):
+                                        for rec in existing["result"]:
+                                            if rec.get("name") == domain or rec.get("name") == f"{domain}.{zone_name}":
+                                                existing_rec = rec
+                                                break
+
+                                    if existing_rec:
+                                        existing_ip = existing_rec.get("content", "")
+                                        if existing_ip == target_ip:
+                                            logger.info(f"DNS: {domain} already points to {target_ip}, keeping")
+                                            cf_result = {"success": True, "result": existing_rec}
+                                        else:
+                                            logger.info(f"DNS: {domain} points to {existing_ip}, updating to {target_ip}")
+                                            upd = cf_client.update_dns_record(zone_id, existing_rec["id"], {
+                                                "type": "A", "name": domain, "content": target_ip, "proxied": True, "ttl": 1,
+                                            })
+                                            cf_result = upd if upd and upd.get("success") else None
+                                            if cf_result:
+                                                logger.info(f"DNS: {domain} updated to {target_ip}")
+                                    else:
+                                        logger.info(f"DNS: creating A record {domain} → {target_ip}")
+                                        dns = cf_client.create_dns_record(
+                                            zone_id=zone_id,
+                                            record_type="A",
+                                            name=domain,
+                                            content=target_ip,
+                                            proxied=True,
+                                        )
+                                        cf_result = dns if dns and dns.get("success") else None
+
+                                    if cf_result:
+                                        rec = cf_result.get("result", {})
+                                        update_site_fields(site_id, {
+                                            "cf_zone_id": zone_id,
+                                            "cf_dns_record_id": rec.get("id") if isinstance(rec, dict) else None,
+                                        })
                         except Exception as e:
                             logger.warning(f"Cloudflare DNS for {domain} failed: {e}")
 
