@@ -924,7 +924,9 @@ async def _call_deepseek_for_action(prompt, log_callback=None):
             return body["choices"][0]["message"]["content"].strip()
         resp.raise_for_status()
 
-    raw = rotate_deepseek(_call, keys)
+    # Run synchronous rotate_deepseek in thread pool to avoid gevent/asyncio conflict
+    loop = asyncio.get_event_loop()
+    raw = await loop.run_in_executor(None, lambda: rotate_deepseek(_call, keys))
 
     # Extract JSON from response (may have markdown backticks)
     raw = raw.strip()
