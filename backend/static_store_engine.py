@@ -2439,7 +2439,12 @@ def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
         for page_type, filename in page_map.items():
             if design_pages.get(page_type):
                 html = design_pages[page_type]
-                result[filename] = _fix_page_links(html, page_type, page_map)
+                # Validate: skip SVG-only responses (Stitch flash model sometimes returns logos)
+                if html.strip().startswith("<svg") and "<html" not in html.lower()[:200]:
+                    logger.warning(f"Stitch {page_type}: got SVG logo instead of HTML, using CSS fallback")
+                    result[filename] = _render_page_by_type(page_type, design, brand_kit, products)
+                else:
+                    result[filename] = _fix_page_links(html, page_type, page_map)
             else:
                 # Fallback to built-in for missing pages
                 result[filename] = _render_page_by_type(page_type, design, brand_kit, products)
