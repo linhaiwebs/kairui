@@ -1453,8 +1453,6 @@ pipelineStatuses[siteId].demo_importing = false;
                 }
             } catch (e) { showToast('网络错误: ' + (e.message || '未知'), 'error'); } finally { loading.value = false; }
         }
-                    } catch (e) { showToast('网络错误', 'error'); } finally { agnesVerifying.value = false; }
-        }
         async function crawlbaseVerify() {
             loading.value = true;
             Object.keys(crawlbaseKeyErrors).forEach(k => delete crawlbaseKeyErrors[k]);
