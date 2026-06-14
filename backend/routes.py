@@ -4692,8 +4692,6 @@ def register_routes(app):
             "google_mc_account_id": site.get("google_mc_account_id", ""),
         }})
 
-    @app.route("/api/sites/<int:site_id>/pipeline-status", methods=["GET"])
-    @jwt_required()
     def _get_design_progress_message(site_id):
         """Get the current design progress message from bg_task."""
         try:
@@ -4707,6 +4705,8 @@ def register_routes(app):
             pass
         return ""
 
+    @app.route("/api/sites/<int:site_id>/pipeline-status", methods=["GET"])
+    @jwt_required()
     def get_pipeline_status(site_id):
         """Get timeline pipeline status for a site.
 
