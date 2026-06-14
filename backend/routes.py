@@ -2435,11 +2435,21 @@ def register_routes(app):
             #   - Website entry from 1Panel DB
             #   - Nginx config file
             #   - Site directory (/opt/1panel/apps/openresty/openresty/www/sites/{alias}/)
+            # Use site creator's panel env, not current user's
+            site_pc = None
+            try:
+                site_env = get_user_panel_environment(site.get("created_by") or 1)
+                if site_env:
+                    site_pc = OnePanelClient(host=site_env["host"], port=site_env["port"], api_key=site_env["api_key"])
+            except Exception:
+                site_pc = _get_panel_client()
+
             pid = site.get("panel_website_id")
             if not pid and domain:
                 # Search by domain name (primaryDomain in 1Panel)
                 try:
-                    ws = _get_panel_client().search_websites(name=domain)
+                    pc = site_pc or _get_panel_client()
+                    ws = pc.search_websites(name=domain)
                     if ws.get("code") == 200:
                         for w in (ws.get("data") or {}).get("items", []) or []:
                             if w.get("primaryDomain") == domain:
@@ -2453,7 +2463,8 @@ def register_routes(app):
 
             if pid:
                 try:
-                    _get_panel_client().delete_website(
+                    pc = site_pc or _get_panel_client()
+                    pc.delete_website(
                         pid,
                         delete_app=False,  # app already deleted in step 1
                         delete_backup=True,
