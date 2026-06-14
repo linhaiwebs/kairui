@@ -2328,10 +2328,31 @@ def try_stitch_design(brand_kit, progress_callback=None):
             if progress_callback: progress_callback("Stitch未认证，使用默认设计...")
             return None
         if progress_callback: progress_callback(f"Stitch AI正在为 {brand_name} 生成商城设计...")
+
+        # Callback to save each screen_id immediately after generation
+        def _save_screen(page_type, screen_id):
+            if not brand_kit.get("id"):
+                return
+            try:
+                import json as _json
+                from models import update_brand_kit, get_brand_kit
+                bk = get_brand_kit(brand_kit["id"])
+                existing = {}
+                try:
+                    raw = (bk or {}).get("stitch_screens", "")
+                    existing = _json.loads(raw) if raw and raw.strip() else {}
+                except (_json.JSONDecodeError, TypeError):
+                    pass
+                existing[page_type] = screen_id
+                update_brand_kit(brand_kit["id"], {"stitch_screens": _json.dumps(existing)})
+            except Exception:
+                pass
+
         result = stitch.generate_store_design(
             brand_kit=brand_kit,
             pages=STITCH_PAGES,
             progress_callback=progress_callback,
+            on_screen=_save_screen,
         )
         if result and isinstance(result, dict):
             screens = result.get("screens", {})

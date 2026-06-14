@@ -396,13 +396,14 @@ class StitchClient:
         return None
 
     # ---- Store Design Generation ----
-    def generate_store_design(self, brand_kit, pages=None, progress_callback=None):
+    def generate_store_design(self, brand_kit, pages=None, progress_callback=None, on_screen=None):
         """Generate a complete e-commerce store design from brand kit data.
 
         Args:
             brand_kit: Brand kit dict (may contain stitch_screens mapping)
             pages: List of page types to generate
             progress_callback: callable(str) for progress updates
+            on_screen: callable(page_type, screen_id) called after each screen save
 
         Returns:
             dict: {"screens": {page_type: html}, "project_id": str, "screen_ids": {page_type: screen_id}}
@@ -556,30 +557,34 @@ class StitchClient:
             page_names = {"home":"首页","product":"产品页","cart":"购物车","checkout":"结账页",
                           "order":"订单确认","about":"关于我们","contact":"联系我们","faq":"FAQ",
                           "privacy":"隐私政策","terms":"服务条款","shipping":"配送信息","returns":"退换政策"}
-            for page_type in pages:
+            total = len(pages)
+            for idx, page_type in enumerate(pages, 1):
                 prompt = prompts.get(page_type)
                 if not prompt:
                     continue
                 cn_name = page_names.get(page_type, page_type)
+                progress_tag = f"({idx}/{total})"
 
                 # Try to reuse existing screen first
                 existing_sid = existing_ids.get(page_type, "")
                 if existing_sid:
                     if progress_callback:
-                        progress_callback(f"Stitch复用已有{cn_name}...")
+                        progress_callback(f"Stitch {progress_tag} 复用已有{cn_name}...")
                     html = self.get_screen_code(f"projects/{project_id}/screens/{existing_sid}")
                     if html and len(html) > 500:
                         screens[page_type] = html
                         screen_ids[page_type] = existing_sid
                         if progress_callback:
-                            progress_callback(f"Stitch {cn_name}复用完成 ({len(html)//1024}KB)")
+                            progress_callback(f"Stitch {progress_tag} {cn_name}复用完成 ({len(html)//1024}KB)")
+                        if on_screen:
+                            on_screen(page_type, existing_sid)
                         continue
                     else:
                         if progress_callback:
-                            progress_callback(f"Stitch{cn_name}已过期，重新生成...")
+                            progress_callback(f"Stitch {progress_tag} {cn_name}已过期，重新生成...")
 
                 if progress_callback:
-                    progress_callback(f"Stitch正在生成{cn_name}...")
+                    progress_callback(f"Stitch {progress_tag} 正在生成{cn_name}...")
 
                 result = self.generate_screen(project_id, prompt)
                 if not result or result.get("error"):
@@ -607,7 +612,10 @@ class StitchClient:
                         screens[page_type] = html
                         screen_ids[page_type] = screen_id
                         if progress_callback:
-                            progress_callback(f"Stitch {cn_name}完成 ({len(html)//1024}KB)")
+                            progress_callback(f"Stitch {progress_tag} {cn_name}完成 ({len(html)//1024}KB)")
+                        # Immediately save this screen_id via callback
+                        if on_screen:
+                            on_screen(page_type, screen_id)
                     else:
                         logger.warning(f"Stitch {page_type}: download returned empty/error")
 
