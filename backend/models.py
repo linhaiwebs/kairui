@@ -1163,6 +1163,8 @@ def update_site_fields(site_id, fields):
             "status", "cf_zone_id", "cf_dns_record_id",
             "google_feed_url", "google_verification_method", "google_verification_done",
             "google_mc_account_id", "cloakbrowser_profile_name",
+            "stitch_design_status", "site_type", "static_dir", "brand_kit_id",
+            "demo_imported", "demo_name", "brand_configured",
         }
         sets = []
         vals = []
