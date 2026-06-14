@@ -107,6 +107,36 @@ const app = createApp({
             return (Number.isFinite(pages) && pages > 0) ? pages : 1;
         });
 
+        // 网站产品 pagination
+        const wooPage = ref(1);
+        const wooPerPage = ref(20);
+        const wooPagedProducts = computed(() => {
+            const src = Array.isArray(wooProducts.value) ? wooProducts.value : [];
+            const start = (wooPage.value - 1) * wooPerPage.value;
+            return src.slice(start, start + wooPerPage.value);
+        });
+        const wooTotalPages = computed(() => {
+            const src = Array.isArray(wooProducts.value) ? wooProducts.value : [];
+            const perPage = wooPerPage.value || 20;
+            const pages = Math.ceil(src.length / perPage);
+            return (Number.isFinite(pages) && pages > 0) ? pages : 1;
+        });
+
+        // 数据源 feed pagination
+        const feedPage = ref(1);
+        const feedPerPage = ref(20);
+        const feedPagedProducts = computed(() => {
+            const src = Array.isArray(generatedFeed.value) ? generatedFeed.value : [];
+            const start = (feedPage.value - 1) * feedPerPage.value;
+            return src.slice(start, start + feedPerPage.value);
+        });
+        const feedTotalPages = computed(() => {
+            const src = Array.isArray(generatedFeed.value) ? generatedFeed.value : [];
+            const perPage = feedPerPage.value || 20;
+            const pages = Math.ceil(src.length / perPage);
+            return (Number.isFinite(pages) && pages > 0) ? pages : 1;
+        });
+
         // 筛品 - 爆品导入 tab state
         const amazonSearchResults = ref([]);
         const amazonSearchLoading = ref(false);
@@ -823,6 +853,20 @@ pipelineStatuses[siteId].demo_importing = false;
             walmartPage.value = n;
         }
 
+        function wooGoPage(n) {
+            const total = wooTotalPages.value;
+            if (n < 1) n = 1;
+            if (n > total) n = total;
+            wooPage.value = n;
+        }
+
+        function feedGoPage(n) {
+            const total = feedTotalPages.value;
+            if (n < 1) n = 1;
+            if (n > total) n = total;
+            feedPage.value = n;
+        }
+
         async function enrichWalmartProducts() {
             if (!walmartProducts.value.length) {
                 showToast('没有可处理的热销数据', 'error');
@@ -854,6 +898,7 @@ pipelineStatuses[siteId].demo_importing = false;
             try {
                 const resp = await API.listGeneratedFeed();
                 if (resp.code === 200) generatedFeed.value = resp.data || [];
+                feedPage.value = 1;
             } catch (e) { /* silent */ }
         }
         async function clearGeneratedFeed() {
@@ -1243,6 +1288,7 @@ pipelineStatuses[siteId].demo_importing = false;
             try {
                 const resp = await API.getWooCommerceProducts();
                 if (resp.code === 200) wooProducts.value = resp.data || [];
+                wooPage.value = 1;
             } catch (e) { /* ignore */ }
         }
         function toggleWooSelect(idx) {
@@ -2792,6 +2838,8 @@ async function loadProfileCategories() {
             convertToWooCommerce, loadWooProducts, toggleWooSelect, selectAllWoo, deleteSelectedWooProducts,
             createFeedForSite, cleanFeedFromSite, syncWooToSite, cleanWooFromSite, generateFeedFromWoo, wooGeneratingFeed, feedUrl,
             csvUploading, csvFileInput, handleCsvUpload,
+            wooPage, wooPerPage, wooPagedProducts, wooTotalPages, wooGoPage,
+            feedPage, feedPerPage, feedPagedProducts, feedTotalPages, feedGoPage,
             cfConnected, cfToken, cfAccounts, cfSelectedAccountId,
             deepseekApiKeys, deepseekVisibleKeys, deepseekKeyErrors, deepseekConnected, deepseekVerify,
             crawlbaseApiKeys, crawlbaseVisibleKeys, crawlbaseKeyErrors, crawlbaseConnected, crawlbaseVerify,
@@ -3960,11 +4008,11 @@ async function loadProfileCategories() {
                                 </tr>
                             </thead>
                             <tbody class="divide-y">
-                                <tr v-for="(p, idx) in generatedFeed" :key="p.id"
-                                    :class="['hover:bg-surface-container-low transition align-top cursor-pointer', feedSelectedIndices.has(idx) ? 'bg-[#146c2e]/5' : '']"
-                                    @click="toggleFeedSelect(idx)">
+                                <tr v-for="(p, fidx) in feedPagedProducts" :key="p.id"
+                                    :class="['hover:bg-surface-container-low transition align-top cursor-pointer', feedSelectedIndices.has((feedPage - 1) * feedPerPage + fidx) ? 'bg-[#146c2e]/5' : '']"
+                                    @click="toggleFeedSelect((feedPage - 1) * feedPerPage + fidx)">
                                     <td class="px-4 py-3">
-                                        <input type="checkbox" :checked="feedSelectedIndices.has(idx)" class="accent-green-500 pointer-events-none">
+                                        <input type="checkbox" :checked="feedSelectedIndices.has((feedPage - 1) * feedPerPage + fidx)" class="accent-green-500 pointer-events-none">
                                     </td>
                                     <td class="px-4 py-3">
                                         <img v-if="p.thumbnail" :src="p.thumbnail" class="w-12 h-12 rounded border object-cover" :alt="p.title">
@@ -4024,6 +4072,16 @@ async function loadProfileCategories() {
                                 </tr>
                             </tbody>
                         </table>
+                    </div>
+                    <!-- Pagination -->
+                    <div class="px-6 py-3 bg-surface-container-low border-t flex items-center justify-between text-xs text-on-surface-variant">
+                        <span>第 {{ feedPage || 1 }} / {{ feedTotalPages || 1 }} 页，每页 {{ feedPerPage || 20 }} 件，共 {{ generatedFeed.length }} 件</span>
+                        <div class="flex items-center gap-1">
+                            <button @click="feedGoPage((feedPage || 1) - 1)" :disabled="(feedPage || 1) <= 1"
+                                class="px-3 py-1 rounded hover:bg-surface-container-high disabled:opacity-30 transition">上一页</button>
+                            <button @click="feedGoPage((feedPage || 1) + 1)" :disabled="(feedPage || 1) >= (feedTotalPages || 1)"
+                                class="px-3 py-1 rounded hover:bg-surface-container-high disabled:opacity-30 transition">下一页</button>
+                        </div>
                     </div>
                 </div>
 
@@ -4117,11 +4175,11 @@ async function loadProfileCategories() {
                                 </tr>
                             </thead>
                             <tbody class="divide-y">
-                                <tr v-for="(p, idx) in wooProducts" :key="p.id"
-                                    :class="['hover:bg-surface-container-low transition cursor-pointer', wooSelectedIndices.has(idx) ? 'bg-blue-50' : '']"
-                                    @click="toggleWooSelect(idx)">
+                                <tr v-for="(p, pidx) in wooPagedProducts" :key="p.id"
+                                    :class="['hover:bg-surface-container-low transition cursor-pointer', wooSelectedIndices.has((wooPage - 1) * wooPerPage + pidx) ? 'bg-blue-50' : '']"
+                                    @click="toggleWooSelect((wooPage - 1) * wooPerPage + pidx)">
                                     <td class="px-3 py-2">
-                                        <input type="checkbox" :checked="wooSelectedIndices.has(idx)" class="accent-blue-500 pointer-events-none">
+                                        <input type="checkbox" :checked="wooSelectedIndices.has((wooPage - 1) * wooPerPage + pidx)" class="accent-blue-500 pointer-events-none">
                                     </td>
                                     <td class="px-3 py-2 max-w-[180px]">
                                         <a v-if="p.source_url" :href="p.source_url" target="_blank" @click.stop
@@ -4155,6 +4213,16 @@ async function loadProfileCategories() {
                                 </tr>
                             </tbody>
                         </table>
+                    </div>
+                    <!-- Pagination -->
+                    <div class="px-6 py-3 bg-surface-container-low border-t flex items-center justify-between text-xs text-on-surface-variant">
+                        <span>第 {{ wooPage || 1 }} / {{ wooTotalPages || 1 }} 页，每页 {{ wooPerPage || 20 }} 件，共 {{ wooProducts.length }} 件</span>
+                        <div class="flex items-center gap-1">
+                            <button @click="wooGoPage((wooPage || 1) - 1)" :disabled="(wooPage || 1) <= 1"
+                                class="px-3 py-1 rounded hover:bg-surface-container-high disabled:opacity-30 transition">上一页</button>
+                            <button @click="wooGoPage((wooPage || 1) + 1)" :disabled="(wooPage || 1) >= (wooTotalPages || 1)"
+                                class="px-3 py-1 rounded hover:bg-surface-container-high disabled:opacity-30 transition">下一页</button>
+                        </div>
                     </div>
                 </div>
             </div>
