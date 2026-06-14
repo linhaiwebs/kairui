@@ -726,7 +726,7 @@ class StitchClient:
                         html = self.download_screen_html(html_url)
                         if html:
                             # Validate HTML quality: reject SVG/icons/images masquerading as pages
-                            if not _is_valid_page_html(html, page_type):
+                            if not StitchClient._is_valid_page_html(html, page_type):
                                 logger.warning(f"Stitch {page_type}: invalid content, retrying...")
                                 return page_type, None
                             with results_lock:
