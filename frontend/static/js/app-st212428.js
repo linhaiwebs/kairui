@@ -3194,8 +3194,8 @@ async function loadProfileCategories() {
                                     </div>
                                     <div class="timeline-line" :class="pipelineStatuses[site.id]?.files_uploaded ? 'active' : (pipelineStatuses[site.id]?.design_complete ? 'in-progress' : '')"></div>
                                     <!-- ④ 上线 -->
-                                    <div class="timeline-icon" :class="pipelineStatuses[site.id]?.files_uploaded ? 'active' : 'inactive'"
-                                         :title="pipelineStatuses[site.id]?.files_uploaded ? '站点已上线' : '上传文件'">
+                                    <div class="timeline-icon" :class="pipelineStatuses[site.id]?.files_uploaded ? 'active' : (site.status === 'deploying' && pipelineStatuses[site.id]?.design_complete ? 'in-progress' : 'inactive')"
+                                         :title="pipelineStatuses[site.id]?.files_uploaded ? '站点已上线' : (pipelineStatuses[site.id]?.design_complete ? '上传文件中...' : '等待设计完成')">
                                         <i class="fas fa-check-circle"></i>
                                     </div>
                                 </template>
