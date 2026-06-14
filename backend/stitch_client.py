@@ -242,6 +242,21 @@ class StitchClient:
         except Exception:
             return None
 
+    def _get_latest_screen_html(self, project_id):
+        """Get the most recent screen's HTML from a project. Used as retry when generate_screen doesn't return htmlUrl."""
+        try:
+            screens = self.list_screens(project_id)
+            if screens and len(screens) > 0:
+                latest = screens[-1]  # Most recently created
+                return {
+                    "screenId": latest.get("id", ""),
+                    "htmlUrl": latest.get("htmlCode", {}).get("downloadUrl", ""),
+                    "imageUrl": latest.get("screenshot", {}).get("downloadUrl", ""),
+                }
+        except Exception:
+            pass
+        return {}
+
     def download_screen_html(self, html_url):
         """Download HTML content from signed URL (no auth needed). Returns HTML string or None."""
         if not html_url:
@@ -290,13 +305,13 @@ class StitchClient:
             return None
 
     # ---- Store Design Generation ----
-    def generate_store_design(self, brand_kit, pages=None):
+    def generate_store_design(self, brand_kit, pages=None, progress_callback=None):
         """Generate a complete e-commerce store design from brand kit data.
 
         Args:
-            brand_kit: Brand kit dict with brand_name, industry, description, colors,
-                       business_info, footer_config, woo_config, design_system
+            brand_kit: Brand kit dict
             pages: List of page types to generate
+            progress_callback: callable(str) for progress updates
 
         Returns:
             dict: {page_type: html_content} or None on failure
@@ -433,24 +448,39 @@ class StitchClient:
             }
 
             screens = {}
+            page_names = {"home":"首页","product":"产品页","cart":"购物车","checkout":"结账页",
+                          "order":"订单确认","about":"关于我们","contact":"联系我们","faq":"FAQ",
+                          "privacy":"隐私政策","terms":"服务条款","shipping":"配送信息","returns":"退换政策"}
             for page_type in pages:
                 prompt = prompts.get(page_type)
                 if not prompt:
                     continue
-                logger.info(f"Stitch generating {page_type} for {brand_name}...")
-                result = self.generate_screen(project_id, prompt)
+                cn_name = page_names.get(page_type, page_type)
+                if progress_callback:
+                    progress_callback(f"Stitch正在生成{cn_name}...")
 
+                result = self.generate_screen(project_id, prompt)
                 if not result or result.get("error"):
                     logger.warning(f"Stitch {page_type}: skipped")
                     continue
 
                 html_url = result.get("htmlUrl", "")
+                if not html_url:
+                    logger.warning(f"Stitch {page_type}: no htmlUrl, retrying...")
+                    time.sleep(3)
+                    # Retry: get screen by listing screens and finding the latest
+                    result = self._get_latest_screen_html(project_id)
+                    if result:
+                        html_url = result.get("htmlUrl", "")
+
                 if html_url:
-                    time.sleep(2)
+                    # Wait for HTML to be fully rendered, then download
+                    time.sleep(3)
                     html = self.download_screen_html(html_url)
-                    if html:
+                    if html and len(html) > 500:  # Must be a real page
                         screens[page_type] = html
-                        logger.info(f"Stitch {page_type}: {len(html)} chars")
+                        if progress_callback:
+                            progress_callback(f"Stitch {cn_name}完成 ({len(html)//1024}KB)")
 
             return screens if screens else None
 

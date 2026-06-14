@@ -3080,9 +3080,11 @@ def register_routes(app):
             site_dir_1panel = site_data.get("site_dir", f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index")
             logger.info(f"Deploy static site: domain={domain} site_dir_1panel={site_dir_1panel} website_id={site_data.get('website_id')}")
 
-            # Step 2: Generate files locally
+            # Step 2: Generate files (try Stitch first, then built-in)
+            update_bg_task(task_id, status="deploying", message="Stitch AI正在生成商城设计...")
             from static_store_engine import render_site_to_dict
-            files = render_site_to_dict(domain, brand_kit or {}, [])
+            files = render_site_to_dict(domain, brand_kit or {}, [],
+                progress_callback=lambda msg: update_bg_task(task_id, status="deploying", message=msg))
             logger.info(f"Generated {len(files)} files for {domain}: {sorted(files.keys())[:5]}...")
 
             # Step 3: Upload to 1Panel via save_file API (create + save)

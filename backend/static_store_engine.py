@@ -2318,28 +2318,34 @@ def _render_page_by_type(page_type, design, brand_kit, products):
     return ""
 
 
-def try_stitch_design(brand_kit):
+def try_stitch_design(brand_kit, progress_callback=None):
     """Try to generate store design via Google Stitch. Returns dict {page: html} or None."""
     brand_name = brand_kit.get("brand_name") or brand_kit.get("name", "Store")
     try:
         from stitch_client import StitchClient
         stitch = StitchClient()
         if not stitch.is_authenticated:
+            if progress_callback: progress_callback("Stitch未认证，使用默认设计...")
             return None
+        if progress_callback: progress_callback(f"Stitch AI正在为 {brand_name} 生成商城设计...")
         pages = stitch.generate_store_design(
             brand_kit=brand_kit,
-            pages=STITCH_PAGES
+            pages=STITCH_PAGES,
+            progress_callback=progress_callback,
         )
         if pages and len(pages) >= 2:
+            if progress_callback: progress_callback(f"Stitch已完成 {len(pages)} 个页面设计")
             logger.info(f"Stitch design for {brand_name}: {list(pages.keys())}")
             return pages
+        if progress_callback: progress_callback("Stitch生成不足，使用默认设计...")
         return None
     except Exception as e:
+        if progress_callback: progress_callback(f"Stitch失败: {str(e)[:40]}")
         logger.warning(f"Stitch design failed for {brand_name}: {e}")
         return None
 
 
-def render_site_to_dict(domain, brand_kit, products):
+def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
     """Same as render_site but returns dict {filename: content} without writing to disk.
     Tries Stitch design first; falls back to built-in CSS."""
     brand_name = brand_kit.get("brand_name") or brand_kit.get("name", domain)
@@ -2347,7 +2353,7 @@ def render_site_to_dict(domain, brand_kit, products):
     global _INLINE_CSS, _INLINE_JS
 
     # Try Stitch for premium design
-    stitch_pages = try_stitch_design(brand_kit)
+    stitch_pages = try_stitch_design(brand_kit, progress_callback)
 
     if stitch_pages and stitch_pages.get("home"):
         # Stitch provides complete standalone HTML with Tailwind + Google Fonts
