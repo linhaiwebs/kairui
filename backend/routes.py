@@ -5733,7 +5733,9 @@ def register_routes(app):
                     loop.close()
 
             threading.Thread(target=_launch, daemon=True).start()
-            vnc_url = "http://localhost:6080/vnc.html?autoconnect=true&resize=scale"
+            # Use request host for VNC link so it works from remote browser
+            req_host = (request.host or "localhost").split(":")[0]
+            vnc_url = f"http://{req_host}:6080/vnc.html?autoconnect=true&resize=scale"
             return jsonify({
                 "code": 200,
                 "message": f"浏览器已启动，正在打开 {site_url}",
