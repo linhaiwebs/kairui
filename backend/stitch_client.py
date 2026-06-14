@@ -632,6 +632,14 @@ class StitchClient:
                     if html_url:
                         html = self.download_screen_html(html_url)
                         if html:
+                            # Reject SVG/image-only responses (Stitch sometimes returns icons)
+                            stripped = html.strip()
+                            if stripped.startswith("<svg") and "<html" not in stripped[:300].lower():
+                                logger.warning(f"Stitch {page_type}: got SVG/image instead of HTML, retrying...")
+                                return page_type, None
+                            if len(stripped) < 1000 and "<html" not in stripped.lower():
+                                logger.warning(f"Stitch {page_type}: response too short ({len(stripped)}B), retrying...")
+                                return page_type, None
                             with results_lock:
                                 completed[0] += 1
                             return page_type, {"html": html, "screen_id": sid}
