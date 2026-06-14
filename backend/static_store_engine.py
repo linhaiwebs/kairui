@@ -2354,6 +2354,25 @@ def try_stitch_design(brand_kit, progress_callback=None):
             progress_callback=progress_callback,
             on_screen=_save_screen,
         )
+
+        # If project not found, clear cache and retry with new project
+        if not result and brand_kit.get("stitch_project_id"):
+            if progress_callback: progress_callback("Stitch项目已失效，重新创建...")
+            logger.info("Stitch project %s not found, clearing and recreating", brand_kit["stitch_project_id"])
+            if brand_kit.get("id"):
+                try:
+                    from models import update_brand_kit
+                    update_brand_kit(brand_kit["id"], {"stitch_project_id": "", "stitch_screens": "{}"})
+                except Exception:
+                    pass
+            brand_kit["stitch_project_id"] = ""
+            brand_kit["stitch_screens"] = "{}"
+            result = stitch.generate_store_design(
+                brand_kit=brand_kit,
+                pages=STITCH_PAGES,
+                progress_callback=progress_callback,
+                on_screen=_save_screen,
+            )
         if result and isinstance(result, dict):
             screens = result.get("screens", {})
             project_id = result.get("project_id", "")
