@@ -65,6 +65,13 @@ class CloudflareClient:
 
     def add_zone(self, domain):
         """Add a new zone to Cloudflare. Returns the zone dict or None."""
+        return self._add_zone_impl(domain)
+
+    def create_zone(self, domain):
+        """Alias for add_zone."""
+        return self._add_zone_impl(domain)
+
+    def _add_zone_impl(self, domain):
         # Try first without account ID (token may be scoped to one account)
         resp = self._request("POST", "/zones", {
             "name": domain,
