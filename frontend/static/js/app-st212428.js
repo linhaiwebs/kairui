@@ -268,6 +268,7 @@ const app = createApp({
         // GMC 任务日志窗口
         const taskLogVisible = ref(false);
         const taskLogTitle = ref('');
+        const taskLogSilent = ref(false);  // inline mode — hide modal, show logs in list
         const taskLogLines = ref([]);
         const taskLogStatus = ref('running');  // running | success | failed
         const taskLogResult = ref(null);
@@ -2093,6 +2094,12 @@ pipelineStatuses[siteId].demo_importing = false;
                 taskLogPollTimer.value = null;
             }
             taskLogVisible.value = false;
+            taskLogSilent.value = false;
+        }
+        function muteTaskLog() {
+            taskLogVisible.value = false;
+            taskLogSilent.value = true;
+        }
         }
         async function loadMCStatusForSite(site) {
             try {
@@ -2758,7 +2765,7 @@ async function loadProfileCategories() {
             cloakbrowserProfiles, loadCloakbrowserProfiles,
             mcRegistering, mcFeedUrls, mcProfileDir,
             fingerprintEnabled, envTestBlocking,
-            taskLogVisible, taskLogTitle, taskLogLines, taskLogStatus, taskLogResult, taskLogRef,
+            taskLogVisible, taskLogTitle, taskLogLines, taskLogStatus, taskLogResult, taskLogRef, taskLogSilent, muteTaskLog,
             closeTaskLog,
             mcNewProfileName, mcNewGoogleEmail, mcNewProxy, mcNewCountry, mcNewPlatform,
             showCreateProfile, showMcProfilePanel, createNewProfile, deleteProfile,
@@ -4582,6 +4589,7 @@ async function loadProfileCategories() {
                                         <td class="px-4 py-3 text-right">
                                             <div class="flex items-center justify-end gap-1">
                                                 <button v-if="!site.google_mc_account_id" @click="registerMCForSite(site)" :disabled="mcRegistering[site.id]" class="px-2 py-1 text-xs bg-primary-container text-on-primary rounded hover:bg-primary">{{ mcRegistering[site.id] === 'register' ? '注册中...' : '注册MC' }}</button>
+                                                <span v-if="taskLogSilent && mcRegistering[site.id] && taskLogLines.length" class="text-xs text-on-surface-variant ml-2 truncate" style="max-width:200px">{{ taskLogLines[taskLogLines.length-1]?.msg || '' }}</span>
                                             </div>
                                         </td>
                                     </tr>
@@ -5249,7 +5257,8 @@ async function loadProfileCategories() {
                         </span>
                     </div>
                     <div class="flex items-center gap-3">
-                        <a href="http://163.123.236.110:6080/vnc.html?autoconnect=true&resize=scale" target="_blank" class="text-green-400 hover:text-green-300 text-xs underline">🖥 查看浏览器画面</a>
+                        <a href="http://163.123.236.110:6080/vnc.html?autoconnect=true&resize=scale" target="_blank" class="text-green-400 hover:text-green-300 text-xs underline">🖥 VNC</a>
+                        <button @click="muteTaskLog" class="text-gray-400 hover:text-gray-300 text-xs underline">静默</button>
                         <button @click="closeTaskLog" class="text-on-surface-variant hover:text-on-primary text-lg leading-none">&times;</button>
                     </div>
                 </div>
