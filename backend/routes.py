@@ -3182,15 +3182,19 @@ def register_routes(app):
             # Resolve CF account and panel environment
             cf_account = None
             panel_env = None
+            # Get current user
+            current_user = get_jwt_identity()
+            user = get_user_by_username(current_user)
+            user_id = user["id"] if user else None
+
+            # Resolve panel environment: CF account first, then user's bound env
+            panel_env = None
             if cf_account_id:
                 cf_account = get_cf_account(int(cf_account_id))
                 if cf_account:
                     panel_env = get_environment_by_cf_account(int(cf_account_id))
-
-            # Get current user ID
-            current_user = get_jwt_identity()
-            user = get_user_by_username(current_user)
-            user_id = user["id"] if user else None
+            if not panel_env and user_id:
+                panel_env = get_user_panel_environment(user_id)
 
             # Get global config for panel defaults
             global_cfg = get_global_config()
@@ -5748,8 +5752,7 @@ def register_routes(app):
                     loop.close()
 
             threading.Thread(target=_launch, daemon=True).start()
-            vnc_host = os.environ.get("SERVER_HOST", "ads.lhwebs.com")
-            vnc_url = f"http://{vnc_host}/vnc/vnc.html?autoconnect=true&resize=scale"
+            vnc_url = "http://163.123.236.110:6080/vnc.html?autoconnect=true&resize=scale"
             return jsonify({
                 "code": 200,
                 "message": f"浏览器已启动，正在打开 {site_url}",
