@@ -2631,6 +2631,7 @@ def update_brand_kit(kit_id: int, data: dict) -> dict | None:
             "html_site", "static_style", "design_system",
             "cloakbrowser_profile_name", "proxy", "proxy_id",
             "google_account_id",
+            "stitch_project_id", "stitch_screens",
         ]
         sets = []
         vals = []
