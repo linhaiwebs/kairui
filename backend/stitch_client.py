@@ -16,6 +16,7 @@ import json
 import logging
 import sqlite3
 import os
+import random
 import time
 import re
 
@@ -459,6 +460,10 @@ class StitchClient:
         )
 
         try:
+            # Random delay to avoid concurrent Stitch API calls from multiple sites
+            stagger = random.uniform(0.5, 2.0)
+            time.sleep(stagger)
+
             # 1. Find or create project (reuse existing for same brand_kit)
             project_id = brand_kit.get("design_project_id", "").strip()
             if project_id:
@@ -597,7 +602,18 @@ class StitchClient:
                         return page_type, None
                     # Each thread gets its own client to avoid race conditions
                     client = StitchClient(access_token=shared_token, refresh_token=shared_refresh)
-                    result = client.generate_screen(project_id, prompt)
+                    # Retry on quota/resource errors (up to 3 attempts with backoff)
+                    for attempt in range(3):
+                        result = client.generate_screen(project_id, prompt)
+                        if result and not result.get("error"):
+                            break
+                        err = result.get("error", "") if result else ""
+                        if "exhausted" in str(err).lower() or "quota" in str(err).lower():
+                            wait = (attempt + 1) * 5
+                            logger.info(f"Stitch {page_type}: quota exhausted, retrying in {wait}s (attempt {attempt+1}/3)")
+                            time.sleep(wait)
+                            continue
+                        break
                     if not result or result.get("error"):
                         logger.warning(f"Stitch {page_type}: generate failed")
                         return page_type, None
