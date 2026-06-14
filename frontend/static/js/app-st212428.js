@@ -458,8 +458,9 @@ const app = createApp({
                 if (s.design_generating) return 'Stitch AI正在生成设计...';
                 return '商城设计';
             }
-            // Build multi-line progress: ✅ page1, 🔄 page2, ⏳ page3...
-            let title = '设计进度:\n';
+            const done = progress.filter(p => p.status === 'complete').length;
+            const total = progress.length;
+            let title = '设计进度 (' + done + '/' + total + '):\n';
             for (const p of progress) {
                 const icon = p.status === 'complete' ? '✅' : p.status === 'generating' ? '🔄' : '⏳';
                 title += icon + ' ' + p.name + '\n';
