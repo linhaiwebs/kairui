@@ -138,6 +138,10 @@ const app = createApp({
         const wooSyncSiteId = ref(null);
         const syncingFeed = ref(false);
         const syncingWoo = ref(false);
+        const csvPreview = ref([]);
+        const csvUploading = ref(false);
+        const csvImporting = ref(false);
+        const csvFileInput = ref(null);
         const wooGeneratingFeed = ref(false);
 
         // Deploy progress overlay
@@ -1325,6 +1329,46 @@ pipelineStatuses[siteId].demo_importing = false;
                 showToast('清理失败: ' + (e.message || '网络错误'), 'error');
             }
             syncingFeed.value = false;
+        }
+        async function handleCsvUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            csvUploading.value = true;
+            csvPreview.value = [];
+            try {
+                const resp = await API.importCsvProducts(wooSyncSiteId.value, file, 'preview');
+                if (resp.code === 200 && resp.data?.products) {
+                    csvPreview.value = resp.data.products;
+                    showToast('解析到 ' + resp.data.products.length + ' 件产品');
+                } else {
+                    showToast(resp.message || '解析失败', 'error');
+                }
+            } catch (ex) {
+                showToast('解析失败: ' + (ex.message || '网络错误'), 'error');
+            } finally {
+                csvUploading.value = false;
+                if (csvFileInput.value) csvFileInput.value.value = '';
+            }
+        }
+        async function importCsvToSite() {
+            if (!csvPreview.value.length || !wooSyncSiteId.value) return;
+            csvImporting.value = true;
+            try {
+                const file = csvFileInput.value?.files?.[0];
+                if (!file) { showToast('请重新选择文件', 'error'); return; }
+                const resp = await API.importCsvProducts(wooSyncSiteId.value, file, 'import');
+                if (resp.code === 200) {
+                    showToast('已导入 ' + (resp.data?.imported || csvPreview.value.length) + ' 件产品');
+                    csvPreview.value = [];
+                    await loadWooProducts();
+                } else {
+                    showToast(resp.message || '导入失败', 'error');
+                }
+            } catch (ex) {
+                showToast('导入失败: ' + (ex.message || '网络错误'), 'error');
+            } finally {
+                csvImporting.value = false;
+            }
         }
         async function syncWooToSite() {
             if (!wooSyncSiteId.value) { showToast('请先选择目标站点', 'error'); return; }
@@ -2759,6 +2803,7 @@ async function loadProfileCategories() {
             feedSyncSiteId, wooSyncSiteId, syncingFeed, syncingWoo,
             convertToWooCommerce, loadWooProducts, toggleWooSelect, selectAllWoo, deleteSelectedWooProducts,
             createFeedForSite, cleanFeedFromSite, syncWooToSite, cleanWooFromSite, generateFeedFromWoo, wooGeneratingFeed, feedUrl,
+            csvPreview, csvUploading, csvImporting, csvFileInput, handleCsvUpload, importCsvToSite,
             cfConnected, cfToken, cfAccounts, cfSelectedAccountId,
             deepseekApiKeys, deepseekVisibleKeys, deepseekKeyErrors, deepseekConnected, deepseekVerify,
             crawlbaseApiKeys, crawlbaseVisibleKeys, crawlbaseKeyErrors, crawlbaseConnected, crawlbaseVerify,
@@ -4042,7 +4087,30 @@ async function loadProfileCategories() {
                     </div>
                     <h3 class="text-lg font-semibold text-on-surface mb-2">网站产品 产品</h3>
                     <p class="text-on-surface-variant mb-1">暂无 网站产品 产品</p>
-                    <p class="text-xs text-on-surface-variant">在商品来源页面使用「爆品导入」搜索产品后点击「生成 网站产品」</p>
+                    <p class="text-xs text-on-surface-variant">上传 CSV 文件批量导入，或在商品来源页面使用「爆品导入」</p>
+                    <div class="mt-4 flex items-center justify-center gap-3">
+                        <label class="px-4 py-2 bg-primary-container text-on-primary rounded-lg text-sm cursor-pointer hover:bg-primary transition">
+                            <i class="fas fa-upload mr-1"></i>上传 CSV
+                            <input type="file" accept=".csv" @change="handleCsvUpload" class="hidden" ref="csvFileInput">
+                        </label>
+                        <span v-if="csvUploading" class="text-xs text-on-surface-variant"><i class="fas fa-spinner fa-spin mr-1"></i>解析中...</span>
+                    </div>
+                    <!-- CSV preview list -->
+                    <div v-if="csvPreview.length" class="mt-4 text-left max-h-60 overflow-y-auto border rounded-lg">
+                        <div class="px-3 py-2 bg-surface-container-low text-xs font-medium flex justify-between">
+                            <span>解析到 {{ csvPreview.length }} 件产品</span>
+                            <button @click="importCsvToSite" :disabled="!wooSyncSiteId || csvImporting" class="text-primary hover:underline">
+                                {{ csvImporting ? '导入中...' : '一键导入全部' }}
+                            </button>
+                        </div>
+                        <div v-for="(p, i) in csvPreview" :key="i" class="px-3 py-2 border-b text-xs flex gap-2">
+                            <img v-if="p.image_url" :src="p.image_url" class="w-10 h-10 object-cover rounded" onerror="this.style.display='none'">
+                            <div class="flex-1 min-w-0">
+                                <div class="truncate font-medium">{{ p.title }}</div>
+                                <div class="text-on-surface-variant">\${{ p.price }} {{ p.category ? '| ' + p.category : '' }}</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- 网站产品 product table -->

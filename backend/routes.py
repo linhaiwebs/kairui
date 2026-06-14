@@ -3533,6 +3533,103 @@ def register_routes(app):
         product = create_static_site_product(data)
         return jsonify({"code": 200, "data": product})
 
+    @app.route("/api/sites/<int:site_id>/import-csv", methods=["POST"])
+    @jwt_required()
+    def import_csv_products(site_id):
+        """Parse WooCommerce CSV and import products to static site."""
+        site = get_site(site_id)
+        if not site:
+            return jsonify({"code": 404, "message": "站点不存在"}), 404
+
+        if "file" not in request.files:
+            return jsonify({"code": 400, "message": "请上传CSV文件"}), 400
+
+        file = request.files["file"]
+        if not file.filename or not file.filename.lower().endswith(".csv"):
+            return jsonify({"code": 400, "message": "仅支持CSV文件"}), 400
+
+        try:
+            import csv, io
+            content = file.read().decode("utf-8-sig")
+            reader = csv.DictReader(io.StringIO(content))
+            rows = list(reader)
+        except Exception as e:
+            return jsonify({"code": 400, "message": f"CSV解析失败: {str(e)[:100]}"}), 400
+
+        if not rows:
+            return jsonify({"code": 400, "message": "CSV文件为空"}), 400
+
+        # Parse WooCommerce CSV fields
+        products = []
+        for row in rows:
+            title = (row.get("Name") or row.get("Title") or row.get("Product Name") or "").strip()
+            if not title:
+                continue
+
+            price_str = (row.get("Regular price") or row.get("Price") or "0").strip().replace("$", "").replace(",", "")
+            try:
+                price = float(price_str) if price_str else 0
+            except ValueError:
+                price = 0
+
+            # Parse categories
+            cats_raw = row.get("Categories", "")
+            cats = [c.strip() for c in cats_raw.replace("Category1:", "").replace("Category2:", "").replace("Category3:", "").split(",") if c.strip() and not c.strip().startswith("Category")]
+            category = cats[-1] if cats else ""
+
+            # Parse tags into attributes
+            tags_raw = row.get("Tags", "")
+            attrs = {}
+            for tag in tags_raw.split(","):
+                tag = tag.strip()
+                if ":" in tag:
+                    k, v = tag.split(":", 1)
+                    attrs[k.strip()] = v.strip()
+
+            # Parse images
+            images_raw = row.get("Images", "")
+            images = [img.strip() for img in images_raw.split(",") if img.strip() and ("http" in img)]
+
+            products.append({
+                "title": title,
+                "sku": (row.get("SKU") or "").strip(),
+                "description": (row.get("Description") or row.get("Short description") or "").strip()[:5000],
+                "price": price,
+                "category": category,
+                "brand": attrs.get("Corporate Sub Brand", attrs.get("Brand", "")),
+                "color": attrs.get("color", ""),
+                "material": attrs.get("Material Desc", ""),
+                "images": images,
+                "image_url": images[0] if images else "",
+                "source_url": f"https://{site.get('url', '')}/products/{row.get('SKU', '')}",
+            })
+
+        # If action=import, save to DB and regenerate
+        action = request.form.get("action", "preview")
+        if action == "import":
+            mapped = []
+            for p in products:
+                mapped.append({
+                    "title": p["title"],
+                    "description": p["description"],
+                    "price": str(p["price"]),
+                    "currency": "USD",
+                    "images": p["images"],
+                    "image_url": p["image_url"],
+                    "category": p["category"],
+                    "brand": p["brand"],
+                    "sku": p["sku"],
+                    "source_url": p["source_url"],
+                })
+            count = import_products_to_site(site_id, mapped)
+            try:
+                _regenerate_static_site_html(None, site_id)
+            except Exception as re:
+                logger.warning(f"Regenerate after CSV import failed: {re}")
+            return jsonify({"code": 200, "data": {"imported": count, "total": len(products)}})
+
+        return jsonify({"code": 200, "data": {"products": products, "total": len(products)}})
+
     @app.route("/api/sites/<int:site_id>/static-products/import", methods=["POST"])
     @jwt_required()
     def import_site_products(site_id):

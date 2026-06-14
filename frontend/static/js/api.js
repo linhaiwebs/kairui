@@ -421,6 +421,17 @@ const API = {
     async cleanWooFromSite(siteId) {
         return this.request('DELETE', '/api/shai-pin/woocommerce/sync-to-site', { site_id: siteId });
     },
+    async importCsvProducts(siteId, file, action) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('action', action || 'preview');
+        const resp = await fetch('/api/sites/' + siteId + '/import-csv', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + (this.token || '') },
+            body: formData,
+        });
+        return await resp.json();
+    },
 
     // Feed Products (Google Merchant Center)
     async getFeedProducts(siteId) {
