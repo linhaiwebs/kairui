@@ -2457,33 +2457,34 @@ def _is_valid_html(html):
 
 
 def _inject_products_into_homepage(html, products, design, brand_kit):
-    """Inject real product cards into Stitch homepage product grid."""
+    """Inject real product cards into Stitch homepage product grid.
+    Extracts the first product card HTML as a template from Stitch's output,
+    then replaces all placeholder cards with real product data."""
     import re
-    # Find the product grid section — supports multiple Stitch output formats
-    grid_match = None
-    patterns = [
-        r'<div[^>]*class="[^"]*product-grid[^"]*"[^>]*>',  # CSS framework grid
-        r'<!-- Product Card 1 -->',                          # Tailwind placeholder
-        r'<div[^>]*class="[^"]*grid[^"]*grid-cols[^"]*"[^>]*>',  # Tailwind grid
-    ]
-    for pat in patterns:
-        grid_match = re.search(pat, html, re.IGNORECASE)
-        if grid_match:
-            # For Tailwind grid pattern, find the actual div tag start
-            if '<!--' in grid_match.group():
-                # Look backwards to find the parent grid div
-                before = html[:grid_match.start()]
-                divs = list(re.finditer(r'<div[^>]*class="[^"]*grid[^"]*"[^>]*>', before, re.I))
-                if divs:
-                    grid_match = divs[-1]
-                else:
-                    continue
-            break
 
+    # Find the product grid div (Tailwind grid with gap-lg)
+    grid_match = re.search(
+        r'<div\s+class="[^"]*grid[^"]*grid-cols[^"]*gap-lg[^"]*"[^>]*>',
+        html, re.IGNORECASE
+    )
     if not grid_match:
         return html
 
-    # Build product cards HTML
+    # Extract the first product card HTML as template
+    grid_content = html[grid_match.end():]
+    # Find the first card comment marker
+    card_comment = re.search(r'<!--\s*Product Card 1\s*-->', grid_content)
+    if card_comment:
+        card_start = card_comment.end()
+        # Find the next card comment or grid closing
+        next_card = re.search(r'<!--\s*Product Card \d+\s*-->', grid_content[card_start:])
+        if next_card:
+            card_template = grid_content[card_start:card_start + next_card.start()].strip()
+        else:
+            # Last card - find closing </div> of grid
+            card_template = grid_content[card_start:].strip()
+
+    # Build real product cards
     cards_html = ""
     for p in products:
         pid = p.get("id", "")
@@ -2497,35 +2498,46 @@ def _inject_products_into_homepage(html, products, design, brand_kit):
                 image = json.loads(image)[0]
             except Exception:
                 pass
-        img_tag = f'<img src="{_esc(image)}" alt="{_esc(title)}" class="product-card-img">' if image else '<div class="product-card-img placeholder"></div>'
 
-        cards_html += f"""
-        <div class="product-card">
-            <a href="/products/{pid}.html">
-                {img_tag}
-                <div class="product-card-body">
-                    <h3 class="product-card-title">{_esc(title)}</h3>
-                    <p class="product-card-price">${_esc(str(price_val))}</p>
-                </div>
-            </a>
-        </div>"""
+        if card_template:
+            card_html = card_template
+            # Replace image src and alt
+            card_html = re.sub(r'src="[^"]*"', f'src="{_esc(image)}"', card_html, count=1)
+            card_html = re.sub(r'data-alt="[^"]*"', f'data-alt="{_esc(title)}"', card_html, count=1)
+            card_html = re.sub(r'alt="[^"]*"', f'alt="{_esc(title)}"', card_html, count=1)
+            # Replace product title text
+            card_html = re.sub(r'>[^<]*</h\d>', f'>{_esc(title)}</h3>', card_html, count=1)
+            # Replace price text
+            card_html = re.sub(r'>\$[^<]*<', f'>\${_esc(str(price_val))}<', card_html, count=1)
+            # Add link wrapper
+            card_html = f'<a href="/products/{pid}.html">{card_html}</a>'
+            cards_html += f'<!-- Product Card {pid} -->\n{card_html}\n'
+        else:
+            # Fallback simple card
+            cards_html += f'<div class="group cursor-pointer"><a href="/products/{pid}.html"><div><img src="{_esc(image)}" alt="{_esc(title)}"></div><h3>{_esc(title)}</h3><p>\${_esc(str(price_val))}</p></a></div>\n'
 
-    # Replace the content between product-grid opening tag and its closing tag
-    grid_start = grid_match.end()
-    # Find closing </div> for the grid
+    # Replace grid content: from first Product Card marker to grid closing </div>
+    # Find the first card marker position
+    first_card = re.search(r'<!--\s*Product Card 1\s*-->', html[grid_match.end():])
+    if first_card:
+        replace_start = grid_match.end() + first_card.start()
+    else:
+        replace_start = grid_match.end()
+
+    # Find grid closing </div>
     depth = 0
-    close_pos = grid_start
-    for m in re.finditer(r'</div>|<div[^>]*>', html[grid_start:], re.IGNORECASE):
+    close_pos = replace_start
+    for m in re.finditer(r'</div>|<div[^>]*>', html[replace_start:], re.IGNORECASE):
         if m.group().startswith('</div'):
             if depth == 0:
-                close_pos = grid_start + m.start()
+                close_pos = replace_start + m.start()
                 break
             depth -= 1
         else:
             depth += 1
 
-    if close_pos > grid_start:
-        html = html[:grid_start] + cards_html + html[close_pos:]
+    if close_pos > replace_start:
+        html = html[:replace_start] + '\n' + cards_html + '\n' + html[close_pos:]
     return html
 
 
