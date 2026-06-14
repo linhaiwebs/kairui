@@ -258,15 +258,15 @@ class StitchClient:
         return {}
 
     def download_screen_html(self, html_url):
-        """Download HTML content from signed URL (no auth needed). Returns HTML string or None."""
+        """Download HTML from signed URL. Checks HTTP 200 + Content-Length > 0.
+        Stitch only serves the file when rendering is complete. Returns HTML or None."""
         if not html_url:
             return None
         try:
-            # Signed URLs from contribution.usercontent.google.com don't need auth
             resp = http_requests.get(html_url, timeout=30)
-            if resp.status_code == 200:
+            if resp.status_code == 200 and len(resp.content) > 0:
                 return resp.text
-            logger.warning(f"download_screen_html: {resp.status_code}")
+            logger.warning(f"download_screen_html: HTTP {resp.status_code}, {len(resp.content)} bytes")
             return None
         except Exception as e:
             logger.warning(f"download_screen_html failed: {e}")
@@ -466,21 +466,25 @@ class StitchClient:
 
                 html_url = result.get("htmlUrl", "")
                 if not html_url:
-                    logger.warning(f"Stitch {page_type}: no htmlUrl, retrying...")
-                    time.sleep(3)
-                    # Retry: get screen by listing screens and finding the latest
-                    result = self._get_latest_screen_html(project_id)
-                    if result:
-                        html_url = result.get("htmlUrl", "")
+                    # HTML not ready yet — poll via list_screens (max 3 attempts, 3s apart)
+                    for retry in range(3):
+                        time.sleep(3)
+                        latest = self._get_latest_screen_html(project_id)
+                        html_url = latest.get("htmlUrl", "")
+                        if html_url:
+                            break
+                    if not html_url:
+                        logger.warning(f"Stitch {page_type}: htmlUrl still unavailable after retries")
 
                 if html_url:
-                    # Wait for HTML to be fully rendered, then download
-                    time.sleep(3)
+                    # Download and verify: signed URL returns 200 + Content-Length when render complete
                     html = self.download_screen_html(html_url)
-                    if html and len(html) > 500:  # Must be a real page
+                    if html:
                         screens[page_type] = html
                         if progress_callback:
                             progress_callback(f"Stitch {cn_name}完成 ({len(html)//1024}KB)")
+                    else:
+                        logger.warning(f"Stitch {page_type}: download returned empty/error")
 
             return screens if screens else None
 
