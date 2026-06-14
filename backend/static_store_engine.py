@@ -2336,14 +2336,19 @@ def try_stitch_design(brand_kit, progress_callback=None):
         if result and isinstance(result, dict):
             screens = result.get("screens", {})
             project_id = result.get("project_id", "")
+            screen_ids = result.get("screen_ids", {})
             if screens and len(screens) >= 2:
                 if progress_callback: progress_callback(f"Stitch已完成 {len(screens)} 个页面设计")
                 logger.info(f"Stitch design for {brand_name}: {list(screens.keys())}")
-                # Save project_id to brand_kit for future reuse
+                # Save project_id and screen_ids to brand_kit for future reuse
                 if project_id and brand_kit.get("id"):
                     try:
+                        import json as _json
                         from models import update_brand_kit
-                        update_brand_kit(brand_kit["id"], {"stitch_project_id": project_id})
+                        update_brand_kit(brand_kit["id"], {
+                            "stitch_project_id": project_id,
+                            "stitch_screens": _json.dumps(screen_ids) if screen_ids else "",
+                        })
                     except Exception:
                         pass
                 return screens

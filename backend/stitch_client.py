@@ -400,12 +400,13 @@ class StitchClient:
         """Generate a complete e-commerce store design from brand kit data.
 
         Args:
-            brand_kit: Brand kit dict
+            brand_kit: Brand kit dict (may contain stitch_screens mapping)
             pages: List of page types to generate
             progress_callback: callable(str) for progress updates
 
         Returns:
-            dict: {page_type: html_content} or None on failure
+            dict: {"screens": {page_type: html}, "project_id": str, "screen_ids": {page_type: screen_id}}
+            or None on failure
         """
         if not self.is_authenticated:
             logger.warning("Stitch not authenticated")
@@ -543,6 +544,15 @@ class StitchClient:
             }
 
             screens = {}
+            screen_ids = {}
+            # Load previously saved screen IDs for this brand_kit
+            existing_ids = {}
+            try:
+                raw = brand_kit.get("stitch_screens", "")
+                existing_ids = json.loads(raw) if raw and raw.strip() else {}
+            except (json.JSONDecodeError, TypeError):
+                existing_ids = {}
+
             page_names = {"home":"首页","product":"产品页","cart":"购物车","checkout":"结账页",
                           "order":"订单确认","about":"关于我们","contact":"联系我们","faq":"FAQ",
                           "privacy":"隐私政策","terms":"服务条款","shipping":"配送信息","returns":"退换政策"}
@@ -551,6 +561,23 @@ class StitchClient:
                 if not prompt:
                     continue
                 cn_name = page_names.get(page_type, page_type)
+
+                # Try to reuse existing screen first
+                existing_sid = existing_ids.get(page_type, "")
+                if existing_sid:
+                    if progress_callback:
+                        progress_callback(f"Stitch复用已有{cn_name}...")
+                    html = self.get_screen_code(f"projects/{project_id}/screens/{existing_sid}")
+                    if html and len(html) > 500:
+                        screens[page_type] = html
+                        screen_ids[page_type] = existing_sid
+                        if progress_callback:
+                            progress_callback(f"Stitch {cn_name}复用完成 ({len(html)//1024}KB)")
+                        continue
+                    else:
+                        if progress_callback:
+                            progress_callback(f"Stitch{cn_name}已过期，重新生成...")
+
                 if progress_callback:
                     progress_callback(f"Stitch正在生成{cn_name}...")
 
@@ -560,12 +587,14 @@ class StitchClient:
                     continue
 
                 html_url = result.get("htmlUrl", "")
+                screen_id = result.get("screenId", "")
                 if not html_url:
                     # HTML not ready yet — poll via list_screens (max 3 attempts, 3s apart)
                     for retry in range(3):
                         time.sleep(3)
                         latest = self._get_latest_screen_html(project_id)
                         html_url = latest.get("htmlUrl", "")
+                        screen_id = latest.get("screenId", screen_id)
                         if html_url:
                             break
                     if not html_url:
@@ -576,12 +605,13 @@ class StitchClient:
                     html = self.download_screen_html(html_url)
                     if html:
                         screens[page_type] = html
+                        screen_ids[page_type] = screen_id
                         if progress_callback:
                             progress_callback(f"Stitch {cn_name}完成 ({len(html)//1024}KB)")
                     else:
                         logger.warning(f"Stitch {page_type}: download returned empty/error")
 
-            return {"screens": screens, "project_id": project_id} if screens else None
+            return {"screens": screens, "project_id": project_id, "screen_ids": screen_ids} if screens else None
 
         except Exception as e:
             logger.error(f"Stitch design generation failed: {e}")
