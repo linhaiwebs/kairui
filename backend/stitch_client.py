@@ -384,7 +384,27 @@ class StitchClient:
         return result.get("screens", [])
 
     def get_screen_code(self, screen_name):
-        """Get the HTML/CSS code for a screen via REST API."""
+        """Get the HTML code for a screen via MCP get_screen + download."""
+        # screen_name is like "projects/xxx/screens/yyy"
+        parts = screen_name.split("/")
+        project_id = parts[1] if len(parts) > 1 else ""
+        screen_id = parts[3] if len(parts) > 3 else screen_name
+
+        # Try MCP get_screen first
+        result = self.get_screen(project_id, screen_id)
+        if result and isinstance(result, dict):
+            html_code = result.get("htmlCode", {})
+            download_url = html_code.get("downloadUrl", "")
+            if download_url:
+                html = self.download_screen_html(download_url)
+                if html:
+                    return html
+            # Fallback: check content field
+            content = html_code.get("content") or result.get("content") or ""
+            if content:
+                return content
+
+        # Fallback to REST API
         status, text = self._rest_authorized(
             "GET", f"https://stitch.googleapis.com/v1/{screen_name}/code",
         )
@@ -393,7 +413,7 @@ class StitchClient:
                 data = json.loads(text)
                 return data.get("content") or data.get("html") or ""
             except Exception:
-                return None
+                pass
         return None
 
     def get_design_spec(self, project_id):
