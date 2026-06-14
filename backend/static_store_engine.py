@@ -2459,8 +2459,27 @@ def _is_valid_html(html):
 def _inject_products_into_homepage(html, products, design, brand_kit):
     """Inject real product cards into Stitch homepage product grid."""
     import re
-    # Find the product grid section
-    grid_match = re.search(r'(<div[^>]*class="[^"]*product-grid[^"]*"[^>]*>)', html, re.IGNORECASE)
+    # Find the product grid section — supports multiple Stitch output formats
+    grid_match = None
+    patterns = [
+        r'<div[^>]*class="[^"]*product-grid[^"]*"[^>]*>',  # CSS framework grid
+        r'<!-- Product Card 1 -->',                          # Tailwind placeholder
+        r'<div[^>]*class="[^"]*grid[^"]*grid-cols[^"]*"[^>]*>',  # Tailwind grid
+    ]
+    for pat in patterns:
+        grid_match = re.search(pat, html, re.IGNORECASE)
+        if grid_match:
+            # For Tailwind grid pattern, find the actual div tag start
+            if '<!--' in grid_match.group():
+                # Look backwards to find the parent grid div
+                before = html[:grid_match.start()]
+                divs = list(re.finditer(r'<div[^>]*class="[^"]*grid[^"]*"[^>]*>', before, re.I))
+                if divs:
+                    grid_match = divs[-1]
+                else:
+                    continue
+            break
+
     if not grid_match:
         return html
 
