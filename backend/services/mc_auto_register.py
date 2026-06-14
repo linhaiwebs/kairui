@@ -884,6 +884,7 @@ Return ONLY JSON (no markdown, no explanation outside JSON):
 }}
 
 RULES:
+- IMPORTANT: After Google login, if GMC landing page shows \"Sign in\" button again, it means this Google account does NOT have a GMC account yet. Instead of clicking \"Sign in\", look for and click: \"Get started\", \"Create account\", \"Sign up\", \"Start now\", \"Begin\", or similar registration buttons.
 - If this is a form asking for business info, fill it using the provided business_info JSON
 - Country should be United States unless business_info says otherwise
 - Store website URL is: {site_url}
@@ -891,7 +892,7 @@ RULES:
 - Shipping and returns policy pages: just click continue/next/skip
 - If you see a captcha, verification challenge, or unexpected error: return action=fail
 - If you see GMC dashboard, MC account ID (numeric), or success message: return action=done
-- Use visible button/link TEXT as selector when possible (e.g. "Next", "Continue", "Save")"""
+- Use visible button/link TEXT as selector when possible (e.g. \"Next\", \"Continue\", \"Save\")"""
 
 
 async def _call_deepseek_for_action(prompt, log_callback=None):
@@ -962,22 +963,37 @@ async def _execute_action(page, action, log_callback=None):
             ("role_button", lambda: page.get_by_role("button", name=selector).first),
             ("role_link", lambda: page.get_by_role("link", name=selector).first),
         ]
-        # Try JS click first for GMC sign-in buttons (more reliable than Playwright click)
+        # Try JS click first for GMC buttons (more reliable than Playwright click)
         try:
+            # Build list of text variants to try (including common alternatives)
+            alt_texts = {
+                "sign in": ["Get started", "Create account", "Sign up", "Start now", "Begin"],
+                "entrar": ["Crear cuenta", "Empezar", "Comenzar"],
+                "connexion": ["Créer un compte", "Commencer", "Inscription"],
+                "войти": ["Создать аккаунт", "Начать", "Регистрация"],
+                "einloggen": ["Konto erstellen", "Starten", "Registrieren"],
+            }
+            search_texts = [selector, selector.lower(), selector.upper()]
+            selector_lower = selector.lower().strip()
+            for key, alts in alt_texts.items():
+                if key in selector_lower:
+                    search_texts.extend(alts)
+                    break
+
             js_result = await page.evaluate(f"""
                 (() => {{
-                    const texts = ['{selector}', '{selector.lower()}', '{selector.upper()}'];
+                    const texts = {json.dumps(search_texts)};
                     for (const a of document.querySelectorAll('a, button, [role=\"button\"], [role=\"link\"]')) {{
                         const t = a.textContent.trim();
                         for (const txt of texts) {{
-                            if (t === txt || t.includes(txt)) {{ a.click(); return t; }}
+                            if (t === txt || t.includes(txt)) {{ a.click(); return t + ' (tried: ' + txt + ')'; }}
                         }}
                     }}
                     return null;
                 }})()
             """)
             if js_result:
-                if log_callback: log_callback("info", f"Click(js): {selector}", "click")
+                if log_callback: log_callback("info", f"Click(js): {js_result}", "click")
                 await asyncio.sleep(3)
                 clicked = True
         except Exception:
