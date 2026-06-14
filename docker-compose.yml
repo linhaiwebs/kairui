@@ -15,6 +15,7 @@ services:
       - STITCH_CLIENT_SECRET=${STITCH_CLIENT_SECRET:-}
       - PLAYWRIGHT_BROWSERS_PATH=/app/backend/browsers
       - WP_DATA_DIR=/app/backend/data
+      - SERVER_HOST=${SERVER_HOST:-ads.lhwebs.com}
       - WP_PORT=8011
     volumes:
       - ./backend:/app/backend
