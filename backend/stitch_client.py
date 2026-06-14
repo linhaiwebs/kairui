@@ -149,7 +149,7 @@ class StitchClient:
                     "Content-Type": "application/json",
                 },
                 json=body,
-                timeout=60,
+                timeout=90,
             )
             if resp.status_code == 401:
                 # Token expired — refresh and retry once
@@ -181,7 +181,10 @@ class StitchClient:
         self._init_session()
         resp = self._mcp_call("tools/call", {"name": tool_name, "arguments": arguments})
         if "error" in resp:
-            return {"error": resp.get("error", {}).get("message", str(resp))}
+            err = resp["error"]
+            if isinstance(err, dict):
+                return {"error": err.get("message", str(err))}
+            return {"error": str(err)}
         result = resp.get("result", {})
         content = result.get("content", [])
         if content and content[0].get("text"):
