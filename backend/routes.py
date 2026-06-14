@@ -4787,7 +4787,7 @@ def register_routes(app):
         """Get timeline pipeline status for a site.
 
         Static sites:
-          ① dns_resolved → ② design_started → ③ design_complete → ④ files_uploaded
+          ① dns_resolved → ② site_created → ③ design → ④ files_uploaded
         WordPress sites (legacy):
           ① wp_deployed → ② demo_imported → ③ brand_configured → ④ gmc_registered
         """
@@ -4798,6 +4798,47 @@ def register_routes(app):
         is_static = site.get("site_type") == "static"
         is_active = site.get("status") == "active"
         stitch_status = site.get("stitch_design_status", "")
+
+        # Build per-screen progress for static sites
+        STITCH_PAGE_NAMES = {"home":"首页","product":"产品页","cart":"购物车","checkout":"结账页",
+                             "order":"订单确认","about":"关于我们","contact":"联系我们","faq":"FAQ",
+                             "privacy":"隐私政策","terms":"服务条款","shipping":"配送信息","returns":"退换政策"}
+        stitch_screen_progress = []
+        if is_static and stitch_status in ("starting", "generating", "complete"):
+            brand_kit_id = site.get("brand_kit_id")
+            completed_screens = {}
+            if brand_kit_id:
+                try:
+                    bk = get_brand_kit(brand_kit_id)
+                    if bk:
+                        raw = bk.get("stitch_screens", "")
+                        completed_screens = json.loads(raw) if raw and raw.strip() else {}
+                except Exception:
+                    pass
+
+            # Read current bg_task message to detect which screen is generating
+            generating_page = ""
+            try:
+                row = get_db().execute(
+                    "SELECT message FROM bg_tasks WHERE site_id = ? AND task_type = 'deploy_static' ORDER BY id DESC LIMIT 1",
+                    (site_id,),
+                ).fetchone()
+                if row and row[0]:
+                    msg = row[0]
+                    for pt, cn in STITCH_PAGE_NAMES.items():
+                        if cn in msg and ("正在生成" in msg or "复用已有" in msg):
+                            generating_page = pt
+                            break
+            except Exception:
+                pass
+
+            for pt, cn in STITCH_PAGE_NAMES.items():
+                if pt in completed_screens:
+                    stitch_screen_progress.append({"page": pt, "name": cn, "status": "complete"})
+                elif pt == generating_page:
+                    stitch_screen_progress.append({"page": pt, "name": cn, "status": "generating"})
+                else:
+                    stitch_screen_progress.append({"page": pt, "name": cn, "status": "pending"})
 
         data = {
             "site_type": site.get("site_type", "wordpress"),
@@ -4810,6 +4851,7 @@ def register_routes(app):
             "design_complete": stitch_status == "complete",
             "design_label": "Stitch" if stitch_status == "complete" else ("生成中" if stitch_status in ("starting", "generating") else ""),
             "files_uploaded": is_active,
+            "stitch_screen_progress": stitch_screen_progress,
             # WordPress legacy stages
             "wp_deployed": bool(site.get("panel_website_id")) if not is_static else False,
             "demo_imported": bool(site.get("demo_imported", 0)) if not is_static else False,

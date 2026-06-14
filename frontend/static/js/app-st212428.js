@@ -450,6 +450,22 @@ const app = createApp({
         async function refreshPipelineStatus(siteId) {
             await loadPipelineStatus(siteId);
         }
+        function stitchProgressTitle(site) {
+            const s = pipelineStatuses[site.id] || {};
+            const progress = s.stitch_screen_progress || [];
+            if (!progress.length) {
+                if (s.design_complete) return '设计完成' + (s.design_label ? ' (' + s.design_label + ')' : '');
+                if (s.design_generating) return 'Stitch AI正在生成设计...';
+                return '商城设计';
+            }
+            // Build multi-line progress: ✅ page1, 🔄 page2, ⏳ page3...
+            let title = '设计进度:\n';
+            for (const p of progress) {
+                const icon = p.status === 'complete' ? '✅' : p.status === 'generating' ? '🔄' : '⏳';
+                title += icon + ' ' + p.name + '\n';
+            }
+            return title;
+        }
         function siteStatusText(site) {
             const s = pipelineStatuses[site.id] || {};
             const w = wpInstallStatuses[site.id];
@@ -2796,7 +2812,7 @@ async function loadProfileCategories() {
             // Meta tag injection
             metaModal, openMetaModal, submitMetaTag,
             // Pipeline timeline
-            pipelineStatuses, tooltipSiteId, loadPipelineStatus, refreshPipelineStatus, pipelineLineState, siteStatusText,
+            pipelineStatuses, tooltipSiteId, loadPipelineStatus, refreshPipelineStatus, pipelineLineState, siteStatusText, stitchProgressTitle,
             // Silent install
             silentInstallSites, startSilentInstall,
             brandKitApplyStatus, brandKitApplying, applyBrandKitForm, brandKitsForSelect,
@@ -3191,8 +3207,7 @@ async function loadProfileCategories() {
                                          :class="pipelineStatuses[site.id]?.design_complete ? 'active' :
                                             pipelineStatuses[site.id]?.design_generating ? 'in-progress' :
                                             pipelineStatuses[site.id]?.design_started ? 'in-progress' : 'inactive'"
-                                         :title="pipelineStatuses[site.id]?.design_complete ? '设计完成' + (pipelineStatuses[site.id]?.design_label ? ' (' + pipelineStatuses[site.id].design_label + ')' : '') :
-                                            pipelineStatuses[site.id]?.design_generating ? 'Stitch AI正在生成设计...' : '商城设计'">
+                                         :title="stitchProgressTitle(site)">
                                         <i class="fas fa-paint-brush"></i>
                                     </div>
                                     <div class="timeline-line" :class="pipelineStatuses[site.id]?.files_uploaded ? 'active' : (pipelineStatuses[site.id]?.design_complete ? 'in-progress' : '')"></div>
