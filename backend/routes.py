@@ -9523,8 +9523,11 @@ Respond with strict JSON only (no markdown code blocks):
 Design a unique e-commerce storefront for brand "{brand_name}"
 in the "{industry}" industry.
 
-Primary color: {colors[0] if colors else '#1a1a2e'}
-Accent color: {colors[1] if len(colors) > 1 else '#667eea'}
+Primary: {colors[0] if colors else pick a warm or cool tone}
+Accent: {colors[1] if len(colors) > 1 else pick a contrasting or complementary color}
+
+IMPORTANT: Use DIVERSE color palettes — do NOT always default to blue/dark themes.
+Consider: warm earth tones, vibrant jewel tones, pastel minimalist, bold neon, elegant monochrome, nature-inspired greens, sunset gradients, ocean blues, luxury gold/black. Rotate through different color families for variety.
 
 Output ONLY this JSON — different creative choices for each field:
 {design_schema}
