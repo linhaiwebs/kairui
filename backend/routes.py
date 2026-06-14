@@ -5107,15 +5107,16 @@ def register_routes(app):
             from cloakbrowser import launch_persistent_context_async
             context = await launch_persistent_context_async(**launch_kwargs)
             page = context.pages[0] if context.pages else await context.new_page()
+            page.set_default_navigation_timeout(60000)
             try:
                 # Test 1: check exit IP via httpbin
-                await page.goto("http://httpbin.org/ip", wait_until="domcontentloaded", timeout=20000)
+                await page.goto("http://httpbin.org/ip", wait_until="domcontentloaded", timeout=45000)
                 await asyncio.sleep(1)
                 body = await page.inner_text("body")
                 ip_info = body.strip() if body else "(unknown)"
 
                 # Test 2: verify Google accessibility (critical for GMC)
-                await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=30000)
+                await page.goto("https://www.google.com", wait_until="domcontentloaded", timeout=45000)
                 await asyncio.sleep(2)
                 title = await page.title()
                 body = await page.inner_text("body")
