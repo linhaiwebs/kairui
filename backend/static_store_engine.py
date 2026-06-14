@@ -1367,7 +1367,10 @@ def render_homepage(products, design, brand_kit):
         title = _esc(p.get("title") or "Product")
         price = p.get("price")
         sale_price = p.get("sale_price")
-        image = p.get("image_url", "")
+        image = p.get("image_url", "") or p.get("images", "")
+        # Handle pipe-separated image URLs (woocommerce_products format)
+        if image and isinstance(image, str) and "|" in image:
+            image = image.split("|")[0]
         currency = p.get("currency", "USD")
         is_on_sale = sale_price is not None and float(sale_price) > 0 and float(sale_price) < float(price or 0)
 
@@ -1520,7 +1523,9 @@ def render_product_page(product, design, brand_kit, all_products):
     gtin = _safe_str(product.get("gtin"), "")
     availability = product.get("availability", "in_stock")
     condition = product.get("condition", "new")
-    image_url = product.get("image_url", "")
+    image_url = product.get("image_url", "") or product.get("images", "")
+    if image_url and isinstance(image_url, str) and "|" in image_url:
+        image_url = image_url.split("|")[0]
 
     additional_images = product.get("additional_images", [])
     if isinstance(additional_images, str):
@@ -2490,7 +2495,7 @@ def _inject_products_into_homepage(html, products, design, brand_kit):
         pid = p.get("id", "")
         title = _esc(p.get("title", "Product"))
         price_val = p.get("price", "0")
-        image = p.get("images", "")
+        image = p.get("images", "") or p.get("image_url", "")
         if isinstance(image, list):
             image = image[0] if image else ""
         elif isinstance(image, str) and image.startswith("["):
@@ -2498,6 +2503,8 @@ def _inject_products_into_homepage(html, products, design, brand_kit):
                 image = json.loads(image)[0]
             except Exception:
                 pass
+        elif isinstance(image, str) and "|" in image:
+            image = image.split("|")[0]
 
         if card_template:
             card_html = card_template
