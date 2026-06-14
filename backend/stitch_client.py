@@ -290,112 +290,158 @@ class StitchClient:
             return None
 
     # ---- Store Design Generation ----
-    def generate_store_design(self, brand_name, pages=None):
-        """Generate a complete e-commerce store design.
+    def generate_store_design(self, brand_kit, pages=None):
+        """Generate a complete e-commerce store design from brand kit data.
 
         Args:
-            brand_name: Brand/company name
-            pages: List of page types: home/product/cart/checkout/order/about/contact/faq/privacy/terms/shipping/returns
+            brand_kit: Brand kit dict with brand_name, industry, description, colors,
+                       business_info, footer_config, woo_config, design_system
+            pages: List of page types to generate
 
         Returns:
             dict: {page_type: html_content} or None on failure
         """
         if not self.is_authenticated:
-            logger.warning("Stitch not authenticated, skip design generation")
+            logger.warning("Stitch not authenticated")
             return None
-
         if pages is None:
             pages = ["home", "product", "cart", "checkout"]
+
+        # --- Extract brand data ---
+        brand_name = brand_kit.get("brand_name") or brand_kit.get("name", "Store")
+        industry = brand_kit.get("industry", "lifestyle")
+        description = brand_kit.get("description", "")
+        colors = brand_kit.get("colors", [])
+        primary = colors[0] if colors else "#1a1a2e"
+        accent = colors[1] if len(colors) > 1 else "#c9a96e"
+
+        # Business info
+        biz = brand_kit.get("business_info") or {}
+        city = biz.get("city", "New York")
+        state = biz.get("state_code", "NY")
+
+        # Footer/contact
+        footer = brand_kit.get("footer_config") or {}
+        store_address = footer.get("address", "")
+        store_phone = footer.get("phone", "")
+        store_email = footer.get("email", "")
+
+        # Woo config
+        woo = brand_kit.get("woo_config") or {}
+        postcode = woo.get("postcode", biz.get("postcode", "10001"))
+
+        # Design style
+        design_system = brand_kit.get("design_system") or {}
+        layout = design_system.get("layout", {})
+        hero = layout.get("hero", {})
+        headline = hero.get("headline", f"Welcome to {brand_name}")
+
+        # --- Build style description ---
+        style_desc = (
+            f"Color scheme: primary={primary}, accent={accent}. "
+            f"Professional {industry} brand aesthetic. "
+            f"{description[:200] if description else 'Modern minimalist design with clean lines and generous whitespace.'} "
+            f"Typography: elegant serif headings, clean sans-serif body. "
+        )
+
+        # --- Contact info string ---
+        contact_info = (
+            f"Store address: {store_address}, Phone: {store_phone}, Email: {store_email}"
+            if store_address else f"Location: {city}, {state} {postcode}"
+        )
 
         try:
             # 1. Create project
             project_id = self.create_project(f"{brand_name} Store")
             if not project_id:
-                logger.warning("Stitch create_project failed")
                 return None
-            logger.info(f"Stitch project created: {project_id}")
+            logger.info(f"Stitch project: {project_id} for {brand_name}")
 
-            # 2. Generate screens — all page types
-            page_prompts = {
+            # 2. Build prompts dynamically
+            prompts = {
                 "home": (
-                    f"Complete e-commerce homepage for {brand_name}. "
-                    "Include: sticky navigation with logo and cart icon, hero banner with headline and CTA button, "
-                    "featured products grid (4 columns with images, titles, prices), trust badges, "
-                    "and a full footer with brand info, quick links, policies, and contact. "
-                    "Luxury minimalist style, white background, elegant serif headings, dark navy text, gold accents."
+                    f"Complete e-commerce homepage for {brand_name}, a {industry} brand based in {city}, {state}. "
+                    f"Headline: \"{headline}\". {style_desc} "
+                    f"Include: sticky navigation with logo and cart icon, hero banner with headline and Shop Now CTA button, "
+                    f"featured products grid (4 columns with images, titles, prices), trust badges (free shipping, secure checkout, easy returns), "
+                    f"and a full footer with: {contact_info}. "
+                    f"Luxury clean style, use {primary} and {accent} throughout the design."
                 ),
                 "product": (
                     f"Product detail page for {brand_name}. "
-                    "Two-column layout: left side has image gallery with thumbnails, right side has "
-                    "product title, price, description, quantity selector, Add to Cart button, "
-                    "SKU, category, and share buttons. Below: product tabs (Description/Reviews), related products grid. "
-                    "Same luxury minimalist style as homepage."
+                    f"Two-column layout: left side image gallery with thumbnails, right side: product title, price, "
+                    f"description, quantity selector, Add to Cart button (using {primary}), SKU, share icons. "
+                    f"Below: product tabs (Description/Reviews), related products grid. "
+                    f"{style_desc} Use {primary} for buttons and {accent} for accents."
                 ),
                 "cart": (
                     f"Shopping cart page for {brand_name}. "
-                    "Full-width table layout: product thumbnails, names, prices, quantity controls, remove buttons. "
-                    "Right sidebar or bottom section with subtotal, shipping estimate, and Proceed to Checkout button. "
-                    "Empty state when no items. Matching luxury minimalist style."
+                    f"Product rows with thumbnails, names, prices, quantity +/- controls, remove buttons. "
+                    f"Order summary sidebar/bottom: subtotal, shipping estimate, Checkout button ({primary}). "
+                    f"Empty cart state with Continue Shopping link. {style_desc}"
                 ),
                 "checkout": (
                     f"Checkout page for {brand_name}. "
-                    "Multi-step or single-page layout: contact information form, shipping address form, "
-                    "payment method section, order summary sidebar. "
-                    "Secure and professional design with the same luxury minimalist aesthetic."
+                    f"Contact info form, shipping address form (pre-filled with {city}, {state} {postcode}), "
+                    f"payment section, order summary. Secure lock icon. "
+                    f"Place Order button in {primary}. {style_desc}"
                 ),
                 "order": (
-                    f"Order confirmation page for {brand_name}. "
-                    "Thank you message, order number, order details summary, shipping address, "
-                    "estimated delivery date, and Continue Shopping button. "
-                    "Celebratory but clean design, matching the store aesthetic."
+                    f"Order confirmation / Thank You page for {brand_name}. "
+                    f"Success checkmark icon, order number placeholder, order details summary, "
+                    f"shipping to: {store_address or f'{city}, {state} {postcode}'}. "
+                    f"Estimated delivery: 5-7 business days. Continue Shopping button ({primary}). {style_desc}"
                 ),
                 "about": (
-                    f"About Us page for {brand_name}. "
-                    "Brand story, mission statement, values section with icons, team section, "
-                    "and a timeline or history. Clean typography-focused layout. Same luxury style."
+                    f"About Us page for {brand_name}, a {industry} brand from {city}, {state}. "
+                    f"Brand story, mission statement, core values with icons, "
+                    f"{'team section,' if description else ''} timeline. "
+                    f"Typography-focused layout. Contact: {store_email or ''}. {style_desc}"
                 ),
                 "contact": (
                     f"Contact page for {brand_name}. "
-                    "Contact form (name, email, subject, message), store address, phone, email, "
-                    "business hours, and embedded map placeholder. Clean professional layout."
+                    f"Contact form (name, email, subject, message). Store info: {contact_info}. "
+                    f"Business hours: Mon-Fri 9AM-6PM EST. Map placeholder. {style_desc}"
                 ),
                 "faq": (
                     f"FAQ page for {brand_name}. "
-                    "Accordion-style questions and answers grouped by category (Orders, Shipping, Returns, Products). "
-                    "Clean, scannable layout with search bar at top."
+                    f"Accordion Q&A grouped by: Orders & Payment, Shipping & Delivery, "
+                    f"Returns & Exchanges, Product Care. Search bar at top. {style_desc}"
                 ),
                 "privacy": (
                     f"Privacy Policy page for {brand_name}. "
-                    "Professional legal-style layout with clear headings, sections for data collection, "
-                    "cookies, third-party sharing, user rights. Clean typography."
+                    f"Professional layout: Information We Collect, How We Use It, Cookies, "
+                    f"Third-Party Sharing, Your Rights, Contact Us ({store_email}). "
+                    f"Last updated: {time.strftime('%B %Y')}. {style_desc}"
                 ),
                 "terms": (
-                    f"Terms of Service page for {brand_name}. "
-                    "Professional legal-style layout with clear sections, numbered clauses. "
-                    "Clean typography matching the brand."
+                    f"Terms of Service for {brand_name}. "
+                    f"Professional legal layout: Acceptance of Terms, Products & Pricing, "
+                    f"Payment, Shipping, Returns, Limitation of Liability, Contact. "
+                    f"Last updated: {time.strftime('%B %Y')}. {style_desc}"
                 ),
                 "shipping": (
-                    f"Shipping Information page for {brand_name}. "
-                    "Shipping rates table, delivery timeframes, international shipping info, "
-                    "tracking information. Clean organized layout."
+                    f"Shipping Information for {brand_name}. "
+                    f"Shipping rates table (Standard/Express/International), delivery timeframes, "
+                    f"order tracking info, shipping restrictions. {style_desc}"
                 ),
                 "returns": (
-                    f"Returns & Refunds page for {brand_name}. "
-                    "Return policy, step-by-step return process, refund timeline, exchange info. "
-                    "Clean organized layout with the luxury brand aesthetic."
+                    f"Returns & Refunds for {brand_name}. "
+                    f"30-day return policy, step-by-step return process, refund timeline (5-10 business days), "
+                    f"exchange info, non-returnable items list. {style_desc}"
                 ),
             }
 
             screens = {}
             for page_type in pages:
-                prompt = page_prompts.get(page_type)
+                prompt = prompts.get(page_type)
                 if not prompt:
                     continue
-                logger.info(f"Stitch generating {page_type} page...")
+                logger.info(f"Stitch generating {page_type} for {brand_name}...")
                 result = self.generate_screen(project_id, prompt)
 
                 if not result or result.get("error"):
-                    logger.warning(f"Stitch {page_type}: {result.get('error','no result') if result else 'no result'}")
+                    logger.warning(f"Stitch {page_type}: skipped")
                     continue
 
                 html_url = result.get("htmlUrl", "")

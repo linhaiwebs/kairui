@@ -2318,23 +2318,24 @@ def _render_page_by_type(page_type, design, brand_kit, products):
     return ""
 
 
-def try_stitch_design(brand_name):
+def try_stitch_design(brand_kit):
     """Try to generate store design via Google Stitch. Returns dict {page: html} or None."""
+    brand_name = brand_kit.get("brand_name") or brand_kit.get("name", "Store")
     try:
         from stitch_client import StitchClient
         stitch = StitchClient()
         if not stitch.is_authenticated:
             return None
         pages = stitch.generate_store_design(
-            brand_name=brand_name,
+            brand_kit=brand_kit,
             pages=STITCH_PAGES
         )
         if pages and len(pages) >= 2:
-            logger.info(f"Stitch design generated for {brand_name}: {list(pages.keys())}")
+            logger.info(f"Stitch design for {brand_name}: {list(pages.keys())}")
             return pages
         return None
     except Exception as e:
-        logger.warning(f"Stitch design failed, using built-in: {e}")
+        logger.warning(f"Stitch design failed for {brand_name}: {e}")
         return None
 
 
@@ -2346,7 +2347,7 @@ def render_site_to_dict(domain, brand_kit, products):
     global _INLINE_CSS, _INLINE_JS
 
     # Try Stitch for premium design
-    stitch_pages = try_stitch_design(brand_name)
+    stitch_pages = try_stitch_design(brand_kit)
 
     if stitch_pages and stitch_pages.get("home"):
         # Stitch provides complete standalone HTML with Tailwind + Google Fonts
