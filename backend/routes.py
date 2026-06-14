@@ -3308,6 +3308,15 @@ def register_routes(app):
                                             "cf_zone_id": zone_id,
                                             "cf_dns_record_id": rec.get("id") if isinstance(rec, dict) else None,
                                         })
+                                        # Auto-set SSL to Flexible for Cloudflare proxied sites
+                                        try:
+                                            ssl_result = cf_client.set_ssl_mode(zone_id, "flexible")
+                                            if ssl_result and ssl_result.get("success"):
+                                                logger.info(f"SSL: {domain} set to flexible")
+                                            else:
+                                                logger.warning(f"SSL: set_ssl_mode failed for {domain}: {ssl_result.get('errors') if ssl_result else 'no response'}")
+                                        except Exception as ssl_e:
+                                            logger.warning(f"SSL: set_ssl_mode error for {domain}: {ssl_e}")
                         except Exception as e:
                             logger.warning(f"Cloudflare DNS for {domain} failed: {e}")
 
