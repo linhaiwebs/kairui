@@ -475,6 +475,7 @@ def _migrate_add_columns(conn):
             conn.execute("ALTER TABLE sites ADD COLUMN static_dir TEXT DEFAULT ''")
         if "brand_kit_id" not in cols:
             conn.execute("ALTER TABLE sites ADD COLUMN brand_kit_id INTEGER DEFAULT NULL")
+            conn.execute("ALTER TABLE sites ADD COLUMN stitch_design_status TEXT DEFAULT ''")
     except Exception:
         pass
 

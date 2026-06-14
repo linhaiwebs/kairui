@@ -3071,16 +3071,20 @@ def register_routes(app):
             site_resp = _get_pc().create_static_website(domain=domain, alias=alias)
             site_data = site_resp.get("data", {}) if site_resp.get("code") == 200 else {}
             site_dir_1panel = site_data.get("site_dir", f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index")
+            update_site_fields(site_id, {"stitch_design_status": "pending"})
             logger.info(f"Deploy static site: domain={domain} site_dir_1panel={site_dir_1panel} website_id={site_data.get('website_id')}")
 
             # ── Step 2: Generate page designs ──
             update_bg_task(task_id, status="deploying", message="正在生成商城页面...")
+            update_site_fields(site_id, {"stitch_design_status": "starting"})
             from static_store_engine import render_site_to_dict
 
             stitch_used = False
             def design_progress(msg):
                 nonlocal stitch_used
-                if "Stitch" in msg: stitch_used = True
+                if "Stitch" in msg:
+                    stitch_used = True
+                    update_site_fields(site_id, {"stitch_design_status": "generating"})
                 update_bg_task(task_id, status="deploying", message=msg)
 
             files = render_site_to_dict(domain, brand_kit or {}, [],
@@ -3088,6 +3092,8 @@ def register_routes(app):
 
             page_count = len(files)
             stitch_msg = " (Stitch)" if stitch_used else ""
+            if stitch_used:
+                update_site_fields(site_id, {"stitch_design_status": "complete"})
             logger.info(f"Generated {page_count} files for {domain}{stitch_msg}")
             update_bg_task(task_id, status="deploying",
                           message=f"页面生成完成（{page_count} 个文件）{stitch_msg}")
@@ -4781,8 +4787,10 @@ def register_routes(app):
     def get_pipeline_status(site_id):
         """Get timeline pipeline status for a site.
 
-        Static sites: dns_resolved → site_created → files_uploaded
-        WordPress sites (legacy): wp_deployed → demo_imported → brand_configured → gmc
+        Static sites:
+          ① dns_resolved → ② design_started → ③ design_complete → ④ files_uploaded
+        WordPress sites (legacy):
+          ① wp_deployed → ② demo_imported → ③ brand_configured → ④ gmc_registered
         """
         site = get_site(site_id)
         if not site:
@@ -4790,12 +4798,18 @@ def register_routes(app):
 
         is_static = site.get("site_type") == "static"
         is_active = site.get("status") == "active"
+        stitch_status = site.get("stitch_design_status", "")
 
         data = {
             "site_type": site.get("site_type", "wordpress"),
             # Static site stages
             "dns_resolved": bool(site.get("cf_dns_record_id")),
             "site_created": bool(site.get("panel_website_id") or site.get("static_dir")),
+            # Design stage: for static sites, shows Stitch progress
+            "design_started": stitch_status in ("starting", "generating", "complete"),
+            "design_generating": stitch_status in ("starting", "generating"),
+            "design_complete": stitch_status == "complete" or is_active,
+            "design_label": "Stitch" if stitch_status == "complete" else ("生成中" if stitch_status in ("starting", "generating") else ""),
             "files_uploaded": is_active,
             # WordPress legacy stages
             "wp_deployed": bool(site.get("panel_website_id")) if not is_static else False,
