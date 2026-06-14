@@ -2144,7 +2144,6 @@ pipelineStatuses[siteId].demo_importing = false;
             taskLogVisible.value = false;
             taskLogSilent.value = true;
         }
-        }
         async function loadMCStatusForSite(site) {
             try {
                 const resp = await API.getMCStatus(site.id);
