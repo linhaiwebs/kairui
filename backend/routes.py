@@ -4937,7 +4937,7 @@ def register_routes(app):
                     task_id, site_id, site_domain, os.path.basename(profile_dir))
 
         import asyncio
-        from services.mc_auto_register import register_mc_account as do_register
+        from services.mc_auto_register import register_gmc_ai
 
         def _run():
             loop = asyncio.new_event_loop()
@@ -4945,28 +4945,19 @@ def register_routes(app):
             try:
                 google_email, google_password, google_totp_secret = _resolve_google_account_from_site(site)
                 business_info = _resolve_business_info(site)
-                return_policy_url = f"https://{site_domain}/return-policy/"
 
-                result = loop.run_until_complete(do_register(
+                result = loop.run_until_complete(register_gmc_ai(
                     profile_dir=profile_dir,
-                    site_domain=site_domain,
+                    site_url=site.get("url", site_domain),
                     google_email=google_email,
                     google_password=google_password,
-                    google_totp_secret=google_totp_secret,
-                    site_title=site.get("site_name", ""),
+                    google_totp_secret=google_totp_secret or "",
+                    business_info=business_info or {},
                     feed_url=feed_url,
-                    country=country,
-                    timezone=timezone,
                     log_callback=lambda level, msg, step: add_log(task_id, level, msg, step),
-                    business_info=business_info,
-                    return_policy_url=return_policy_url,
-                    wp_url=site.get("url", ""),
-                    wp_username=site.get("admin_name", ""),
-                    wp_password=site.get("admin_password", ""),
-                    recon_dir="/tmp/gmc_recon",
                 ))
                 complete_task(task_id, result.get("success", False), result)
-                if result.get("success"):
+                if result.get("success") and result.get("mc_account_id"):
                     from models import update_site
                     update_site(site_id, {"google_mc_account_id": result.get("mc_account_id", "")})
             except Exception as e:
@@ -5079,61 +5070,6 @@ def register_routes(app):
         except Exception as e:
             logger.error("get_diagnosis error: %s", e)
             return jsonify({"code": 500, "message": str(e)[:200]}), 500
-    @app.route("/api/tasks/gmc-recon", methods=["POST"])
-    @jwt_required()
-    def task_gmc_recon():
-        """GMC Next 流程侦查：遍历注册向导每一步，导出 DOM 结构 + 截图。
-
-        输出: /tmp/gmc_recon/step_01.png, step_01.json, step_02.png, ...
-        """
-        data = request.get_json(silent=True) or {}
-        site_id = data.get("site_id")
-        profile_dir = (data.get("profile_dir") or "").strip()
-        onboarding_url = (data.get("onboarding_url") or "").strip()
-
-        site = get_site(site_id) if site_id else None
-        if not site:
-            return jsonify({"code": 404, "message": "站点不存在"}), 404
-
-        try:
-            profile_dir = _resolve_site_profile(site, profile_dir)
-        except FileNotFoundError as e:
-            return jsonify({"code": 400, "message": str(e)}), 400
-
-        google_email, google_password, google_totp_secret = _resolve_google_account_from_site(site)
-
-        task_id = create_task("gmc-recon", site_id)
-        logger.info("Task %s: gmc-recon started site=%s profile=%s url=%s",
-                    task_id, site_id, os.path.basename(profile_dir), onboarding_url or "default")
-
-        import asyncio
-        from services.mc_auto_register import gmc_recon as do_recon
-
-        def _run():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                result = loop.run_until_complete(do_recon(
-                    profile_dir=profile_dir,
-                    google_email=google_email,
-                    google_password=google_password,
-                    google_totp_secret=google_totp_secret,
-                    onboarding_url=onboarding_url,
-                    headless=False,
-                    log_callback=lambda level, msg, step: add_log(task_id, level, msg, step),
-                ))
-                complete_task(task_id, result.get("success", False), result)
-                _auto_diagnose_on_failure(task_id, result.get("success", False))
-            except Exception as e:
-                add_log(task_id, "error", f"任务异常: {e}", "")
-                complete_task(task_id, False, {"success": False, "message": str(e)})
-                _auto_diagnose_on_failure(task_id, False)
-            finally:
-                loop.close()
-
-        threading.Thread(target=_run, daemon=True).start()
-        return jsonify({"code": 200, "data": {"task_id": task_id}, "message": "侦查任务已启动"})
-
     @app.route("/api/cloakbrowser/profiles/test", methods=["POST"])
     @jwt_required()
     def cloakbrowser_test_profile():

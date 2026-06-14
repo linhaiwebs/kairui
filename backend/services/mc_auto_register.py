@@ -1,29 +1,25 @@
 ﻿"""
-Google Merchant Center 自动化注册 + CloakBrowser 指纹环境管理
+Google Merchant Center AI-driven registration + CloakBrowser profile management.
 
-每个 profile 目录是一个完整的独立浏览器环境：
-- cookies/localStorage 自动持久化
-- 指纹参数（OS、GPU、屏幕、硬件等）由 config.json 控制
-- 代理 IP 由 config.json 配置
-
-Profile 目录结构：
-    backend/profiles/<name>/
-        config.json          ← 指纹 + 代理 + Google 账号信息
-        Default/             ← CloakBrowser 自动管理的 cookies/storage
+Uses DeepSeek AI to analyze each GMC page and decide the next action,
+replacing the old hardcoded-selector approach.
 
 Usage::
 
-    from services.mc_auto_register import create_profile, register_mc_account
+    from services.mc_auto_register import create_profile, register_gmc_ai
 
-    # 创建新 profile（随机指纹）
     cfg = create_profile("store-001", google_email="store@gmail.com",
                          proxy="socks5://user:pass@1.2.3.4:1080")
 
-    # 注册 MC
-    result = asyncio.run(register_mc_account(
+    result = asyncio.run(register_gmc_ai(
         profile_dir=cfg["dir"],
-        site_domain="example.com",
-        feed_url="https://example.com/wp-content/uploads/google-feed.xml",
+        site_url="example.com",
+        google_email="store@gmail.com",
+        google_password="xxx",
+        google_totp_secret="JBSWY3DPEHPK3PXP",
+        business_info={"company_name": "My Store", "city": "New York"},
+        feed_url="https://example.com/feed.xml",
+        log_callback=lambda level, msg, step: print(f"[{step}] {msg}"),
     ))
 """
 
@@ -380,147 +376,6 @@ def _normalize_proxy_for_launch(proxy: str, bypass_inline_auth: bool = False):
 
 from datetime import datetime as _dt
 
-
-class StepFailed(Exception):
-    """Raised when a GMC step fails in strict mode — stops the flow immediately."""
-    pass
-
-
-def _make_step_helpers(page, _emit, timeout_ms, strict=False):
-    """Create reusable helper functions for GMC Next step automation.
-
-    When strict=True, any selector failure raises StepFailed instead of
-    returning False, so the flow stops at the first problem for diagnosis.
-    """
-
-    class Helpers:
-        current_step = ""  # set via _enter_step → helps.set_step()
-
-        @staticmethod
-        def set_step(name: str):
-            Helpers.current_step = name
-
-        @staticmethod
-        async def _fail(reason: str):
-            """Handle failure: warn in normal mode, raise in strict mode."""
-            step = Helpers.current_step
-            if strict:
-                ts = _dt.now().strftime("%Y%m%d_%H%M%S")
-                path = f"/tmp/gmc_next_{step}_{ts}.png"
-                try:
-                    await page.screenshot(path=path)
-                    _emit("error", f"❌ {step}: {reason}\n   截图: {path}\n   page: {page.url[:120]}", step)
-                except Exception as e:
-                    _emit("error", f"❌ {step}: {reason} (截图失败: {e})", step)
-                raise StepFailed(f"[{step}] {reason}")
-            _emit("warning", f"{step}: {reason}", step)
-
-        @staticmethod
-        async def click_any(selectors: list) -> bool:
-            """Try each selector, click first visible match. Return True if clicked."""
-            for sel in selectors:
-                try:
-                    el = page.locator(sel).first
-                    if await el.count() > 0 and await el.is_visible():
-                        await el.click(timeout=5000)
-                        await asyncio.sleep(1)
-                        return True
-                except Exception:
-                    continue
-            if strict:
-                await Helpers._fail(f"click_any 失败 — {len(selectors)} 个选择器均未匹配")
-            return False
-
-        @staticmethod
-        async def fill_any(selectors: list, value: str) -> bool:
-            """Try each selector, fill first visible match. Return True if filled."""
-            for sel in selectors:
-                try:
-                    el = page.locator(sel).first
-                    if await el.count() > 0 and await el.is_visible():
-                        await el.fill(value, timeout=5000)
-                        return True
-                except Exception:
-                    continue
-            if strict:
-                await Helpers._fail(f"fill_any 失败 — {len(selectors)} 个选择器，目标值: {value[:60]}")
-            return False
-
-        @staticmethod
-        async def fill_select(selectors: list, value: str) -> bool:
-            """Fill a <select> or mwc-select dropdown."""
-            for sel in selectors:
-                try:
-                    el = page.locator(sel).first
-                    if await el.count() > 0 and await el.is_visible():
-                        tag = await el.evaluate("el => el.tagName.toLowerCase()")
-                        if tag == "select":
-                            await el.select_option(value, timeout=5000)
-                            return True
-                        await el.click(timeout=5000)
-                        await asyncio.sleep(1)
-                        for opt in [
-                            f"mwc-list-item:has-text('{value}')",
-                            f"li:has-text('{value}')",
-                            f"[role='option']:has-text('{value}')",
-                            f"span:has-text('{value}')",
-                        ]:
-                            try:
-                                opt_el = page.locator(opt).first
-                                if await opt_el.count() > 0 and await opt_el.is_visible():
-                                    await opt_el.click(timeout=3000)
-                                    await asyncio.sleep(0.5)
-                                    return True
-                            except Exception:
-                                continue
-                        await page.keyboard.press("Escape")
-                        return False
-                except Exception:
-                    continue
-            if strict:
-                await Helpers._fail(f"fill_select 失败 — {len(selectors)} 个选择器，目标值: {value}")
-            return False
-
-        @staticmethod
-        async def click_continue() -> bool:
-            """Click Continue/Next/Save button."""
-            for sel in [
-                "mwc-button:has-text('Continue')", "mwc-button:has-text('Next')",
-                "mwc-button:has-text('Save')", "mwc-button:has-text('Submit')",
-                "button:has-text('Continue')", "button:has-text('Next')",
-                "button:has-text('Save')", "button:has-text('Submit')",
-                "span.mdc-button__label:text-is('Continue')",
-                "input[type='submit']",
-            ]:
-                try:
-                    el = page.locator(sel).first
-                    if await el.count() > 0 and await el.is_visible():
-                        await el.click(timeout=5000)
-                        await asyncio.sleep(2)
-                        return True
-                except Exception:
-                    continue
-            if strict:
-                await Helpers._fail("click_continue 失败 — 找不到 Continue/Next/Save/Submit 按钮")
-            return False
-
-        @staticmethod
-        async def debug_screenshot(reason: str):
-            """Save screenshot for debugging a failed step."""
-            step = Helpers.current_step
-            if strict:
-                await Helpers._fail(reason)
-            ts = _dt.now().strftime("%Y%m%d_%H%M%S")
-            path = f"/tmp/gmc_next_{step}_{ts}.png"
-            try:
-                await page.screenshot(path=path)
-                _emit("warning", f"{step}: {reason} — 截图: {path}", step)
-            except Exception as e:
-                _emit("warning", f"{step}: {reason} (截图失败: {e})", step)
-
-    return Helpers()
-
-
 async def _detect_gmc_page(page) -> dict:
     """Detect current GMC page state. Returns dict with phase and step info.
 
@@ -764,26 +619,6 @@ _DUMP_DOM_JS = r"""() => {
 }"""
 
 
-async def _dump_step_dom(page, recon_dir: str, step_name: str):
-    """Save screenshot + DOM structure JSON for a step."""
-    import json as _json
-    os.makedirs(recon_dir, exist_ok=True)
-    safe = step_name.replace(" ", "_").replace("/", "_")
-    ss_path = os.path.join(recon_dir, f"{safe}.png")
-    dom_path = os.path.join(recon_dir, f"{safe}.json")
-    try:
-        await page.screenshot(path=ss_path, full_page=False)
-    except Exception:
-        pass
-    try:
-        dom = await page.evaluate(_DUMP_DOM_JS)
-        with open(dom_path, "w", encoding="utf-8") as f:
-            _json.dump(dom, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
-    return ss_path, dom_path
-
-
 async def _get_logged_in_email(page) -> str:
     """Return the email of the currently logged-in Google account, or '' if undetectable."""
     try:
@@ -967,1492 +802,381 @@ async def _google_login(
     return success
 
 
-async def register_mc_account(
-    profile_dir: str,
-    site_domain: str,
-    google_email: str = "",
-    google_password: str = "",
-    google_totp_secret: str = "",
-    site_title: str = "",
-    feed_url: str = "",
-    country: str = "US",
-    timezone: str = "",
-    headless: bool = True,
-    timeout_ms: int = 180000,  # slow proxies need generous timeout
-    log_callback=None,
-    business_info: dict | None = None,
-    return_policy_url: str = "",
-    wp_url: str = "",
-    wp_username: str = "",
-    wp_password: str = "",
-    recon_dir: str = "",
-) -> dict:
-    """注册 Google Merchant Center Next 账号。
+# ---------------------------------------------------------------------------
+# AI-driven GMC registration
+# ---------------------------------------------------------------------------
 
-    从 profile_dir/config.json 读取指纹 + 代理配置，
-    启动 CloakBrowser 反检测浏览器，自动完成 GMC Next 注册全流程（12 步向导）。
-    log_callback(level, message, step) — 可选，用于实时日志推送到前端。
-    recon_dir — 设置后每步自动导出截图+DOM JSON 用于诊断。
-    """
-    def _emit(level: str, msg: str, step: str = ""):
-        log_func = {"info": logger.info, "warning": logger.warning, "error": logger.error}.get(level, logger.info)
-        log_func("%s", msg)
-        if log_callback:
-            try:
-                log_callback(level, msg, step)
-            except Exception:
-                pass
-
-    async def _enter_step(step_name: str, msg: str):
-        result["step"] = step_name
-        _emit("info", msg, step_name)
-        helpers.set_step(step_name)
-        if recon_dir:
-            await _dump_step_dom(page, recon_dir, step_name)
-
-    _emit("info", "=" * 50)
-    _emit("info", f"MC 注册开始 — site={site_domain} profile={os.path.basename(profile_dir)}")
-    _emit("info", f"参数: country={country} headless={headless} timeout={timeout_ms/1000}s feed={'OK' if feed_url else 'NO'}")
-
+async def _dump_dom_json(page, log_callback=None):
+    """Extract structured page DOM as JSON text for AI analysis."""
     try:
-        from cloakbrowser import launch_persistent_context_async
-    except ImportError:
-        _emit("error", "cloakbrowser 未安装", "import")
-        return {
-            "success": False,
-            "message": "cloakbrowser 未安装，请运行: pip install cloakbrowser",
-            "step": "import",
-        }
-
-    if not os.path.isdir(profile_dir):
-        _emit("error", f"Profile 目录不存在: {profile_dir}", "profile_dir")
-        return {"success": False, "message": f"Profile 目录不存在: {profile_dir}", "step": "profile_dir"}
-
-    # 读取 profile 配置
-    _emit("info", "正在加载 profile 配置...", "config")
-    config = load_profile_config(profile_dir) or {}
-    proxy = (config.get("proxy", "") or "").replace("socks5h://", "socks5://")
-    tz = timezone or config.get("timezone", "America/Chicago")
-    locale = config.get("locale", "en-US")
-    fingerprint_args = _build_launch_args(config)
-
-    title = site_title or site_domain.replace("www.", "").split(".")[0].capitalize()
-    website_url = f"https://{site_domain}"
-    _emit("info", f"配置加载完成 — platform={config.get('platform','?')} proxy={'YES' if proxy else 'NO'} title={title} url={website_url}", "config")
-
-    browser_ctx = None
-    result = {"success": False, "mc_account_id": "", "step": ""}
-    mc_id = ""
-
-    try:
-        launch_kwargs = {
-            "headless": headless,
-            "timezone": tz,
-            "locale": locale,
-            "args": fingerprint_args,
-            "humanize": True,
-            "stealth_args": False,
-        }
-        if proxy:
-            launch_kwargs["proxy"] = _normalize_proxy_for_launch(proxy)
-            launch_kwargs["geoip"] = True
-
-        _emit("info", f"正在启动浏览器... (headless={headless})", "launch")
-        _unlock_profile(profile_dir)
-        browser_ctx = await launch_persistent_context_async(profile_dir, **launch_kwargs)
-        if browser_ctx.pages:
-            page = browser_ctx.pages[0]
-        else:
-            page = await browser_ctx.new_page()
-        page.set_default_timeout(timeout_ms)
-        helpers = _make_step_helpers(page, _emit, timeout_ms, strict=bool(recon_dir))
-        _emit("info", f"浏览器启动成功，页面就绪 (超时={timeout_ms/1000}s)", "launch")
-
-        # --- Step 1: Navigate ---
-        await _enter_step("navigate", "步骤 1: 访问 GMC 首页 — merchants.google.com ...")
-        try:
-            await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=180000)
-            _emit("info", f"GMC 首页已加载 — URL: {page.url[:80]}", "navigate")
-        except Exception as e:
-            _emit("error", f"访问 GMC 首页超时/失败: {e}", "navigate")
-            result["message"] = f"访问 Google Merchant Center 失败(网络超时): {e}"
-            return result
-        await asyncio.sleep(3)
-
-        if "accounts.google.com" in page.url:
-            _emit("warning", f"Google 未登录 — 当前 URL: {page.url[:80]}", "navigate")
-            if google_email and google_password:
-                _emit("info", f"检测到 Google 账户凭据，尝试自动登录...", "google_login")
-                login_ok = await _google_login(
-                    page, google_email, google_password, google_totp_secret,
-                    log_callback=log_callback, timeout_ms=timeout_ms,
-                    recon_dir=recon_dir,
-                )
-                if login_ok:
-                    _emit("info", "Google 自动登录成功，继续 MC 注册流程", "google_login")
-                    await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=180000)
-                    await asyncio.sleep(3)
-                else:
-                    _emit("error", "Google 自动登录失败", "google_login")
-                    return {
-                        "success": False,
-                        "message": "Google 自动登录失败，请检查账户凭据或 2FA 密钥",
-                        "step": "google_login",
-                    }
-            else:
-                return {
-                    "success": False,
-                    "message": f"Google 未登录。请先在 headless=False 下打开 profile '{os.path.basename(profile_dir)}' 并手动登录，或在品牌套件中关联 Google 账户",
-                    "step": "google_login",
-                }
-        _emit("info", "Google 已登录", "navigate")
-
-        # If brand kit specifies a Google account, ensure correct account is logged in
-        if google_email:
-            logged_in = await _get_logged_in_email(page)
-            if logged_in and google_email.lower() != logged_in.lower():
-                _emit("warning", f"Profile 当前登录 {logged_in}，但品牌套件指定 {google_email}，正在切换账户...", "google_login")
-                await page.goto("https://accounts.google.com/Logout", wait_until="domcontentloaded", timeout=30000)
-                await asyncio.sleep(3)
-                login_ok = await _google_login(
-                    page, google_email, google_password, google_totp_secret,
-                    log_callback=log_callback, timeout_ms=timeout_ms,
-                    recon_dir=recon_dir,
-                )
-                if login_ok:
-                    _emit("info", f"已切换到品牌套件账户: {google_email}", "google_login")
-                else:
-                    _emit("error", f"切换账户失败: {google_email}", "google_login")
-                    return {
-                        "success": False,
-                        "message": f"切换到 Google 账户 {google_email} 失败，请检查凭据",
-                        "step": "google_login",
-                    }
-
-        # ================================================================
-        # Detect current GMC state — are we in wizard, dashboard, or setup?
-        # ================================================================
-        gmc_state = await _detect_gmc_page(page)
-        _emit("info", f"GMC 状态检测: phase={gmc_state['phase']} wizard_step={gmc_state.get('wizard_step',0)} url={gmc_state.get('url','')[:80]}", "state_detect")
-
-        if gmc_state["phase"] == "dashboard":
-            _emit("info", "GMC 账户已注册，跳过注册向导，直接进入设置流程", "state_detect")
-            # Extract MC ID from page content for setup URL
-            if not mc_id:
-                m = _re.search(r'/a/(\d+)', page.url)
-                if not m:
-                    m = _re.search(r'/mc/(\d+)', page.url)
-                if m:
-                    mc_id = m.group(1)
-                    result["mc_account_id"] = mc_id
-                    _emit("info", f"从 URL 提取 MC ID: {mc_id}", "state_detect")
-            result["wizard_skipped"] = True
-            # Skip wizard entirely - fall through to setup section below
-
-        elif gmc_state["phase"] == "setup":
-            _emit("info", "已在设置流程中，跳过注册向导", "state_detect")
-            result["wizard_skipped"] = True
-            # Fall through to setup section
-
-        elif gmc_state["phase"] == "wizard":
-            _emit("info", f"进入 GMC 注册向导 (当前步骤: {gmc_state.get('wizard_step', '?')})", "state_detect")
-            current_wizard_step = max(gmc_state.get("wizard_step", 1), 1)
-            await _dismiss_overlays(page)
-
-            # Fast-forward to current step: keep clicking Continue until we catch up
-            if current_wizard_step > 1:
-                _emit("info", f"检测到已跳过前 {current_wizard_step - 1} 步，快速推进中...", "fast_forward")
-                for ff in range(current_wizard_step - 1):
-                    clicked = False
-                    for sel in [
-                        "mwc-button:has-text('Continue')", "mwc-button:has-text('Next')",
-                        "button:has-text('Continue')", "button:has-text('Next')",
-                        "button[type='submit']",
-                    ]:
-                        try:
-                            el = page.locator(sel).first
-                            if await el.count() > 0 and await el.is_visible():
-                                await el.click(timeout=3000)
-                                clicked = True
-                                await asyncio.sleep(3)
-                                break
-                        except Exception:
-                            continue
-                    if not clicked:
-                        _emit("warning", f"快速推进第 {ff + 1} 步失败，可能已到末尾", "fast_forward")
-                        break
-                _emit("info", f"快速推进完成，当前位置: {page.url[:100]}", "fast_forward")
-
-            # Re-detect after fast-forward
-            gmc_state = await _detect_gmc_page(page)
-            _emit("info", f"推进后状态: phase={gmc_state['phase']} wizard_step={gmc_state.get('wizard_step',0)}", "fast_forward")
-            if gmc_state["phase"] != "wizard":
-                _emit("info", "已离开注册向导，跳过剩余步骤", "fast_forward")
-                result["wizard_skipped"] = True
-
-        async def _run_wizard():
-            # --- Step 2: "Do you sell products online?" → Yes ---
-            await _enter_step("ask_sell", "步骤 2: 回答 '是否在线销售产品?' → Yes")
-            if not await helpers.click_any([
-                "mwc-radio[value='yes']", "div[role='radio']:has-text('Yes')",
-                "label:has-text('Yes') input[type='radio']", "span:has-text('Yes')",
-                "mwc-button:has-text('Yes')", "button:has-text('Yes')",
-            ]):
-                _emit("info", "未找到 'Yes' 选项，可能已跳过此步骤", "ask_sell")
-            await helpers.click_continue()
-
-            # --- Step 3: Enter online store URL ---
-            await _enter_step("enter_url", f"步骤 3: 输入商店 URL — https://{site_domain}")
-            website_url = f"https://{site_domain}"
-            if not await helpers.fill_any([
-                "mwc-textfield[label*='website']", "mwc-textfield[label*='store']",
-                "mwc-textfield[label*='URL']", "mwc-textfield[label*='shop']",
-                "input[name='websiteUrl']", "input[name='website']",
-                "input[aria-label*='website']", "input[aria-label*='store URL']",
-                "input[type='url']", "input[placeholder*='https://']",
-                "input[placeholder*='example.com']",
-            ], website_url):
-                await helpers.debug_screenshot("找不到商店 URL 输入框")
-            await helpers.click_continue()
-
-            # --- Step 4: "Do you have a physical store?" → No ---
-            await _enter_step("ask_physical", "步骤 4: 回答 '是否有实体店?' → No")
-            if not await helpers.click_any([
-                "mwc-radio[value='no']", "div[role='radio']:has-text('No')",
-                "div[role='radio']:has-text('No physical')",
-                "label:has-text('No') input[type='radio']",
-                "mwc-button:has-text('No')", "button:has-text('No')",
-            ]):
-                _emit("info", "未找到 'No' 选项，可能已跳过", "ask_physical")
-            await helpers.click_continue()
-
-            # --- Step 5: Business center info ---
-            await _enter_step("business_info", "步骤 5: 填写商户信息...")
-
-            company = (business_info or {}).get("company_name") or site_title or site_domain
-            display_name = (business_info or {}).get("company_name") or site_title or site_domain
-            reg_country = (business_info or {}).get("country") or country or "US"
-            country_name = {"US": "United States", "CA": "Canada", "GB": "United Kingdom", "CN": "China"}.get(reg_country, reg_country)
-
-            if not await helpers.fill_any([
-                "mwc-textfield[label*='company']", "mwc-textfield[label*='business name']",
-                "mwc-textfield[label*='legal']", "input[name='accountName']",
-                "input[name='companyName']", "input[aria-label*='company name']",
-                "input[aria-label*='business name']", "input[aria-label*='legal name']",
-            ], company):
-                await helpers.debug_screenshot("找不到公司名称输入框")
-
-            if not await helpers.fill_any([
-                "mwc-textfield[label*='display']", "mwc-textfield[label*='merchant display']",
-                "input[name='businessDisplayName']", "input[name='displayName']",
-                "input[aria-label*='display name']", "input[aria-label*='merchant display']",
-            ], display_name):
-                _emit("info", "未找到商家显示名输入框（可能与公司名共用）", "business_info")
-
-            if not await helpers.fill_select([
-                "mwc-select[label*='country']", "mwc-select[label*='region']",
-                "select[name='country']", "div[role='combobox'][aria-label*='country']",
-            ], country_name):
-                _emit("info", "未找到国家选择器，跳过", "business_info")
-
-            await helpers.click_continue()
-
-            # --- Step 6: Business address ---
-            await _enter_step("business_address", "步骤 6: 填写企业地址...")
-            bi = business_info or {}
-
-            addr = bi.get("address") or "123 Main St"
-            city = bi.get("city") or "Los Angeles"
-            state = bi.get("state_code") or "CA"
-            zipcode = bi.get("postcode") or "90001"
-
-            if not await helpers.fill_any([
-                "mwc-textfield[label*='address']", "mwc-textfield[label*='street']",
-                "input[name='address']", "input[name='streetAddress']",
-                "input[aria-label*='address']", "input[aria-label*='street']",
-            ], addr):
-                await helpers.debug_screenshot("找不到地址输入框")
-
-            if not await helpers.fill_any([
-                "mwc-textfield[label*='city']", "input[name='city']",
-                "input[aria-label*='city']",
-            ], city):
-                _emit("info", "未找到城市输入框", "business_address")
-
-            if not await helpers.fill_select([
-                "mwc-select[label*='state']", "mwc-select[label*='province']",
-                "select[name='state']", "select[name='province']",
-                "div[role='combobox'][aria-label*='state']",
-            ], state):
-                if not await helpers.fill_any([
-                    "mwc-textfield[label*='state']", "input[name='state']",
-                    "input[aria-label*='state']",
-                ], state):
-                    _emit("info", "未找到州/省输入框", "business_address")
-
-            if not await helpers.fill_any([
-                "mwc-textfield[label*='ZIP']", "mwc-textfield[label*='postal']",
-                "input[name='zip']", "input[name='postalCode']", "input[name='postcode']",
-                "input[aria-label*='ZIP']", "input[aria-label*='postal']",
-            ], zipcode):
-                _emit("info", "未找到邮编输入框", "business_address")
-
-            await helpers.click_continue()
-
-            # --- Step 7: Website verification ---
-            await _enter_step("verify_website", "步骤 7: 网站验证 — 选择 HTML 标签方式...")
-
-            # Select HTML tag method
-            if not await helpers.click_any([
-                "mwc-radio[value*='tag']", "mwc-radio[value*='meta']",
-                "mwc-radio[value*='html']", "div[role='radio']:has-text('HTML tag')",
-                "div[role='radio']:has-text('meta tag')",
-                "label:has-text('HTML tag') input[type='radio']",
-                "span:has-text('Add an HTML tag')",
-            ]):
-                _emit("info", "未找到 HTML 标签验证方式选项，可能已默认选中", "verify_website")
-
-            # Extract verification code
-            verification_code = ""
-            for sel in [
-                "code", "pre", "[data-code]", "[data-verification-code]",
-                "span:has-text('content=')", "div:has-text('google-site-verification')",
-            ]:
-                try:
-                    el = page.locator(sel).first
-                    if await el.count() > 0:
-                        text = await el.inner_text()
-                        m = _re.search(r'content=["\']([^"\']{20,})["\']', text)
-                        if m:
-                            verification_code = m.group(1)
-                            break
-                        m = _re.search(r'([a-zA-Z0-9_-]{30,})', text)
-                        if m:
-                            verification_code = m.group(1)
-                            break
-                except Exception:
-                    pass
-
-            if not verification_code:
-                try:
-                    html = await page.content()
-                    m = _re.search(r'content=["\']([a-zA-Z0-9_-]{20,})["\']', html)
-                    if m:
-                        verification_code = m.group(1)
-                except Exception:
-                    pass
-
-            if verification_code:
-                _emit("info", f"验证码提取成功: {verification_code[:20]}...", "verify_website")
-
-                # Inject into WordPress if WP credentials available
-                if wp_url and wp_username and wp_password:
-                    try:
-                        from services.wordpress_client import WordPressAdminSession
-                        wp = WordPressAdminSession(wp_url, wp_username, wp_password)
-                        inject_result = wp.inject_google_verification(verification_code, "meta")
-                        if inject_result.get("success"):
-                            _emit("info", "验证标签已注入 WordPress", "verify_website")
-                        else:
-                            _emit("warning", f"验证标签注入失败: {inject_result.get('message')}", "verify_website")
-                    except Exception as e:
-                        _emit("warning", f"WordPress 注入异常: {e}", "verify_website")
-
-                # Wait for Google to detect
-                await asyncio.sleep(5)
-            else:
-                _emit("warning", "未能提取验证码，继续流程...", "verify_website")
-
-            # Click verify button
-            if not await helpers.click_any([
-                "mwc-button:has-text('Verify')", "mwc-button:has-text('Verify URL')",
-                "mwc-button:has-text('Verify website')", "button:has-text('Verify')",
-                "button:has-text('Verify website')", "button:has-text('I have added')",
-                "button:has-text('Check')",
-            ]):
-                _emit("info", "未找到验证按钮，标签可能已自动检测", "verify_website")
-
-            await asyncio.sleep(5)
-
-            # Check verification result
-            verified = False
-            for sel in [
-                "div:has-text('Verified')", "span:has-text('Verified')",
-                "text=Verified", "[data-status='verified']",
-                "div:has-text('success')",
-            ]:
-                try:
-                    el = page.locator(sel).first
-                    if await el.is_visible():
-                        verified = True
-                        _emit("info", "OK 网站验证成功!", "verify_website")
-                        break
-                except Exception:
-                    pass
-            if not verified:
-                _emit("info", "验证标签已注入，Google 将在后台完成验证", "verify_website")
-
-            await helpers.click_continue()
-
-            # --- Step 8: Select target country ---
-            await _enter_step("select_country", f"步骤 8: 选择目标国家 — {country_name}")
-            if not await helpers.fill_select([
-                "mwc-select[label*='target country']", "mwc-select[label*='sales country']",
-                "select[name='targetCountry']", "select[name='country']",
-                "div[role='combobox'][aria-label*='target country']",
-            ], country_name):
-                _emit("info", "未找到目标国家选择器，跳过", "select_country")
-            await helpers.click_continue()
-
-            # --- Step 9: Add feed URL ---
-            await _enter_step("add_feed", f"步骤 9: 添加产品 Feed — {feed_url}" if feed_url else "步骤 9: 无 Feed URL，跳过")
-            if feed_url:
-                if not await helpers.fill_any([
-                    "mwc-textfield[label*='feed']", "mwc-textfield[label*='data source']",
-                    "input[name='feedUrl']", "input[name='feed']", "input[name='url']",
-                    "input[aria-label*='feed URL']", "input[aria-label*='data source']",
-                    "input[placeholder*='xml']", "input[placeholder*='feed']",
-                ], feed_url):
-                    _emit("warning", "未找到 Feed URL 输入框", "add_feed")
-                await helpers.click_continue()
-
-            # --- Step 10: Shipping and delivery ---
-            await _enter_step("shipping", "步骤 10: 运输和送货设置...")
-            # Usually pre-filled based on business country; just continue
-            await helpers.click_continue()
-
-            # --- Step 11: Returns & refunds ---
-            await _enter_step("returns", "步骤 11: 退货/退款政策...")
-
-            rp_url = return_policy_url or f"https://{site_domain}/return-policy/"
-            if not await helpers.fill_any([
-                "mwc-textfield[label*='return policy']", "mwc-textfield[label*='policy URL']",
-                "mwc-textfield[label*='returns']", "input[name='returnPolicyUrl']",
-                "input[name='returnPolicy']", "input[aria-label*='return policy']",
-            ], rp_url):
-                _emit("info", "未找到退货政策 URL 输入框", "returns")
-
-            # Select 30-day return window
-            await helpers.fill_select([
-                "mwc-select[label*='return window']", "mwc-select[label*='return period']",
-                "select[name='returnWindow']", "div[role='combobox'][aria-label*='return window']",
-            ], "30 days")
-
-            # No restocking fee
-            await helpers.click_any([
-                "mwc-radio[value='no']", "div[role='radio']:has-text('No')",
-                "label:has-text('No') input[type='radio']",
-            ])
-
-            await helpers.click_continue()
-
-            # --- Step 12: Complete / Claim ---
-            await _enter_step("complete", "步骤 12: 申领完成...")
-            await helpers.click_any([
-                "mwc-button:has-text('Complete')", "mwc-button:has-text('Finish')",
-                "mwc-button:has-text('Claim')", "mwc-button:has-text('Done')",
-                "button:has-text('Complete')", "button:has-text('Finish')",
-                "button:has-text('Claim')", "button:has-text('Done')",
-            ])
-            await asyncio.sleep(5)
-
-            # Extract MC account ID
-            await _enter_step("extract_id", "提取 MC 账号 ID...")
-            mc_id = ""
-            m = _re.search(r'/a/(\d+)', page.url)
-            if not m:
-                m = _re.search(r'/mc/(\d+)', page.url)
-            if not m:
-                m = _re.search(r'merchant[_-]?id[=:]?\s*(\d+)', await page.content(), _re.I)
-            if not m:
-                for sel in [
-                    "[data-merchant-id]", "span.merchant-id",
-                    "div:has-text('Merchant ID') span",
-                ]:
-                    try:
-                        el = page.locator(sel).first
-                        if await el.count() > 0:
-                            text = await el.inner_text()
-                            m = _re.search(r'\d{6,}', text)
-                            if m:
-                                break
-                    except Exception:
-                        pass
-            if m:
-                mc_id = m.group(1)
-                result["mc_account_id"] = mc_id
-                _emit("info", f"MC ID: {mc_id}", "extract_id")
-
-            result["success"] = True
-            result["message"] = f"GMC Next 注册完成 (MC ID: {mc_id})" if mc_id else "GMC Next 注册完成"
-            _emit("info", f"OK {result['message']}", "done")
-
-
-        if not result.get("wizard_skipped"):
-            await _run_wizard()
-        mc_id = result.get("mc_account_id", mc_id)
-
-        # ================================================================
-        # Post-registration: GMC Setup flow (6-step setup wizard)
-        # ================================================================
-        if mc_id:
-            _emit("info", "=" * 40)
-            _emit("info", f"继续 GMC 设置向导 — MC ID: {mc_id}", "setup_start")
-
-            # Try to navigate to the setup flow
-            # GMC Next setup URL format: /mc/setup/products?a=...&flow=onlineOnboarding
-            setup_url = f"https://merchants.google.com/mc/setup/products?a={mc_id}&flow=onlineOnboarding"
-            _emit("info", f"导航到设置向导: {setup_url}", "setup_navigate")
-            try:
-                await page.goto(setup_url, wait_until="domcontentloaded", timeout=180000)
-            except Exception:
-                _emit("info", "直接导航失败，尝试在仪表盘中寻找设置入口...", "setup_navigate")
-                # Fallback: stay on current page and try clicking setup-related links
-                pass
-            await asyncio.sleep(5)
-            await _dismiss_overlays(page)
-
-            # Walk through setup steps
-            setup_step = 0
-            prev_url = ""
-            max_setup_steps = 15
-            for _ in range(max_setup_steps):
-                setup_step += 1
-                step_name = f"gmc_setup_{setup_step:02d}"
-                helpers.set_step(step_name)
-                _emit("info", f"--- 设置步骤 {setup_step} ---", step_name)
-                await asyncio.sleep(2)
-
-                current_url = page.url
-                if current_url == prev_url:
-                    _emit("info", f"URL 未变化，可能已达到终点", step_name)
-                    # Still dump to capture final state
-                    if recon_dir:
-                        await _dump_step_dom(page, recon_dir, step_name)
-                    break
-                prev_url = current_url
-
-                if recon_dir:
-                    await _dump_step_dom(page, recon_dir, step_name)
-
-                # Try to click Continue/Next/Save to advance
-                clicked = False
-                for sel in [
-                    "mwc-button:has-text('Continue')", "mwc-button:has-text('Next')",
-                    "mwc-button:has-text('Save')", "mwc-button:has-text('Submit')",
-                    "mwc-button:has-text('Done')", "mwc-button:has-text('Complete')",
-                    "mwc-button:has-text('Finish')", "mwc-button:has-text('Confirm')",
-                    "button:has-text('Continue')", "button:has-text('Next')",
-                    "button:has-text('Save')", "button:has-text('Save and continue')",
-                    "button:has-text('Submit')", "button:has-text('Done')",
-                    "button:has-text('Complete')", "button:has-text('Finish')",
-                    "[role='button']:has-text('Continue')",
-                    "[role='button']:has-text('Next')",
-                ]:
-                    try:
-                        el = page.locator(sel).first
-                        if await el.count() > 0 and await el.is_visible():
-                            if await el.is_enabled():
-                                await el.click(timeout=5000)
-                                _emit("info", f"点击了: {sel}", step_name)
-                                clicked = True
-                                await asyncio.sleep(4)
-                                break
-                    except Exception:
-                        continue
-
-                if not clicked:
-                    # Try any visible button that looks like a primary action
-                    try:
-                        btns = page.locator("button:visible")
-                        count = await btns.count()
-                        for i in range(min(count, 30)):
-                            btn = btns.nth(i)
-                            text = (await btn.inner_text()).strip().lower()
-                            if any(kw in text for kw in ["continue", "next", "save", "submit", "done", "finish", "confirm", "accept", "agree", "get started", "start"]):
-                                if await btn.is_enabled():
-                                    await btn.click(timeout=5000)
-                                    _emit("info", f"点击了可见按钮: '{text}'", step_name)
-                                    clicked = True
-                                    await asyncio.sleep(4)
-                                    break
-                    except Exception:
-                        pass
-
-                if not clicked:
-                    _emit("info", "未找到可点击的继续按钮，设置流程可能已完成", step_name)
-                    break
-
-            _emit("info", f"GMC 设置向导侦察完成，共捕获 {setup_step} 个步骤", "setup_done")
-            result["setup_steps_captured"] = setup_step
-
-    except StepFailed:
-        result["success"] = False
+        dom_raw = await page.evaluate(_DUMP_DOM_JS)
+        dom = json.loads(dom_raw) if isinstance(dom_raw, str) else dom_raw
+
+        parts = []
+        parts.append(f"URL: {dom.get('url', page.url)}")
+        parts.append(f"Title: {dom.get('title', '')}")
+        parts.append(f"Heading: {dom.get('heading', '')}")
+
+        inputs = dom.get('inputs', [])
+        if inputs:
+            parts.append(f"\nInputs ({len(inputs)}):")
+            for inp in inputs[:20]:
+                parts.append(f"  [{inp.get('type','text')}] label={inp.get('label','?')} placeholder={inp.get('placeholder','')} id={inp.get('id','')}")
+
+        buttons = dom.get('buttons', [])
+        if buttons:
+            parts.append(f"\nButtons ({len(buttons)}):")
+            for btn in buttons[:20]:
+                parts.append(f"  text={btn.get('text','')} selector={btn.get('selector','')}")
+
+        selects = dom.get('selects', [])
+        if selects:
+            parts.append(f"\nSelects ({len(selects)}):")
+            for sel in selects[:10]:
+                parts.append(f"  label={sel.get('label','')} options={sel.get('options','')[:5]}")
+
+        links = dom.get('links', [])
+        if links:
+            parts.append(f"\nLinks ({len(links)}):")
+            for link in links[:15]:
+                parts.append(f"  text={link.get('text','')} href={link.get('href','')}")
+
+        errors = dom.get('errors', [])
+        if errors:
+            parts.append(f"\nErrors: {'; '.join(errors[:5])}")
+
+        return '\n'.join(parts)
     except Exception as e:
-        result["message"] = f"步骤 '{result['step']}' 失败: {e}"
-        _emit("error", f"步骤 '{result['step']}' 异常: {e}", result["step"])
-
-    finally:
-        if browser_ctx:
-            try:
-                await browser_ctx.close()
-            except Exception:
-                pass
-
-    return result
+        logger.warning(f"_dump_dom_json failed: {e}")
+        return f"URL: {page.url}\nTitle: {await page.title()}\n(dom extraction failed: {e})"
 
 
-async def _launch_with_playwright_proxy(
-    profile_dir: str,
-    fingerprint_args: list,
-    timezone: str,
-    locale: str,
-    proxy_url: str,
-    headless: bool = True,
-):
-    """Launch browser via raw Playwright with proxy dict for proper HTTP proxy auth.
+def _build_ai_prompt(dom_text, site_url, business_info, feed_url, completed_steps, page_title):
+    """Build DeepSeek prompt for GMC automation decision."""
+    biz_str = json.dumps(business_info or {}, ensure_ascii=False)
+    steps_str = ', '.join(completed_steps) if completed_steps else '(none)'
 
-    CloakBrowser's inline auth (--proxy-server with creds) doesn't handle
-    HTTP proxy auth negotiation correctly. Playwright's native proxy dict
-    uses CDP Fetch.authChallengeResponse to handle 407 challenges, which
-    works for both successful auth and error responses like 403.
-    """
-    from urllib.parse import urlparse, unquote
-    from playwright.async_api import async_playwright
-    from cloakbrowser import ensure_binary, build_args
+    return f"""You are a Google Merchant Center automation assistant. Help register a new merchant account.
 
-    parsed = urlparse(proxy_url)
-    proxy_dict = {
-        "server": f"http://{parsed.hostname}:{parsed.port or 80}",
-        "username": unquote(parsed.username) if parsed.username else "",
-        "password": unquote(parsed.password) if parsed.password else "",
-    }
-    logger.info("Playwright proxy dict: server=%s username=%s", proxy_dict["server"], proxy_dict["username"])
+TASK: Register GMC for website: {site_url}
+Business info: {biz_str}
+Feed URL: {feed_url}
+Steps completed: {steps_str}
 
-    binary_path = ensure_binary()
-    chrome_args = build_args(
-        True,  # stealth_args
-        fingerprint_args,
-        timezone=timezone,
-        locale=locale,
-        headless=headless,
-    )
+CURRENT PAGE:
+{dom_text}
 
-    pw = await async_playwright().start()
-    try:
-        context = await pw.chromium.launch_persistent_context(
-            user_data_dir=profile_dir,
-            executable_path=binary_path,
-            headless=headless,
-            args=chrome_args,
-            proxy=proxy_dict,
-            ignore_default_args=["--enable-automation", "--enable-unsafe-swiftshader"],
+Return ONLY JSON (no markdown, no explanation outside JSON):
+{{
+  "action": "click" | "fill" | "select" | "navigate" | "wait" | "done" | "fail",
+  "selector": "CSS selector or visible button/link text",
+  "value": "value to fill (only for fill/select/navigate actions)",
+  "reasoning": "brief explanation"
+}}
+
+RULES:
+- If this is a form asking for business info, fill it using the provided business_info JSON
+- Country should be United States unless business_info says otherwise
+- Store website URL is: {site_url}
+- Feed/product URL is: {feed_url}
+- Shipping and returns policy pages: just click continue/next/skip
+- If you see a captcha, verification challenge, or unexpected error: return action=fail
+- If you see GMC dashboard, MC account ID (numeric), or success message: return action=done
+- Use visible button/link TEXT as selector when possible (e.g. "Next", "Continue", "Save")"""
+
+
+async def _call_deepseek_for_action(prompt, log_callback=None):
+    """Call DeepSeek API to get the next action. Returns parsed action dict."""
+    from services.api_key_rotator import get_deepseek_keys, rotate_deepseek
+    import requests as http_requests
+
+    keys = get_deepseek_keys()
+    if not keys:
+        raise RuntimeError("No DeepSeek API keys configured")
+
+    def _call(key):
+        resp = http_requests.post(
+            "https://api.deepseek.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={
+                "model": "deepseek-chat",
+                "messages": [
+                    {"role": "system", "content": "You are a browser automation AI. You MUST return ONLY valid JSON. No markdown, no explanation outside the JSON object."},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.1,
+                "max_tokens": 500,
+            },
+            timeout=30,
         )
-    except Exception:
-        await pw.stop()
-        raise
+        if resp.status_code == 200:
+            body = resp.json()
+            return body["choices"][0]["message"]["content"].strip()
+        resp.raise_for_status()
 
-    # Patch close() to also stop Playwright
-    _orig_close = context.close
+    raw = rotate_deepseek(_call, keys)
 
-    async def _close_with_cleanup():
-        try:
-            await _orig_close()
-        finally:
-            await pw.stop()
-
-    context.close = _close_with_cleanup
-    return context
-
-
-async def auto_verify_google_site(
-    profile_dir: str,
-    site_domain: str = "",
-    wp_url: str = "",
-    wp_username: str = "",
-    wp_password: str = "",
-    google_email: str = "",
-    google_password: str = "",
-    google_totp_secret: str = "",
-    headless: bool = True,
-    timeout_ms: int = 180000,  # slow proxies need generous timeout
-    test_only: bool = False,
-    log_callback=None,
-) -> dict:
-    """自动完成 Google 站点验证（meta tag 方式）。
-
-    用 CloakBrowser 打开 GMC → 提取验证码 → 注入 WordPress → 点击验证。
-
-    test_only=True 时只检查浏览器是否可启动 + Google 是否已登录，随后立即返回。
-    log_callback(level, message, step) — 可选，用于实时日志推送到前端。
-    """
-    import traceback
-
-    def _emit(level: str, msg: str, step: str = ""):
-        """增强日志：同时输出到 Python logger 和前端 log_callback。"""
-        log_func = {"info": logger.info, "warning": logger.warning, "error": logger.error}.get(level, logger.info)
-        prefix = {"info": "[INFO]", "warning": "[WARN]", "error": "[ERR]"}.get(level, "[LOG]")
-        log_func("%s", f"{prefix} [{step}] {msg}" if step else f"{prefix} {msg}")
-        if log_callback:
-            try:
-                log_callback(level, msg, step)
-            except Exception:
-                pass
-
-    _emit("info", "=" * 50)
-    _emit("info", f"AutoVerify 开始 — site={site_domain} profile={os.path.basename(profile_dir)}")
+    # Extract JSON from response (may have markdown backticks)
+    raw = raw.strip()
+    if raw.startswith("```"):
+        parts = raw.split("```")
+        raw = parts[1] if len(parts) > 1 else raw
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
 
     try:
-        from cloakbrowser import launch_persistent_context_async
-    except ImportError as e:
-        _emit("error", f"cloakbrowser 导入失败: {e}", "import")
-        return {"success": False, "message": "cloakbrowser 未安装", "step": "import"}
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        import re
+        match = re.search(r'\{[^{}]*"action"[^{}]*\}', raw, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        raise ValueError(f"DeepSeek returned non-JSON: {raw[:300]}")
 
-    if not os.path.isdir(profile_dir):
-        _emit("error", f"Profile 目录不存在: {profile_dir}", "profile_dir")
-        return {"success": False, "message": f"Profile 目录不存在: {profile_dir}", "step": "profile_dir"}
 
-    _emit("info", "正在加载 profile 配置...", "config")
-    config = load_profile_config(profile_dir) or {}
-    proxy = (config.get("proxy", "") or "").replace("socks5h://", "socks5://")
-    _emit("info", f"参数: headless={headless} timeout={timeout_ms/1000}s test_only={test_only} proxy={'YES' if proxy else 'NO'}")
-    tz = config.get("timezone", "America/Chicago")
-    locale = config.get("locale", "en-US")
-    fingerprint_args = _build_launch_args(config)
-    _emit("info", f"配置加载完成 — platform={config.get('platform','?')} proxy={proxy[:40]+'...' if len(proxy)>40 else proxy or '(无)'} tz={tz} locale={locale}", "config")
+async def _execute_action(page, action, log_callback=None):
+    """Execute an AI-suggested action on the page."""
+    act = action["action"]
+    selector = action.get("selector", "")
+    value = action.get("value", "")
+    reasoning = action.get("reasoning", "")
 
-    browser_ctx = None
-    result = {"success": False, "verification_code": "", "step": ""}
+    if log_callback and reasoning:
+        log_callback("info", f"AI: {reasoning}", "ai_reason")
 
-    try:
-        launch_kwargs = {
-            "headless": headless,
-            "timezone": tz,
-            "locale": locale,
-            "args": fingerprint_args,
-            "humanize": True,
-            "stealth_args": False,
-        }
-        if proxy:
-            launch_kwargs["proxy"] = _normalize_proxy_for_launch(proxy)
-            launch_kwargs["geoip"] = True
-
-        if test_only and proxy and proxy.startswith("http://"):
-            # HTTP proxy test: use raw Playwright with CDP auth.
-            # Chromium's native --proxy-server with inline creds
-            # (used by CloakBrowser) breaks for HTTP proxy auth.
-            # Playwright's Fetch.authChallengeResponse CDP handling
-            # properly negotiates 407 → auth → receives actual response.
-            logger.info("test_only HTTP proxy: launching via raw Playwright + CDP auth")
-            _emit("info", "正在启动浏览器 (Playwright CDP 代理模式)...", "launch")
-            try:
-                browser_ctx = await _launch_with_playwright_proxy(
-                    profile_dir, fingerprint_args, tz, locale, proxy, headless
-                )
-            except Exception as e:
-                _emit("error", f"浏览器启动失败: {e}", "launch")
-                result["step"] = "launch"
-                result["message"] = f"浏览器启动失败: {e}"
-                return result
-        else:
-            _emit("info", f"正在启动浏览器... (headless={headless})", "launch")
-            t_launch_start = asyncio.get_event_loop().time()
-            try:
-                browser_ctx = await launch_persistent_context_async(profile_dir, **launch_kwargs)
-            except Exception as e:
-                _emit("error", f"浏览器启动失败: {e}", "launch")
-                result["step"] = "launch"
-                result["message"] = f"浏览器启动失败: {e}"
-                return result
-            _emit("info", f"浏览器启动成功 (耗时 {asyncio.get_event_loop().time() - t_launch_start:.1f}s)", "launch")
-
-        if browser_ctx.pages:
-            page = browser_ctx.pages[0]
-        else:
-            page = await browser_ctx.new_page()
-        page.set_default_timeout(timeout_ms)
-        _emit("info", f"页面就绪，默认超时={timeout_ms/1000}s", "launch")
-
-        # --- test_only: just verify browser + proxy works ---
-        if test_only:
-            _emit("info", "test_only 模式 — 检查网络连通性", "test")
-            result["step"] = "launch"
-            try:
-                _emit("info", "访问 httpbin.org/ip ...", "test")
-                resp = await page.goto("http://httpbin.org/ip", wait_until="domcontentloaded", timeout=20000)
-                _emit("info", f"httpbin 响应状态={resp.status if resp else 'no-response'} url={page.url}", "test")
-                await asyncio.sleep(1)
-                body = await page.inner_text("body")
-                ip_info = body.strip() if body else "(empty body)"
-                _emit("info", f"出口 IP: {ip_info}", "test")
-                return {"success": True, "message": f"Profile 可用，出口IP: {ip_info}", "ip": ip_info}
-            except Exception as e:
-                _emit("error", f"网络连通性测试失败: {e}", "test")
-                result["step"] = "httpbin"
-                result["message"] = f"网络连通性测试失败: {e}"
-                return result
-
-        # --- Check Google login ---
-        result["step"] = "google_login"
-        _emit("info", "步骤 1: 检查 Google 登录状态 — 访问 merchants.google.com ...", "google_login")
-        t_step = asyncio.get_event_loop().time()
+    if act == "click" and selector:
+        # Try CSS selector first, then text matching
         try:
-            resp = await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=180000)
-            _emit("info", f"GMC 首页响应 status={resp.status if resp else 'no-response'} (耗时 {asyncio.get_event_loop().time() - t_step:.1f}s)", "google_login")
-        except Exception as e:
-            _emit("error", f"访问 GMC 首页超时/失败: {e}", "google_login")
-            result["message"] = f"访问 Google Merchant Center 失败(网络超时): {e}"
-            return result
-        await asyncio.sleep(3)
-
-        if "accounts.google.com" in page.url:
-            _emit("warning", f"Google 未登录 — 当前 URL: {page.url[:80]}", "google_login")
-            if google_email and google_password:
-                _emit("info", f"检测到 Google 账户凭据，尝试自动登录...", "google_login")
-                login_ok = await _google_login(
-                    page, google_email, google_password, google_totp_secret,
-                    log_callback=log_callback, timeout_ms=timeout_ms,
-                )
-                if login_ok:
-                    _emit("info", "Google 自动登录成功，继续站点验证流程", "google_login")
-                    await page.goto("https://merchants.google.com/mc/settings/website", wait_until="domcontentloaded", timeout=180000)
-                    await asyncio.sleep(3)
-                else:
-                    _emit("error", "Google 自动登录失败", "google_login")
-                    return {
-                        "success": False,
-                        "message": "Google 自动登录失败，请检查账户凭据或 2FA 密钥",
-                        "step": "google_login",
-                    }
-            else:
-                return {
-                    "success": False,
-                    "message": f"Google 未登录。请先在 headless=False 下打开 profile '{os.path.basename(profile_dir)}' 并手动登录，或在品牌套件中关联 Google 账户",
-                    "step": "google_login",
-                }
-        _emit("info", f"Google 已登录 — 当前 URL: {page.url[:80]}", "google_login")
-
-        # If brand kit specifies a Google account, ensure correct account is logged in
-        if google_email:
-            logged_in = await _get_logged_in_email(page)
-            if logged_in and google_email.lower() != logged_in.lower():
-                _emit("warning", f"Profile 当前登录 {logged_in}，但品牌套件指定 {google_email}，正在切换账户...", "google_login")
-                # Sign out
-                await page.goto("https://accounts.google.com/Logout", wait_until="domcontentloaded", timeout=30000)
-                await asyncio.sleep(3)
-                # Re-login with brand kit account
-                login_ok = await _google_login(
-                    page, google_email, google_password, google_totp_secret,
-                    log_callback=log_callback, timeout_ms=timeout_ms,
-                )
-                if login_ok:
-                    _emit("info", f"已切换到品牌套件账户: {google_email}", "google_login")
-                else:
-                    _emit("error", f"切换账户失败: {google_email}", "google_login")
-                    return {
-                        "success": False,
-                        "message": f"切换到 Google 账户 {google_email} 失败，请检查凭据",
-                        "step": "google_login",
-                    }
-
-        # --- Navigate to Business Info → Website (GMC Next SPA) ---
-        result["step"] = "navigate_settings"
-        _emit("info", "步骤 2: 导航到 Business Information → Website ...", "navigate_settings")
-
-        # GMC Next: navigate via sidebar "Business information" → "Website" tab
-        biz_clicked = False
-        for sel in [
-            "a[href*='business']", "a:has-text('Business information')",
-            "span:has-text('Business information')", "mwc-list-item:has-text('Business info')",
-            "[data-nav='business-information']", "nav a:has-text('Business')",
-            ".nav-item:has-text('Business')", "a:has-text('Settings')",
-        ]:
-            try:
-                el = page.locator(sel).first
-                if await el.count() > 0 and await el.is_visible():
-                    await el.click()
-                    await asyncio.sleep(3)
-                    biz_clicked = True
-                    _emit("info", f"点击了 Business Information: {sel[:50]}", "navigate_settings")
-                    break
-            except Exception:
-                pass
-        if not biz_clicked:
-            # Fallback: try direct URL (may still work in some accounts)
-            try:
-                await page.goto("https://merchants.google.com/mc/settings/website", wait_until="domcontentloaded", timeout=180000)
-                _emit("info", "使用旧版 URL 导航到验证设置页", "navigate_settings")
-            except Exception:
-                pass
-        await asyncio.sleep(2)
-
-        # Click Website tab if visible
-        for sel in [
-            "div[role='tab']:has-text('Website')", "button[role='tab']:has-text('Website')",
-            "mwc-tab:has-text('Website')", "a:has-text('Your website')",
-            "a:has-text('Website')",
-        ]:
-            try:
-                el = page.locator(sel).first
-                if await el.count() > 0 and await el.is_visible():
-                    await el.click()
-                    await asyncio.sleep(2)
-                    _emit("info", f"点击了 Website 标签: {sel[:50]}", "navigate_settings")
-                    break
-            except Exception:
-                pass
-
-        # Check if already verified
-        for sel in ["text=Verified", "text=verified", "[aria-label*='Verified']",
-                     "div:has-text('Your website is verified')",
-                     "span:has-text('Verified')", "div.status-verified"]:
-            try:
-                if await page.locator(sel).first.is_visible():
-                    _emit("info", "网站已验证 (already verified)", "navigate_settings")
-                    result["success"] = True
-                    result["message"] = "网站已验证"
-                    result["already_verified"] = True
-                    return result
-            except Exception:
-                pass
-        _emit("info", "网站尚未验证，继续流程...", "navigate_settings")
-
-        # --- Enter website URL if needed ---
-        result["step"] = "enter_url"
-        _emit("info", f"步骤 3: 输入网站 URL: https://{site_domain}", "enter_url")
-        helpers = _make_step_helpers(page, _emit, timeout_ms)
-        if not await helpers.fill_any([
-            "mwc-textfield[label*='website']", "mwc-textfield[label*='store']",
-            "input[name='websiteUrl']", "input[aria-label*='Website']",
-            "input[aria-label*='website']", "input[type='url']",
-        ], f"https://{site_domain}"):
-            _emit("info", "未找到网站 URL 输入框，可能已自动填充", "enter_url")
-        await helpers.click_continue()
-
-        # --- Select HTML tag method ---
-        result["step"] = "select_method"
-        _emit("info", "步骤 4: 选择 HTML 标签验证方式...", "select_method")
-        if not await helpers.click_any([
-            "mwc-radio[value*='tag']", "mwc-radio[value*='meta']",
-            "mwc-radio[value*='html']", "div[role='radio']:has-text('HTML tag')",
-            "label:has-text('HTML tag') input[type='radio']",
-            "span:has-text('Add an HTML tag')",
-        ]):
-            _emit("info", "未找到 HTML 标签选项，可能已默认选中", "select_method")
-
-        # --- Extract verification code ---
-        result["step"] = "extract_code"
-        _emit("info", "步骤 5: 提取验证码...", "extract_code")
-        verification_code = ""
-        # Try dedicated elements first
-        for sel in ["code", "pre", "[data-code]", "[data-value]",
-                     "span:has-text('content=')", "div:has-text('google-site-verification')"]:
-            el = page.locator(sel)
+            el = page.locator(selector).first
             if await el.count() > 0:
-                text = await el.first.inner_text()
-                _emit("info", f"从元素 '{sel[:30]}' 提取文本: {text[:100]}", "extract_code")
-                m = _re.search(r'content=["\']([^"\']+)["\']', text)
-                if m:
-                    verification_code = m.group(1)
-                    break
-                m2 = _re.search(r'google-site-verification[:\s]*([a-zA-Z0-9_-]{20,})', text)
-                if m2:
-                    verification_code = m2.group(1)
-                    break
+                await el.click(timeout=5000)
+                if log_callback: log_callback("info", f"Click: {selector}", "click")
+                await asyncio.sleep(2)
+                return
+        except Exception:
+            pass
+        # Fallback: click by visible text
+        try:
+            el = page.get_by_text(selector, exact=False).first
+            if await el.count() > 0:
+                await el.click(timeout=5000)
+                if log_callback: log_callback("info", f"Click(text): {selector}", "click")
+                await asyncio.sleep(2)
+                return
+        except Exception:
+            pass
+        raise RuntimeError(f"Cannot click: {selector}")
 
-        # Fallback: scan full page HTML
-        if not verification_code:
-            _emit("info", "专用元素未找到验证码，扫描完整页面 HTML...", "extract_code")
-            html = await page.content()
-            m = _re.search(r'content=["\']([a-zA-Z0-9_-]{20,})["\']', html)
-            if m:
-                verification_code = m.group(1)
-                _emit("info", f"从页面 HTML 提取到验证码: {verification_code[:16]}...", "extract_code")
+    elif act == "fill" and selector and value:
+        try:
+            # Try by label/placeholder/name
+            el = page.locator(f"input[aria-label*='{selector}'], input[placeholder*='{selector}'], input[name*='{selector}']").first
+            if await el.count() == 0:
+                el = page.locator(selector).first
+            if await el.count() > 0:
+                await el.fill(value, timeout=5000)
+                if log_callback: log_callback("info", f"Fill: {selector} = {value[:50]}", "fill")
+                await asyncio.sleep(1)
+                return
+        except Exception:
+            pass
+        raise RuntimeError(f"Cannot fill: {selector}")
 
-        if not verification_code:
-            _emit("error", "无法从页面提取验证码 — 页面可能尚未加载验证标签区域", "extract_code")
-            return {"success": False, "message": "无法从页面提取验证码", "step": "extract_code"}
+    elif act == "select" and selector and value:
+        try:
+            el = page.locator(selector).first
+            if await el.count() > 0:
+                await el.select_option(value, timeout=5000)
+                if log_callback: log_callback("info", f"Select: {selector} = {value}", "select")
+                await asyncio.sleep(1)
+                return
+        except Exception:
+            pass
+        raise RuntimeError(f"Cannot select: {selector}")
 
-        result["verification_code"] = verification_code
-        _emit("info", f"验证码提取成功: {verification_code[:16]}...", "extract_code")
+    elif act == "navigate" and value:
+        if log_callback: log_callback("info", f"Navigate: {value}", "navigate")
+        await page.goto(value, wait_until="domcontentloaded", timeout=30000)
+        await asyncio.sleep(2)
 
-        # --- Inject into WordPress ---
-        if wp_url and wp_username and wp_password:
-            result["step"] = "inject_wp"
-            _emit("info", f"步骤 6: 注入验证标签到 WordPress ({wp_url})...", "inject_wp")
-            try:
-                from services.wordpress_client import WordPressAdminSession
-                wp = WordPressAdminSession(wp_url, wp_username, wp_password)
-                inject_res = wp.inject_google_verification(verification_code, "meta")
-                if inject_res.get("success"):
-                    _emit("info", "验证标签已成功注入 WordPress", "inject_wp")
-                else:
-                    _emit("warning", f"WordPress 注入警告: {inject_res.get('message', '')}", "inject_wp")
-            except Exception as e:
-                _emit("warning", f"WordPress 注入异常: {e}", "inject_wp")
-        else:
-            _emit("info", f"跳过 WP 注入 (wp_url={'OK' if wp_url else 'NO'} wp_user={'OK' if wp_username else 'NO'})", "inject_wp")
+    elif act == "wait":
+        secs = min(int(value) if value else 3, 10)
+        if log_callback: log_callback("info", f"Wait {secs}s", "wait")
+        await asyncio.sleep(secs)
 
-        # --- Wait for Google to detect the tag ---
-        _emit("info", "步骤 7: 等待 10 秒，让 Google 检测验证标签...", "verify_click")
-        await asyncio.sleep(10)
+    elif act in ("done", "fail"):
+        pass
 
-        # --- Click Verify ---
-        result["step"] = "verify_click"
-        verified = False
-        for attempt in range(5):
-            _emit("info", f"步骤 8: 点击验证按钮 (第 {attempt+1}/5 次)...", "verify_click")
-            btn_found = False
-            for sel in [
-                "button:has-text('Verify')", "button:has-text('Confirm')",
-                "button:has-text('Validate')", "button:has-text('I have added')",
-                "button:has-text('Check')", "button:has-text('Done')",
-                "button:has-text('Submit')",
-            ]:
-                btn = page.locator(sel).first
-                try:
-                    if await btn.is_visible():
-                        await btn.click()
-                        await asyncio.sleep(5)
-                        btn_found = True
-                        _emit("info", f"点击了验证按钮: {sel}", "verify_click")
-                        break
-                except Exception:
-                    pass
-            if not btn_found:
-                _emit("warning", "未找到可见的验证按钮", "verify_click")
-                # Take screenshot for debugging
-                try:
-                    await page.screenshot(path="/tmp/gmc_verify_debug.png")
-                    _emit("info", "已保存调试截图到 /tmp/gmc_verify_debug.png", "verify_click")
-                except Exception:
-                    pass
-
-            # Check success indicators
-            for sel in ["text=Verified", "text=verified", "[aria-label*='Verified']",
-                         "div:has-text('Your website is verified')",
-                         "div:has-text('Success')"]:
-                try:
-                    if await page.locator(sel).first.is_visible():
-                        verified = True
-                        _emit("info", "检测到验证成功标志!", "verify_click")
-                        break
-                except Exception:
-                    pass
-            if verified:
-                break
-            if attempt < 4:
-                _emit("info", f"验证尚未成功，等待 5 秒后重试 ({attempt+1}/5)...", "verify_click")
-                await asyncio.sleep(5)
-
-        if verified:
-            result["success"] = True
-            result["message"] = "网站验证成功"
-            _emit("info", "OK 网站验证成功!", "done")
-        else:
-            result["success"] = False  # Honestly report failure
-            result["message"] = "验证标签已注入 WordPress，但 Google 端验证按钮未找到/未完成，请手动检查 GMC"
-            _emit("warning", "验证标签已注入 WordPress，但 Google 端未能自动完成验证", "done")
-
-    except Exception as e:
-        result["message"] = f"步骤 '{result['step']}' 失败: {e}"
-        _emit("error", f"步骤 '{result['step']}' 异常: {e}", result["step"])
-
-    finally:
-        if browser_ctx:
-            try:
-                await browser_ctx.close()
-            except Exception:
-                pass
-
-    return result
+    else:
+        raise RuntimeError(f"Unknown action: {act}")
 
 
-async def gmc_recon(
+async def _extract_mc_id(page):
+    """Try to extract GMC account ID from page."""
+    try:
+        body = await page.inner_text("body")
+        import re
+        matches = re.findall(r'(?:MC|account|merchant).*?(\d{7,12})', body, re.IGNORECASE)
+        if matches:
+            return matches[0]
+        if "merchant_id=" in page.url:
+            return page.url.split("merchant_id=")[1].split("&")[0]
+    except Exception:
+        pass
+    return ""
+
+
+async def register_gmc_ai(
     profile_dir: str,
+    site_url: str,
     google_email: str = "",
     google_password: str = "",
     google_totp_secret: str = "",
-    onboarding_url: str = "",
-    headless: bool = False,
-    timeout_ms: int = 180000,  # slow proxies need generous timeout
-    log_callback=None,
+    business_info: dict = None,
+    feed_url: str = "",
+    headless: bool = True,
+    timeout_ms: int = 180000,
+    log_callback = None,
 ) -> dict:
-    """GMC Next 流程侦查：打开 GMC Next 注册流程，遍历每一步并导出 DOM 结构 + 截图。
+    """AI-driven GMC (Google Merchant Center) registration.
 
-    不填写任何值，只点 Continue 推进步骤，把每步看到的表单元素记录下来。
-    输出目录: /tmp/gmc_recon/（screenshots + dom dumps）
+    Launches CloakBrowser, handles Google login, then uses DeepSeek AI
+    to analyze each page and decide the next action. Loops until registration
+    is complete or fails.
+
+    Returns: {"success": bool, "mc_account_id": str, "message": str, "steps": int}
     """
-    import json as _json
+    _emit = log_callback or (lambda level, msg, step=None: logger.info(f"[{step or 'gmc'}] {msg}"))
 
-    out_dir = "/tmp/gmc_recon"
-    os.makedirs(out_dir, exist_ok=True)
-
-    def _emit(level: str, msg: str, step: str = ""):
-        log_func = {"info": logger.info, "warning": logger.warning, "error": logger.error}.get(level, logger.info)
-        prefix = {"info": "[INFO]", "warning": "[WARN]", "error": "[ERR]"}.get(level, "[LOG]")
-        log_func("%s", f"{prefix} [{step}] {msg}" if step else f"{prefix} {msg}")
-        if log_callback:
-            try:
-                log_callback(level, msg, step)
-            except Exception:
-                pass
-
-    _emit("info", "=" * 50)
-    _emit("info", f"GMC 侦查模式 — profile={os.path.basename(profile_dir)}")
-
-    try:
-        from cloakbrowser import launch_persistent_context_async
-    except ImportError:
-        return {"success": False, "message": "cloakbrowser 未安装"}
-
-    if not os.path.isdir(profile_dir):
-        return {"success": False, "message": f"Profile 目录不存在: {profile_dir}"}
-
+    # Step 1: Load config and launch browser
+    _emit("info", "Loading profile config...", "config")
     config = load_profile_config(profile_dir) or {}
     proxy = (config.get("proxy", "") or "").replace("socks5h://", "socks5://")
-    _emit("info", f"参数: headless={headless} timeout={timeout_ms/1000}s 代理={'OK' if proxy else 'NO'}")
+
     tz = config.get("timezone", "America/Chicago")
-    locale = config.get("locale", "en-US")
+    locale_str = config.get("locale", "en-US")
     fingerprint_args = _build_launch_args(config)
 
-    browser_ctx = None
-    steps_captured = []
+    proxy_display = proxy[:40] + "..." if len(proxy) > 40 else (proxy or "(none)")
+    _emit("info", f"Profile: {os.path.basename(profile_dir)} | proxy={proxy_display}", "config")
+
+    from cloakbrowser import launch_persistent_context_async
+
+    launch_kwargs = {
+        "headless": headless,
+        "user_data_dir": profile_dir,
+        "timeout": timeout_ms,
+    }
+    for arg in fingerprint_args:
+        if "=" in arg:
+            k, v = arg.split("=", 1)
+            launch_kwargs[k.lstrip("-")] = v
+    if proxy:
+        launch_kwargs["proxy"] = _normalize_proxy_for_launch(proxy)
+
+    _emit("info", "Launching CloakBrowser...", "launch")
+    context = page = None
+    try:
+        context, page = await launch_persistent_context_async(**launch_kwargs)
+        _emit("info", "Browser launched successfully", "launch")
+    except Exception as e:
+        _emit("error", f"Browser launch failed: {e}", "launch")
+        return {"success": False, "message": f"Browser launch failed: {e}", "steps": 0}
 
     try:
-        launch_kwargs = {
-            "headless": headless,
-            "timezone": tz,
-            "locale": locale,
-            "args": fingerprint_args,
-            "humanize": True,
-            "stealth_args": False,
-        }
-        if proxy:
-            launch_kwargs["proxy"] = _normalize_proxy_for_launch(proxy)
-            launch_kwargs["geoip"] = True
-
-        _emit("info", f"启动浏览器... (headless={headless})", "launch")
-        browser_ctx = await launch_persistent_context_async(profile_dir, **launch_kwargs)
-        page = browser_ctx.pages[0] if browser_ctx.pages else await browser_ctx.new_page()
-        page.set_default_timeout(timeout_ms)
-        _emit("info", "浏览器已启动", "launch")
-
-        # Navigate
-        target_url = onboarding_url or "https://merchants.google.com/"
-        _emit("info", f"导航到: {target_url}", "navigate")
-        await page.goto(target_url, wait_until="domcontentloaded", timeout=180000)
-        await asyncio.sleep(5)
-
-        # If redirected to login, do login
-        if "accounts.google.com" in page.url:
-            _emit("warning", "需要登录 Google", "login")
-            if google_email and google_password:
-                login_ok = await _google_login(
-                    page, google_email, google_password, google_totp_secret,
-                    log_callback=log_callback, timeout_ms=timeout_ms,
-                )
-                if login_ok:
-                    _emit("info", "登录成功，返回 GMC...", "login")
-                    await page.goto(target_url, wait_until="domcontentloaded", timeout=180000)
-                    await asyncio.sleep(5)
-                else:
-                    return {"success": False, "message": "Google 登录失败"}
-
-        # Dismiss overlays
+        # Step 2: Navigate to GMC
+        _emit("info", "Navigating to Google Merchant Center...", "navigate")
+        await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=30000)
+        await asyncio.sleep(3)
         await _dismiss_overlays(page)
-        await asyncio.sleep(2)
 
-        # If we're on a generic page (not onboarding), and no onboarding URL provided,
-        # try to start a new onboarding or navigate to setup
-        current_url = page.url
-        _emit("info", f"当前 URL: {current_url[:120]}", "navigate")
+        # Step 3: Check login status
+        state = await _detect_gmc_page(page)
+        _emit("info", f"Page: phase={state['phase']} url={str(state.get('url',''))[:80]}", "detect")
 
-        # Now walk through steps, dumping DOM at each
-        max_steps = 20
-        prev_url = ""
-        help_messages_seen = set()
+        if state["phase"] == "login" or "accounts.google.com" in page.url:
+            if google_email and google_password:
+                _emit("info", f"Logging in as {google_email}...", "login")
+                logged_in = await _google_login(
+                    page, google_email, google_password, google_totp_secret,
+                    log_callback=log_callback, timeout_ms=60000
+                )
+                email_on_page = await _get_logged_in_email(page)
+                if email_on_page:
+                    _emit("info", f"Logged in as: {email_on_page}", "login")
+                elif not logged_in:
+                    _emit("error", "Google login failed", "login")
+                    return {"success": False, "message": "Google login failed", "steps": 1}
+                await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=30000)
+                await asyncio.sleep(3)
+                await _dismiss_overlays(page)
+            else:
+                _emit("error", "No Google credentials provided", "login")
+                return {"success": False, "message": "No Google credentials", "steps": 1}
 
-        for step_num in range(1, max_steps + 1):
-            _emit("info", f"--- 侦查步骤 {step_num} ---", f"recon_step_{step_num}")
-            await asyncio.sleep(2)
+        # Step 4: AI-driven loop
+        MAX_STEPS = 30
+        completed_steps = []
+        mc_account_id = ""
+        step_num = 0
 
-            current_url = page.url
-            if current_url == prev_url and step_num > 1:
-                _emit("info", f"URL 未变化，可能已到达终点或卡住", f"recon_step_{step_num}")
-                # Still try to dump what we see
+        for step_num in range(1, MAX_STEPS + 1):
+            _emit("info", f"--- AI Step {step_num}/{MAX_STEPS} ---", "ai_loop")
 
-            prev_url = current_url
+            # Dump page DOM for AI
+            dom_text = await _dump_dom_json(page, log_callback)
+            page_title = await page.title()
 
-            # Take screenshot
-            ss_path = os.path.join(out_dir, f"step_{step_num:02d}.png")
+            # Build prompt and get AI decision
+            prompt = _build_ai_prompt(dom_text, site_url, business_info or {}, feed_url, completed_steps, page_title)
+
             try:
-                await page.screenshot(path=ss_path, full_page=False)
-                _emit("info", f"截图已保存: {ss_path}", f"recon_step_{step_num}")
+                action = await _call_deepseek_for_action(prompt, log_callback)
             except Exception as e:
-                _emit("warning", f"截图失败: {e}", f"recon_step_{step_num}")
+                _emit("error", f"DeepSeek error: {e}", "ai_error")
+                return {"success": False, "message": f"AI error at step {step_num}: {e}", "steps": step_num}
 
-            # Dump DOM structure
-            dom_info = await page.evaluate("""() => {
-                const result = {
-                    url: location.href,
-                    title: document.title,
-                    step: '',
-                    forms: [],
-                    inputs: [],
-                    selects: [],
-                    textareas: [],
-                    buttons: [],
-                    radios: [],
-                    checkboxes: [],
-                    links: [],
-                    headings: [],
-                    mwcElements: [],
-                    ariaLabels: [],
-                    helpTexts: [],
-                    errorTexts: [],
-                };
+            act_type = action.get("action", "done")
+            _emit("info", f"Action: {act_type} | {str(action.get('reasoning',''))[:120]}", "ai_decision")
 
-                // Try to detect step indicator
-                const stepIndicators = document.querySelectorAll(
-                    '[data-step], [aria-current="step"], .step-indicator, .stepper, ' +
-                    'mat-step-header, mwc-tab-bar, [role="tablist"], .progress-indicator'
-                );
-                stepIndicators.forEach(el => {
-                    const text = el.textContent?.trim()?.substring(0, 200);
-                    if (text) result.step += text + ' | ';
-                });
-
-                // Forms
-                document.querySelectorAll('form').forEach(el => {
-                    result.forms.push({
-                        id: el.id, name: el.name, action: el.action?.substring(0, 100),
-                        method: el.method, visible: el.offsetParent !== null,
-                        childCount: el.querySelectorAll('input, select, textarea, button').length
-                    });
-                });
-
-                // Inputs (visible only)
-                document.querySelectorAll('input:not([type="hidden"])').forEach(el => {
-                    if (!el.offsetParent) return;
-                    const label = el.closest('label')?.textContent?.trim()?.substring(0, 80) || '';
-                    const parentLabel = el.parentElement?.textContent?.trim()?.substring(0, 80) || '';
-                    const wrapper = el.closest('[class*="field"], [class*="input"], [class*="form"]');
-                    const wrapperText = wrapper?.textContent?.trim()?.substring(0, 100) || '';
-                    result.inputs.push({
-                        type: el.type, name: el.name, id: el.id,
-                        placeholder: el.placeholder, value: el.value?.substring(0, 50),
-                        ariaLabel: el.getAttribute('aria-label'),
-                        required: el.required,
-                        className: el.className?.substring(0, 100),
-                        label: label, parentLabel: parentLabel,
-                        wrapperText: wrapperText.replace(/\\s+/g, ' ').substring(0, 150),
-                    });
-                });
-
-                // Selects
-                document.querySelectorAll('select').forEach(el => {
-                    if (!el.offsetParent) return;
-                    result.selects.push({
-                        name: el.name, id: el.id,
-                        ariaLabel: el.getAttribute('aria-label'),
-                        options: Array.from(el.options).slice(0, 20).map(o => o.text?.trim()),
-                    });
-                });
-
-                // Textareas
-                document.querySelectorAll('textarea').forEach(el => {
-                    if (!el.offsetParent) return;
-                    result.textareas.push({
-                        name: el.name, id: el.id, placeholder: el.placeholder,
-                        ariaLabel: el.getAttribute('aria-label'),
-                    });
-                });
-
-                // Buttons
-                document.querySelectorAll('button, [role="button"], a[role="button"]').forEach(el => {
-                    if (!el.offsetParent) return;
-                    result.buttons.push({
-                        text: el.textContent?.trim()?.substring(0, 100),
-                        type: el.type, name: el.name, id: el.id,
-                        ariaLabel: el.getAttribute('aria-label'),
-                        disabled: el.disabled,
-                        className: el.className?.substring(0, 100),
-                    });
-                });
-
-                // Radio groups
-                document.querySelectorAll('input[type="radio"]').forEach(el => {
-                    const label = el.closest('label')?.textContent?.trim()?.substring(0, 80);
-                    const parentText = el.parentElement?.textContent?.trim()?.substring(0, 80);
-                    result.radios.push({
-                        name: el.name, value: el.value, checked: el.checked,
-                        label: label || parentText, visible: el.offsetParent !== null,
-                    });
-                });
-                // Also catch div/span radios
-                document.querySelectorAll('[role="radio"]').forEach(el => {
-                    if (!el.offsetParent) return;
-                    result.radios.push({
-                        role: 'radio', text: el.textContent?.trim()?.substring(0, 100),
-                        checked: el.getAttribute('aria-checked'),
-                    });
-                });
-
-                // Checkboxes
-                document.querySelectorAll('input[type="checkbox"]').forEach(el => {
-                    const label = el.closest('label')?.textContent?.trim()?.substring(0, 80);
-                    result.checkboxes.push({
-                        name: el.name, value: el.value, checked: el.checked,
-                        label: label, visible: el.offsetParent !== null,
-                    });
-                });
-
-                // MWC elements
-                document.querySelectorAll('mwc-textfield, mwc-select, mwc-button, ' +
-                    'mwc-radio, mwc-checkbox, mwc-textarea').forEach(el => {
-                    const attrs = {};
-                    for (const a of el.attributes) {
-                        attrs[a.name] = a.value?.substring(0, 100);
-                    }
-                    result.mwcElements.push({
-                        tag: el.tagName.toLowerCase(),
-                        label: el.getAttribute('label') || el.getAttribute('aria-label'),
-                        value: el.getAttribute('value'),
-                        disabled: el.hasAttribute('disabled'),
-                        attributes: attrs,
-                    });
-                });
-
-                // Elements with aria-label
-                document.querySelectorAll('[aria-label]').forEach(el => {
-                    if (!el.offsetParent) return;
-                    const aria = el.getAttribute('aria-label');
-                    if (aria && aria.length > 2 && aria.length < 200) {
-                        result.ariaLabels.push({
-                            tag: el.tagName.toLowerCase(),
-                            ariaLabel: aria,
-                            text: el.textContent?.trim()?.substring(0, 80),
-                        });
-                    }
-                });
-
-                // Headings
-                document.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(el => {
-                    if (!el.offsetParent) return;
-                    result.headings.push({
-                        tag: el.tagName,
-                        text: el.textContent?.trim()?.substring(0, 200),
-                    });
-                });
-
-                // Help/description text (elements with hint/helper/description classes)
-                document.querySelectorAll('[class*="help"], [class*="hint"], ' +
-                    '[class*="helper"], [class*="description"], [class*="supporting"], ' +
-                    '[class*="secondary"], [class*="subtitle"]').forEach(el => {
-                    if (!el.offsetParent) return;
-                    const t = el.textContent?.trim();
-                    if (t && t.length > 2 && t.length < 500) {
-                        result.helpTexts.push(t);
-                    }
-                });
-
-                // Error messages
-                document.querySelectorAll('[class*="error"], [class*="Error"], ' +
-                    '[role="alert"], [aria-invalid="true"] ~ [class*="error"]').forEach(el => {
-                    if (!el.offsetParent) return;
-                    const t = el.textContent?.trim();
-                    if (t && t.length > 1) result.errorTexts.push(t);
-                });
-
-                return JSON.parse(JSON.stringify(result));
-            }""")
-
-            # Save DOM dump as JSON
-            dom_path = os.path.join(out_dir, f"step_{step_num:02d}.json")
-            with open(dom_path, "w", encoding="utf-8") as f:
-                _json.dump(dom_info, f, ensure_ascii=False, indent=2)
-            _emit("info", f"DOM 结构已保存: {dom_path}", f"recon_step_{step_num}")
-
-            steps_captured.append({
-                "step": step_num,
-                "url": dom_info.get("url", ""),
-                "title": dom_info.get("title", ""),
-                "headings": [h["text"] for h in dom_info.get("headings", [])[:5]],
-                "num_inputs": len(dom_info.get("inputs", [])),
-                "num_buttons": len(dom_info.get("buttons", [])),
-                "num_mwc": len(dom_info.get("mwcElements", [])),
-                "screenshot": ss_path,
-                "dom_dump": dom_path,
-            })
-
-            # Try clicking Continue / Next to go to next step
-            clicked = False
-            for sel in [
-                "mwc-button:has-text('Continue')",
-                "mwc-button:has-text('Next')",
-                "mwc-button:has-text('Save')",
-                "mwc-button:has-text('Submit')",
-                "button:has-text('Continue')",
-                "button:has-text('Next')",
-                "button:has-text('Save and continue')",
-                "button[type='submit']",
-                "[role='button']:has-text('Continue')",
-                "[role='button']:has-text('Next')",
-            ]:
-                try:
-                    el = page.locator(sel).first
-                    if await el.count() > 0 and await el.is_visible():
-                        if await el.is_enabled():
-                            await el.click(timeout=5000)
-                            _emit("info", f"点击了: {sel}", f"recon_step_{step_num}")
-                            clicked = True
-                            await asyncio.sleep(4)
-                            break
-                except Exception:
-                    continue
-
-            if not clicked:
-                # Try less strict match
-                try:
-                    btns = page.locator("button:visible")
-                    count = await btns.count()
-                    found_btn = None
-                    for i in range(min(count, 20)):
-                        btn = btns.nth(i)
-                        text = (await btn.inner_text()).strip().lower()
-                        if any(kw in text for kw in ["continue", "next", "save", "submit", "done"]):
-                            if await btn.is_enabled():
-                                found_btn = text
-                                await btn.click(timeout=5000)
-                                _emit("info", f"点击了可见按钮: '{found_btn}'", f"recon_step_{step_num}")
-                                clicked = True
-                                await asyncio.sleep(4)
-                                break
-                except Exception:
-                    pass
-
-            if not clicked:
-                _emit("info", "未找到 Continue/Next 按钮，流程可能已结束", f"recon_step_{step_num}")
+            if act_type == "done":
+                mc_account_id = await _extract_mc_id(page) or "registered"
+                _emit("info", f"Registration complete! MC ID: {mc_account_id}", "done")
+                completed_steps.append(f"step{step_num}:done")
                 break
 
-        _emit("info", f"侦查完成，共捕获 {len(steps_captured)} 个步骤", "done")
+            if act_type == "fail":
+                reason = action.get("reasoning", "Unknown error")
+                _emit("error", f"AI reports failure: {reason}", "ai_fail")
+                return {"success": False, "message": f"Failed at step {step_num}: {reason}", "steps": step_num}
+
+            # Execute action
+            try:
+                await _execute_action(page, action, log_callback)
+                completed_steps.append(f"step{step_num}:{act_type}")
+            except Exception as e:
+                _emit("warning", f"Action error: {e}", "action_error")
+                completed_steps.append(f"step{step_num}:error:{str(e)[:40]}")
+
+        if step_num >= MAX_STEPS:
+            _emit("warning", f"Reached max steps ({MAX_STEPS})", "max_steps")
+
         return {
-            "success": True,
-            "message": f"侦查完成，共 {len(steps_captured)} 个步骤",
-            "output_dir": out_dir,
-            "steps": steps_captured,
+            "success": bool(mc_account_id),
+            "mc_account_id": mc_account_id,
+            "message": f"GMC registration {'complete' if mc_account_id else 'incomplete'} ({len(completed_steps)} steps)",
+            "steps": len(completed_steps),
         }
 
-    except Exception as e:
-        _emit("error", f"侦查异常: {e}", "error")
-        return {"success": False, "message": str(e), "steps": steps_captured}
     finally:
-        if browser_ctx:
-            try:
-                await browser_ctx.close()
-            except Exception:
-                pass
+        try:
+            if context:
+                await context.close()
+        except Exception:
+            pass
+
+
 
 
 def country_to_locale(country: str) -> str:

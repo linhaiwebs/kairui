@@ -2092,39 +2092,6 @@ pipelineStatuses[siteId].demo_importing = false;
             }
             taskLogVisible.value = false;
         }
-        async function reconGmcFlow(site) {
-            let profileDir = mcProfileDir.value;
-            if (fingerprintEnabled.value && !profileDir && site.cloakbrowser_profile_name) {
-                profileDir = site.cloakbrowser_profile_name;
-            }
-            if (!profileDir) { showToast('请选择 CloakBrowser Profile 目录', 'error'); return; }
-            if (mcRegistering.value[site.id]) return;
-
-            taskLogTitle.value = `GMC 流程侦查 — ${site.site_name}`;
-            try {
-                const resp = await API.taskGmcRecon(site.id, profileDir, '');
-                if (resp.code === 200 && resp.data?.task_id) {
-                    mcRegistering.value[site.id] = 'recon';
-                    _startLogPolling(resp.data.task_id, site.id);
-                    _watchTaskCompletion(resp.data.task_id, (success, result) => {
-                        if (success && result) {
-                            showToast(`侦查完成: ${result.steps?.length || 0} 个步骤已导出到 /tmp/gmc_recon/`, 'success');
-                        }
-                    });
-                } else {
-                    taskLogLines.value = [{ i: 0, t: new Date().toLocaleTimeString(), level: 'error', msg: resp.message || '启动侦查失败', step: '' }];
-                    taskLogStatus.value = 'failed';
-                    taskLogVisible.value = true;
-                    delete mcRegistering.value[site.id];
-                }
-            } catch (e) {
-                taskLogLines.value = [{ i: 0, t: new Date().toLocaleTimeString(), level: 'error', msg: `启动侦查失败: ${e.message || e}`, step: '' }];
-                taskLogStatus.value = 'failed';
-                taskLogVisible.value = true;
-                delete mcRegistering.value[site.id];
-            }
-        }
-
         async function loadMCStatusForSite(site) {
             try {
                 const resp = await API.getMCStatus(site.id);
@@ -2793,7 +2760,7 @@ async function loadProfileCategories() {
             closeTaskLog,
             mcNewProfileName, mcNewGoogleEmail, mcNewProxy, mcNewCountry, mcNewPlatform,
             showCreateProfile, showMcProfilePanel, createNewProfile, deleteProfile,
-            registerMCForSite, reconGmcFlow, loadMCStatusForSite,
+            registerMCForSite, loadMCStatusForSite,
 
             showEditModal, editForm, editingSiteId, globalConfig, deployOverlay, closeDeployOverlay,
             postInstallSite, aiBrandName, aiConfigRunning, aiConfigError, aiConfigSteps, aiConfigKey,
@@ -4613,7 +4580,6 @@ async function loadProfileCategories() {
                                         <td class="px-4 py-3 text-right">
                                             <div class="flex items-center justify-end gap-1">
                                                 <button v-if="!site.google_mc_account_id" @click="registerMCForSite(site)" :disabled="mcRegistering[site.id]" class="px-2 py-1 text-xs bg-primary-container text-on-primary rounded hover:bg-primary">{{ mcRegistering[site.id] === 'register' ? '注册中...' : '注册MC' }}</button>
-                                                <button v-if="fingerprintEnabled && !site.google_mc_account_id" @click="reconGmcFlow(site)" :disabled="mcRegistering[site.id]" class="px-2 py-1 text-xs bg-amber-500 text-on-primary rounded hover:bg-amber-600" title="遍历GMC注册流程，导出每步DOM结构+截图到服务器/tmp/gmc_recon/">🔍 侦查</button>
                                             </div>
                                         </td>
                                     </tr>
