@@ -400,7 +400,7 @@ class StitchClient:
         """Generate a complete e-commerce store design from brand kit data.
 
         Args:
-            brand_kit: Brand kit dict (may contain stitch_screens mapping)
+            brand_kit: Brand kit dict (may contain design_screens mapping)
             pages: List of page types to generate
             progress_callback: callable(str) for progress updates
             on_screen: callable(page_type, screen_id) called after each screen save
@@ -460,7 +460,7 @@ class StitchClient:
 
         try:
             # 1. Find or create project (reuse existing for same brand_kit)
-            project_id = brand_kit.get("stitch_project_id", "").strip()
+            project_id = brand_kit.get("design_project_id", "").strip()
             if project_id:
                 logger.info(f"Stitch project REUSED: {project_id} for {brand_name}")
             else:
@@ -549,7 +549,7 @@ class StitchClient:
             # Load previously saved screen IDs for this brand_kit
             existing_ids = {}
             try:
-                raw = brand_kit.get("stitch_screens", "")
+                raw = brand_kit.get("design_screens", "")
                 existing_ids = json.loads(raw) if raw and raw.strip() else {}
             except (json.JSONDecodeError, TypeError):
                 existing_ids = {}
