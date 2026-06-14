@@ -1,7 +1,20 @@
 // API client for the WordPress Site Manager backend
+window.API_BASE = (() => {
+    // If accessed via HTTPS domain, API must use HTTP to reach the Flask server
+    if (location.protocol === 'https:') {
+        return 'http://163.123.236.110:8011';
+    }
+    return '';  // relative URLs work for direct HTTP access
+})();
+
+function apiUrl(path) {
+    return window.API_BASE ? window.API_BASE + path : path;
+}
+window.apiUrl = apiUrl;
+
 const API = {
     token: sessionStorage.getItem('wp_token') || '',
-    
+
     async request(method, url, data = null) {
         const headers = {
             'Content-Type': 'application/json',
@@ -9,14 +22,15 @@ const API = {
         if (this.token) {
             headers['Authorization'] = `Bearer ${this.token}`;
         }
-        
+
         const opts = { method, headers };
         if (data && method !== 'GET') {
             opts.body = JSON.stringify(data);
         }
-        
+
+        const fullUrl = API_BASE ? API_BASE + url : url;
         try {
-            const resp = await fetch(url, opts);
+            const resp = await fetch(fullUrl, opts);
             
             if (resp.status === 401 && !url.includes('/auth/login')) {
                 this.logout();

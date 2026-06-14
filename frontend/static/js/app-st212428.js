@@ -944,7 +944,7 @@ pipelineStatuses[siteId].demo_importing = false;
             amazonSearchProgress.value = `开始导入 ${urls.length} 个链接...`;
             try {
                 const token = API.token;
-                const resp = await fetch('/api/shai-pin/amazon/direct-import', {
+                const resp = await fetch(apiUrl('/api/shai-pin/amazon/direct-import', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                     body: JSON.stringify({ urls }),
@@ -1027,7 +1027,7 @@ pipelineStatuses[siteId].demo_importing = false;
             amazonSearchProgress.value = `开始搜索 ${names.length} 个关键词...`;
             try {
                 const token = API.token;
-                const resp = await fetch('/api/shai-pin/amazon/search', {
+                const resp = await fetch(apiUrl('/api/shai-pin/amazon/search', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                     body: JSON.stringify({ product_names: names }),
@@ -1189,7 +1189,7 @@ pipelineStatuses[siteId].demo_importing = false;
             showConvertLogModal.value = true;
             try {
                 const token = API.token;
-                const resp = await fetch('/api/shai-pin/woocommerce/convert', {
+                const resp = await fetch(apiUrl('/api/shai-pin/woocommerce/convert', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                     body: JSON.stringify({ products: selected }),
@@ -1367,7 +1367,7 @@ pipelineStatuses[siteId].demo_importing = false;
             showConvertLogModal.value = true;
             try {
                 const token = API.token;
-                const resp = await fetch('/api/shai-pin/woocommerce/generate-feed', {
+                const resp = await fetch(apiUrl('/api/shai-pin/woocommerce/generate-feed', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 });
