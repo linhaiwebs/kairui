@@ -5078,7 +5078,8 @@ def register_routes(app):
                 launch_kwargs["proxy"] = _normalize_proxy_for_launch(proxy)
 
             from cloakbrowser import launch_persistent_context_async
-            context, page = await launch_persistent_context_async(**launch_kwargs)
+            context = await launch_persistent_context_async(**launch_kwargs)
+            page = context.pages[0] if context.pages else await context.new_page()
             try:
                 # Test 1: check exit IP via httpbin
                 await page.goto("http://httpbin.org/ip", wait_until="domcontentloaded", timeout=20000)

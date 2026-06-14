@@ -1075,7 +1075,8 @@ async def register_gmc_ai(
     _emit("info", "Launching CloakBrowser...", "launch")
     context = page = None
     try:
-        context, page = await launch_persistent_context_async(**launch_kwargs)
+        context = await launch_persistent_context_async(**launch_kwargs)
+        page = context.pages[0] if context.pages else await context.new_page()
         _emit("info", "Browser launched successfully", "launch")
     except Exception as e:
         _emit("error", f"Browser launch failed: {e}", "launch")
