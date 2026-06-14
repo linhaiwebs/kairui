@@ -1106,10 +1106,10 @@ async def register_gmc_ai(
         return {"success": False, "message": f"Browser launch failed: {e}", "steps": 0}
 
     try:
-        # Step 2: Navigate to GMC
+        # Step 2: Navigate to GMC (force English locale)
         _emit("info", "Navigating to Google Merchant Center...", "navigate")
         page.set_default_navigation_timeout(90000)
-        await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=90000)
+        await page.goto("https://merchants.google.com/mc/setup", wait_until="domcontentloaded", timeout=90000)
         await asyncio.sleep(3)
         await _dismiss_overlays(page)
 
@@ -1197,7 +1197,15 @@ async def register_gmc_ai(
                 )
                 if logged_in:
                     _emit("info", "Google login successful, resuming...", "login_detect")
-                    await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=60000)
+                    # Wait for Google redirect to GMC (can be slow via proxy)
+                    for retry in range(20):
+                        await asyncio.sleep(2)
+                        if "merchants.google.com" in page.url or "business.google.com" in page.url:
+                            _emit("info", f"Redirected to: {page.url[:80]}", "redirect")
+                            break
+                    if "accounts.google.com" in page.url:
+                        _emit("warning", "Still on Google login page, trying explicit GMC nav...", "redirect")
+                        await page.goto("https://merchants.google.com/mc/setup", wait_until="domcontentloaded", timeout=60000)
                     await asyncio.sleep(3)
                     await _dismiss_overlays(page)
                     continue
