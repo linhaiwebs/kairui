@@ -2318,6 +2318,33 @@ def _render_page_by_type(page_type, design, brand_kit, products):
     return ""
 
 
+def try_agnes_design(brand_kit, progress_callback=None):
+    """Try to generate store design via Agne's AI. Returns dict {page: html} or None."""
+    brand_name = brand_kit.get("brand_name") or brand_kit.get("name", "Store")
+    try:
+        from services.agnes_client import AgnesClient
+        client = AgnesClient()
+        if not client.is_available:
+            if progress_callback: progress_callback("Agnes未配置API密钥，跳过...")
+            return None
+        if progress_callback: progress_callback(f"Agnes AI正在为 {brand_name} 生成商城设计...")
+        pages = client.generate_store_design(
+            brand_kit=brand_kit,
+            pages=STITCH_PAGES,
+            progress_callback=progress_callback,
+        )
+        if pages and len(pages) >= 2:
+            if progress_callback: progress_callback(f"Agnes已完成 {len(pages)} 个页面设计")
+            logger.info(f"Agnes design for {brand_name}: {list(pages.keys())}")
+            return pages
+        if progress_callback: progress_callback("Agnes生成不足，尝试Stitch...")
+        return None
+    except Exception as e:
+        if progress_callback: progress_callback(f"Agnes失败: {str(e)[:40]}")
+        logger.warning(f"Agnes design failed for {brand_name}: {e}")
+        return None
+
+
 def try_stitch_design(brand_kit, progress_callback=None):
     """Try to generate store design via Google Stitch. Returns dict {page: html} or None."""
     brand_name = brand_kit.get("brand_name") or brand_kit.get("name", "Store")
@@ -2458,8 +2485,15 @@ def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
     design = _load_design(brand_kit)
     global _INLINE_CSS, _INLINE_JS
 
-    # Try Stitch for premium design
-    stitch_pages = try_stitch_design(brand_kit, progress_callback)
+    # Try Agne's AI first (fast), then Stitch (slow), then built-in CSS
+    design_pages = try_agnes_design(brand_kit, progress_callback)
+    if not design_pages:
+        if progress_callback: progress_callback("Agnes未生成，尝试Stitch...")
+        design_pages = try_stitch_design(brand_kit, progress_callback)
+    if not design_pages:
+        design_pages = None
+
+    stitch_pages = design_pages
 
     if stitch_pages and stitch_pages.get("home"):
         # Stitch provides complete standalone HTML with Tailwind + Google Fonts

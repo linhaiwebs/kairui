@@ -4418,6 +4418,24 @@ def register_routes(app):
                 "data": {"results": results},
             }), 400
 
+    # ---- Agnes AI Configuration ----
+
+    @app.route("/api/agnes/verify", methods=["POST"])
+    @jwt_required()
+    def agnes_verify():
+        """Verify Agnes AI API key."""
+        data = request.get_json(silent=True) or {}
+        api_key = (data.get("api_key") or "").strip()
+        if not api_key:
+            return jsonify({"code": 400, "message": "API Key 不能为空"}), 400
+
+        from services.agnes_client import verify_agnes_key
+        result = verify_agnes_key(api_key)
+        if result["success"]:
+            update_global_config("agnes_api_key", json.dumps([api_key]))
+            return jsonify({"code": 200, "message": "Agnes API 密钥验证通过"})
+        return jsonify({"code": 400, "message": result["message"]}), 400
+
     # ---- Crawlbase API Configuration ----
     @app.route("/api/crawlbase/verify", methods=["POST"])
     @jwt_required()
