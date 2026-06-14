@@ -397,6 +397,28 @@ class StitchClient:
         return None
 
     # ---- Store Design Generation ----
+    @staticmethod
+    def _is_valid_page_html(html, page_type):
+        """Check if HTML is a valid page (not just an SVG/icon/image)."""
+        if not html or len(html) < 500:
+            return False
+        lower = html.lower()
+        # Must have basic HTML structure
+        if "<html" not in lower and "<!doctype" not in lower:
+            return False
+        # Reject pages that are essentially just SVG/images
+        body_match = __import__("re").search(r"<body[^>]*>(.*?)</body>", html, __import__("re").DOTALL | __import__("re").IGNORECASE)
+        body = body_match.group(1) if body_match else html
+        body_text = __import__("re").sub(r"<[^>]+>", " ", body).strip()
+        # If body is just an SVG tag or very short text (< 50 chars), reject
+        if body.strip().startswith("<svg") and "</svg>" in body[:500] and len(body_text) < 100:
+            return False
+        # Must have navigation or headings or substantial text content
+        has_structure = any(tag in lower for tag in ["<nav", "<header", "<footer", "<main", "<h1", "<h2", "<a href", "<button", "<form", "<input"])
+        if not has_structure and len(body_text) < 200:
+            return False
+        return True
+
     def generate_store_design(self, brand_kit, pages=None, progress_callback=None, on_screen=None):
         """Generate a complete e-commerce store design from brand kit data.
 
@@ -632,13 +654,9 @@ class StitchClient:
                     if html_url:
                         html = self.download_screen_html(html_url)
                         if html:
-                            # Reject SVG/image-only responses (Stitch sometimes returns icons)
-                            stripped = html.strip()
-                            if stripped.startswith("<svg") and "<html" not in stripped[:300].lower():
-                                logger.warning(f"Stitch {page_type}: got SVG/image instead of HTML, retrying...")
-                                return page_type, None
-                            if len(stripped) < 1000 and "<html" not in stripped.lower():
-                                logger.warning(f"Stitch {page_type}: response too short ({len(stripped)}B), retrying...")
+                            # Validate HTML quality: reject SVG/icons/images masquerading as pages
+                            if not _is_valid_page_html(html, page_type):
+                                logger.warning(f"Stitch {page_type}: invalid content, retrying...")
                                 return page_type, None
                             with results_lock:
                                 completed[0] += 1

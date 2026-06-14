@@ -2413,6 +2413,25 @@ def _fix_page_links(html, current_page, page_map):
     return html
 
 
+def _is_valid_html(html):
+    """Check if HTML is a valid page (not just an SVG/icon/image)."""
+    if not html or len(html) < 500:
+        return False
+    lower = html.lower()
+    if "<html" not in lower and "<!doctype" not in lower:
+        return False
+    import re
+    body_match = re.search(r"<body[^>]*>(.*?)</body>", html, re.DOTALL | re.IGNORECASE)
+    body = body_match.group(1) if body_match else html
+    body_text = re.sub(r"<[^>]+>", " ", body).strip()
+    if body.strip().startswith("<svg") and "</svg>" in body[:500] and len(body_text) < 100:
+        return False
+    has_structure = any(tag in lower for tag in ["<nav", "<header", "<footer", "<main", "<h1", "<h2", "<a href", "<button", "<form", "<input"])
+    if not has_structure and len(body_text) < 200:
+        return False
+    return True
+
+
 def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
     """Same as render_site but returns dict {filename: content} without writing to disk.
     Tries Agnes AI first; falls back to built-in CSS."""
@@ -2439,9 +2458,9 @@ def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
         for page_type, filename in page_map.items():
             if design_pages.get(page_type):
                 html = design_pages[page_type]
-                # Validate: skip SVG-only responses (Stitch flash model sometimes returns logos)
-                if html.strip().startswith("<svg") and "<html" not in html.lower()[:200]:
-                    logger.warning(f"Stitch {page_type}: got SVG logo instead of HTML, using CSS fallback")
+                # Validate: skip SVG/icon-only responses
+                if not _is_valid_html(html):
+                    logger.warning(f"Stitch {page_type}: invalid content, using CSS fallback")
                     result[filename] = _render_page_by_type(page_type, design, brand_kit, products)
                 else:
                     result[filename] = _fix_page_links(html, page_type, page_map)
