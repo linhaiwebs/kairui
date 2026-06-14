@@ -4669,106 +4669,6 @@ def register_routes(app):
             pass
         return "", "", ""
 
-    @app.route("/api/sites/<int:site_id>/auto-verify-google-site", methods=["POST"])
-    @jwt_required()
-    def auto_verify_google_site(site_id):
-        """Auto-verify Google site via CloakBrowser (extract code → inject WP → click verify)."""
-        data = request.get_json(silent=True) or {}
-        profile_dir = (data.get("profile_dir") or "").strip()
-        site = get_site(site_id)
-        if not site:
-            return jsonify({"code": 404, "message": "站点不存在"}), 404
-
-        try:
-            profile_dir = _resolve_site_profile(site, profile_dir)
-        except FileNotFoundError as e:
-            return jsonify({"code": 400, "message": str(e)}), 400
-
-        site_domain = site.get("url", "").replace("https://", "").replace("http://", "").rstrip("/")
-
-        import asyncio
-        from services.mc_auto_register import auto_verify_google_site as do_auto_verify
-
-        google_email, google_password, google_totp_secret = _resolve_google_account_from_site(site)
-
-        try:
-            result = asyncio.run(do_auto_verify(
-                profile_dir=profile_dir,
-                site_domain=site_domain,
-                wp_url=site.get("url", ""),
-                wp_username=site.get("admin_name", ""),
-                wp_password=site.get("admin_password", ""),
-                google_email=google_email,
-                google_password=google_password,
-                google_totp_secret=google_totp_secret,
-            ))
-            if result.get("success"):
-                from models import update_site
-                update_site(site_id, {
-                    "google_verification_done": 1,
-                    "google_verification_method": "meta",
-                })
-            code = 200 if result.get("success") else 500
-            return jsonify({"code": code, "message": result.get("message", ""), "data": result}), code
-        except Exception as e:
-            logger.error(f"auto_verify_google_site error site={site_id}: {e}")
-            return jsonify({"code": 500, "message": str(e)[:200]}), 500
-
-    @app.route("/api/sites/<int:site_id>/register-mc", methods=["POST"])
-    @jwt_required()
-    def register_mc_account(site_id):
-        """Register MC via CloakBrowser (direct library, no server needed)."""
-        data = request.get_json(silent=True) or {}
-        profile_dir = (data.get("profile_dir") or "").strip()
-        site = get_site(site_id)
-        if not site:
-            return jsonify({"code": 404, "message": "站点不存在"}), 404
-        try:
-            profile_dir = _resolve_site_profile(site, profile_dir)
-        except FileNotFoundError as e:
-            return jsonify({"code": 400, "message": str(e)}), 400
-
-        cfg = get_global_config()
-        country = cfg.get("google_default_country", "US")
-        timezone = cfg.get("google_default_timezone", "America/Chicago")
-
-        site_domain = site.get("url", "").replace("https://", "").replace("http://", "").rstrip("/")
-        feed_url = site.get("google_feed_url", "") or f"https://{site_domain}/wp-content/uploads/google-feed.xml"
-
-        google_email, google_password, google_totp_secret = _resolve_google_account_from_site(site)
-        business_info = _resolve_business_info(site)
-        return_policy_url = f"https://{site_domain}/return-policy/"
-
-        import asyncio
-        from services.mc_auto_register import register_mc_account as do_register
-
-        try:
-            result = asyncio.run(do_register(
-                profile_dir=profile_dir,
-                site_domain=site_domain,
-                google_email=google_email,
-                google_password=google_password,
-                google_totp_secret=google_totp_secret,
-                site_title=site.get("site_name", ""),
-                feed_url=feed_url,
-                country=country,
-                timezone=timezone,
-                business_info=business_info,
-                return_policy_url=return_policy_url,
-                wp_url=site.get("url", ""),
-                wp_username=site.get("admin_name", ""),
-                wp_password=site.get("admin_password", ""),
-                recon_dir="/tmp/gmc_recon",
-            ))
-            if result.get("success"):
-                from models import update_site
-                update_site(site_id, {"google_mc_account_id": result.get("mc_account_id", "")})
-            code = 200 if result.get("success") else 500
-            return jsonify({"code": code, "message": result.get("message", ""), "data": result}), code
-        except Exception as e:
-            logger.error(f"register_mc error site={site_id}: {e}")
-            return jsonify({"code": 500, "message": str(e)[:200]}), 500
-
     @app.route("/api/sites/<int:site_id>/mc-status", methods=["GET"])
     @jwt_required()
     def get_mc_status(site_id):
@@ -5168,18 +5068,40 @@ def register_routes(app):
         logger.info("TestProfile: resolved '%s' → '%s'", profile_name, profile_dir)
 
         import asyncio, threading
-        from services.mc_auto_register import auto_verify_google_site as do_test
+        from services.mc_auto_register import load_profile_config, _normalize_proxy_for_launch, _build_launch_args
 
-        # Run in separate thread to avoid asyncio/gevent event loop conflict
+        async def _test_connectivity():
+            config = load_profile_config(profile_dir) or {}
+            proxy = (config.get("proxy", "") or "").replace("socks5h://", "socks5://")
+            launch_kwargs = {"headless": True, "user_data_dir": profile_dir, "timeout": 60000}
+            fp_args = _build_launch_args(config)
+            for arg in fp_args:
+                if "=" in arg:
+                    k, v = arg.split("=", 1)
+                    launch_kwargs[k.lstrip("-")] = v
+            if proxy:
+                launch_kwargs["proxy"] = _normalize_proxy_for_launch(proxy)
+
+            from cloakbrowser import launch_persistent_context_async
+            context, page = await launch_persistent_context_async(**launch_kwargs)
+            try:
+                resp = await page.goto("http://httpbin.org/ip", wait_until="domcontentloaded", timeout=20000)
+                await asyncio.sleep(1)
+                body = await page.inner_text("body")
+                ip_info = body.strip() if body else "(empty)"
+                return {"success": True, "message": f"Profile 可用，出口IP: {ip_info}", "ip": ip_info}
+            finally:
+                await context.close()
+
         result_holder = {}
         def _run_test():
             try:
-                result_holder["result"] = asyncio.run(do_test(profile_dir=profile_dir, test_only=True))
+                result_holder["result"] = asyncio.run(_test_connectivity())
             except Exception as ex:
                 result_holder["error"] = str(ex)[:200]
         t = threading.Thread(target=_run_test, daemon=True)
         t.start()
-        t.join(timeout=180)  # max 3 min
+        t.join(timeout=180)
 
         if "result" not in result_holder:
             err = result_holder.get("error", "测试超时(>3min)")
@@ -5188,8 +5110,8 @@ def register_routes(app):
 
         result = result_holder["result"]
         code = 200 if result.get("success") else 500
-        logger.info("TestProfile: result success=%s step=%s message=%s",
-                    result.get("success"), result.get("step", ""), result.get("message", "")[:100])
+        logger.info("TestProfile: result success=%s message=%s",
+                    result.get("success"), result.get("message", "")[:100])
         return jsonify({"code": code, "message": result.get("message", ""), "data": result}), code
 
     @app.route("/api/cloakbrowser/profiles", methods=["GET"])
