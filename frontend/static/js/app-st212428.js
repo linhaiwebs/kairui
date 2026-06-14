@@ -3226,11 +3226,11 @@ async function loadProfileCategories() {
                             </div>
                             <!-- Actions -->
                             <div class="flex items-center gap-1.5 flex-shrink-0">
-                                <button v-if="site.cloakbrowser_profile_name" @click="openSiteBrowser(site)" class="text-[#146c2e] hover:text-[#146c2e] p-1.5" title="打开指纹浏览器"><i class="fas fa-external-link-alt"></i></button>
-                                <button @click="openEditModal(site)" class="text-primary hover:text-primary p-1.5" title="编辑"><span class="material-symbols-outlined">edit</span></button>
-                                <button v-if="site.panel_app_install_id && (!site.panel_website_id || site.panel_status === 'deleted')" @click="fixSiteWebsite(site)" class="text-tertiary hover:text-tertiary p-1.5" title="修复1Panel网站"><i class="fas fa-wrench"></i></button>
-                                <button @click="openMetaModal(site)" class="text-primary hover:text-primary p-1.5" title="注入Meta标签"><i class="fas fa-code"></i></button>
-                                <button @click="confirmDelete(site)" class="text-red-400 hover:text-error p-1.5" title="删除"><span class="material-symbols-outlined">delete</span></button>
+                                <button v-if="site.cloakbrowser_profile_name" @click="openSiteBrowser(site)" class="text-green-600 hover:text-green-700 p-1.5" title="打开指纹浏览器"><i class="fas fa-external-link-alt"></i></button>
+                                <button @click="openEditModal(site)" class="text-blue-600 hover:text-blue-700 p-1.5" title="编辑"><i class="fas fa-edit"></i></button>
+                                <button v-if="site.panel_app_install_id && (!site.panel_website_id || site.panel_status === 'deleted')" @click="fixSiteWebsite(site)" class="text-orange-500 hover:text-orange-600 p-1.5" title="修复1Panel网站"><i class="fas fa-wrench"></i></button>
+                                <button @click="openMetaModal(site)" class="text-purple-500 hover:text-purple-600 p-1.5" title="注入Meta标签"><i class="fas fa-code"></i></button>
+                                <button @click="confirmDelete(site)" class="text-red-500 hover:text-red-600 p-1.5" title="删除"><i class="fas fa-trash"></i></button>
                             </div>
                         </div>
                     </div>

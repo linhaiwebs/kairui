@@ -4492,7 +4492,7 @@ def register_routes(app):
     @app.route("/api/sites/<int:site_id>/inject-meta", methods=["POST"])
     @jwt_required()
     def inject_meta_tag(site_id):
-        """Inject a custom meta tag into the WordPress site header."""
+        """Inject a custom meta tag into the site header (static: direct HTML, WP: via admin)."""
         data = request.get_json(silent=True) or {}
         meta_tag = (data.get("meta_tag") or "").strip()
         if not meta_tag:
@@ -4502,6 +4502,58 @@ def register_routes(app):
         site = get_site(site_id)
         if not site:
             return jsonify({"code": 404, "message": "站点不存在"}), 404
+
+        # Static site: directly modify index.html on 1Panel
+        if site.get("site_type") == "static":
+            try:
+                env = get_user_panel_environment(site.get("created_by") or 1)
+                if not env:
+                    return jsonify({"code": 400, "message": "未找到1Panel环境配置"}), 400
+                pc = OnePanelClient(host=env["host"], port=env["port"], api_key=env["api_key"])
+                nginx_alias = site.get("nginx_alias", "")
+                site_dir = site.get("static_dir", "")
+                if not nginx_alias:
+                    return jsonify({"code": 400, "message": "站点缺少nginx别名"}), 400
+
+                # Resolve file path
+                if site_dir.startswith("/www/"):
+                    remote_path = f"/opt/1panel/apps/openresty/openresty{site_dir}/index.html"
+                elif site_dir.startswith("/opt/"):
+                    remote_path = f"{site_dir}/index.html"
+                else:
+                    remote_path = f"/opt/1panel/apps/openresty/openresty/www/sites/{nginx_alias}/index/index.html"
+
+                # Read current HTML
+                content_resp = pc.read_file(remote_path)
+                html = content_resp.get("data", {}).get("content", "") if content_resp.get("code") == 200 else ""
+                if not html and isinstance(content_resp.get("data"), str):
+                    html = content_resp["data"]
+
+                if not html or "<html" not in html.lower():
+                    logger.warning(f"inject_meta: empty or invalid HTML at {remote_path}, resp={str(content_resp)[:200]}")
+                    return jsonify({"code": 500, "message": f"无法读取站点HTML ({remote_path})"}), 500
+
+                # Inject meta tag before </head>
+                if "</head>" in html:
+                    html = html.replace("</head>", f"    {meta_tag}\n</head>")
+                elif "<head>" in html:
+                    html = html.replace("<head>", f"<head>\n    {meta_tag}")
+                else:
+                    return jsonify({"code": 500, "message": "HTML中未找到<head>标签"}), 500
+
+                # Save back
+                pc.delete_file(remote_path)
+                pc.create_file(remote_path, is_dir=False)
+                save_resp = pc.save_file(remote_path, html)
+                if save_resp.get("code") == 200:
+                    pc.reload_openresty()
+                    return jsonify({"code": 200, "message": "Meta标签已注入静态站点并重载"})
+                return jsonify({"code": 500, "message": f"保存失败: {save_resp.get('message', '')}"}), 500
+            except Exception as e:
+                logger.error(f"inject_meta static error site={site_id}: {e}")
+                return jsonify({"code": 500, "message": str(e)[:200]}), 500
+
+        # WordPress site: inject via admin session
         if not site.get("url") or not site.get("admin_name") or not site.get("admin_password"):
             return jsonify({"code": 400, "message": "站点缺少登录信息(URL/管理员/密码)"}), 400
         try:
