@@ -2320,9 +2320,42 @@ def try_stitch_design(brand_name):
 
 
 def render_site_to_dict(domain, brand_kit, products):
-    """Same as render_site but returns dict {filename: content} without writing to disk."""
+    """Same as render_site but returns dict {filename: content} without writing to disk.
+    Tries Stitch design first; falls back to built-in CSS."""
+    brand_name = brand_kit.get("brand_name") or brand_kit.get("name", domain)
     design = _load_design(brand_kit)
     global _INLINE_CSS, _INLINE_JS
+
+    # Try Stitch for premium design
+    stitch_pages = try_stitch_design(brand_name)
+
+    if stitch_pages and stitch_pages.get("home"):
+        # Stitch provides complete standalone HTML (Tailwind + Google Fonts)
+        # Use it directly for index.html; generate the rest with built-in CSS
+        logger.info(f"Using Stitch design for {domain}")
+        _INLINE_CSS = build_css(design, brand_kit)
+        _INLINE_JS = STORE_JS
+
+        result = {}
+        result["index.html"] = stitch_pages.get("home", "")
+        if stitch_pages.get("product"):
+            # Store product template for future use
+            result["_stitch_product_template.html"] = stitch_pages["product"]
+        if stitch_pages.get("cart"):
+            result["cart.html"] = stitch_pages["cart"]
+        else:
+            result["cart.html"] = render_cart_page(design, brand_kit)
+        result["checkout.html"] = render_checkout_page(design, brand_kit)
+        result["order.html"] = render_order_page(design, brand_kit)
+        for fname, content in render_policy_pages(design, brand_kit).items():
+            result[fname] = content
+        for p in (products or []):
+            pid = p.get("id", "")
+            if pid:
+                result[f"products/{pid}.html"] = render_product_page(p, design, brand_kit, products)
+        return result
+
+    # Fallback: built-in CSS design
     _INLINE_CSS = build_css(design, brand_kit)
     _INLINE_JS = STORE_JS
 
