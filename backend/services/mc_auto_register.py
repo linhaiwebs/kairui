@@ -1096,6 +1096,7 @@ async def register_gmc_ai(
         launch_kwargs["proxy"] = _normalize_proxy_for_launch(proxy)
 
     _emit("info", "Launching CloakBrowser...", "launch")
+    _unlock_profile(profile_dir)  # Remove stale lock files from previous crashes
     context = page = None
     try:
         context = await launch_persistent_context_async(**launch_kwargs)
