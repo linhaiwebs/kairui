@@ -42,7 +42,7 @@ def get_stitch_token():
     conn = _get_db()
     try:
         row = conn.execute(
-            "SELECT value FROM global_config WHERE key = 'stitch_tokens'"
+            "SELECT config_value FROM global_config WHERE config_key = 'stitch_tokens'"
         ).fetchone()
         if row and row[0]:
             data = json.loads(row[0])
@@ -58,7 +58,9 @@ def save_stitch_token(access_token, refresh_token):
     try:
         data = json.dumps({"access_token": access_token, "refresh_token": refresh_token})
         conn.execute(
-            "INSERT OR REPLACE INTO global_config (key, value, updated_at) VALUES ('stitch_tokens', ?, datetime('now'))",
+            "INSERT OR REPLACE INTO global_config (id, config_key, config_value, updated_at) "
+            "VALUES (COALESCE((SELECT id FROM global_config WHERE config_key='stitch_tokens'), "
+            "(SELECT COALESCE(MAX(id),0)+1 FROM global_config)), 'stitch_tokens', ?, datetime('now'))",
             (data,),
         )
         conn.commit()
