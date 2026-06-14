@@ -5187,19 +5187,30 @@ def register_routes(app):
 
         logger.info("TestProfile: resolved '%s' → '%s'", profile_name, profile_dir)
 
-        import asyncio
+        import asyncio, threading
         from services.mc_auto_register import auto_verify_google_site as do_test
 
-        try:
-            logger.info("TestProfile: starting test_only for %s...", os.path.basename(profile_dir))
-            result = asyncio.run(do_test(profile_dir=profile_dir, test_only=True))
-            code = 200 if result.get("success") else 500
-            logger.info("TestProfile: result success=%s step=%s message=%s",
-                        result.get("success"), result.get("step", ""), result.get("message", "")[:100])
-            return jsonify({"code": code, "message": result.get("message", ""), "data": result}), code
-        except Exception as e:
-            logger.error("TestProfile: unhandled error: %s\n%s", e, traceback.format_exc())
-            return jsonify({"code": 500, "message": str(e)[:200]}), 500
+        # Run in separate thread to avoid asyncio/gevent event loop conflict
+        result_holder = {}
+        def _run_test():
+            try:
+                result_holder["result"] = asyncio.run(do_test(profile_dir=profile_dir, test_only=True))
+            except Exception as ex:
+                result_holder["error"] = str(ex)[:200]
+        t = threading.Thread(target=_run_test, daemon=True)
+        t.start()
+        t.join(timeout=180)  # max 3 min
+
+        if "result" not in result_holder:
+            err = result_holder.get("error", "测试超时(>3min)")
+            logger.error("TestProfile: failed - %s", err)
+            return jsonify({"code": 500, "message": err}), 500
+
+        result = result_holder["result"]
+        code = 200 if result.get("success") else 500
+        logger.info("TestProfile: result success=%s step=%s message=%s",
+                    result.get("success"), result.get("step", ""), result.get("message", "")[:100])
+        return jsonify({"code": code, "message": result.get("message", ""), "data": result}), code
 
     @app.route("/api/cloakbrowser/profiles", methods=["GET"])
     @jwt_required()
