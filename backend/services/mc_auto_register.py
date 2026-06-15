@@ -896,6 +896,16 @@ async def _exec_gmc_dashboard(page, ctx, log_callback=None):
     _emit(log_callback, "info", f"已注册 -> MC ID: {mc_id}", "done")
     return "done"
 
+async def _exec_gmc_landing(page, ctx, log_callback=None):
+    """Redirect to GMC registration entry (fallback if AI classifies as landing)."""
+    _emit(log_callback, "info", "跳转 GMC 注册入口", "gmc")
+    await page.goto(
+        "https://merchants.google.com/mc/default?mcsubid=us-en-bgc-mc-web!o3&hl=en&fmp=2",
+        wait_until="domcontentloaded", timeout=60000)
+    await _human_delay(2000, 3000)
+    await _dismiss_overlays(page)
+    return "continue"
+
 async def _exec_gmc_account_type(page, ctx, log_callback=None):
     """First step after entering GMC registration: 'Do you sell products online?'
 
@@ -1334,6 +1344,7 @@ _EXEC_DISPATCH = {
     "login_email": _exec_login_email, "login_password": _exec_login_password,
     "login_2fa": _exec_login_2fa, "login_challenge": _exec_login_challenge,
     "gmc_dashboard": _exec_gmc_dashboard,
+    "gmc_landing": _exec_gmc_landing,
     "gmc_account_type": _exec_gmc_account_type,
     "gmc_business_form": _exec_gmc_business_form,
     "gmc_website": _exec_gmc_website, "gmc_feed": _exec_gmc_feed,
