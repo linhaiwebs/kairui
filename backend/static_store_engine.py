@@ -1372,6 +1372,21 @@ def render_homepage(products, design, brand_kit):
     is_editorial = recipe and ("editorial" in (recipe.get("school","") or "").lower() or style_recipe in ("aesop","muji-kenya-hara","monocle-magazine","tufte-dataink","nyt-the-daily"))
     accent = colors[1] if len(colors) > 1 else "#667eea"
 
+
+    # Recipe layout archetypes
+    archetype = 'default'
+    if style_recipe in ('aesop','muji-kenya-hara','tufte-dataink','monocle-magazine','nyt-the-daily'):
+        archetype = 'editorial'
+    elif style_recipe in ('linear','vercel-mesh','bloomberg-terminal','y2k-retrofuturism','raycast','notion-pre-ai','field-io','active-theory','resn-storytelling','are-na','balenciaga-post-2017'):
+        archetype = 'dark'
+    elif style_recipe in ('pentagram','vignelli-swiss-helvetica','stripe-press','apple-hig','dieter-rams-braun','bloomberg-businessweek-turley'):
+        archetype = 'bold'
+    elif style_recipe in ('mid-century-modern','mailchimp-freddie','headspace-meditation'):
+        archetype = 'warm'
+    is_editorial = archetype == 'editorial'
+    is_dark = archetype == 'dark'
+    is_bold = archetype == 'bold'
+    is_warm = archetype == 'warm'
     hero = design.get("layout", {}).get("hero", {})
     headline = hero.get("headline", f"Welcome to {brand_name}")
     subheadline = hero.get("subheadline", "Discover our collection")
@@ -1439,6 +1454,12 @@ def render_homepage(products, design, brand_kit):
     if not cards:
         cards = '<div class="empty-state"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg><p style="font-size:18px">Products coming soon!</p><p>Check back later for our new collection.</p></div>'
 
+    hero_extra = ""
+    if is_editorial: hero_extra = "min-height:50vh;display:flex;flex-direction:column;justify-content:center;text-align:left;max-width:720px;margin:0 auto;padding:80px 24px"
+    elif is_dark: hero_extra = "background:#08090A;color:#F7F8F8;border-bottom:1px solid rgba(255,255,255,0.06);padding:60px 24px"
+    elif is_bold: hero_extra = "padding:100px 24px 60px;text-align:left"
+    elif is_warm: hero_extra = "background:var(--bg);border-radius:0 0 48px 48px;padding:80px 24px"
+
     trust_html = ""
     if "trust_badges" in components:
         trust_html = """<div class="trust-badges"><span>&#128274; Secure Checkout</span><span>&#128666; Free Shipping</span><span>&#128260; 30-Day Returns</span><span>&#128222; 24/7 Support</span></div>"""
@@ -1459,7 +1480,7 @@ def render_homepage(products, design, brand_kit):
   </div>
 </header>
 
-<section class="hero">
+<section class="hero" style="{hero_extra}">
   <h1>{_esc(headline)}</h1>
   <p>{_esc(subheadline)}</p>
 </section>
@@ -1467,7 +1488,7 @@ def render_homepage(products, design, brand_kit):
 {trust_html}
 
 <main class="container" style="margin-top:40px;margin-bottom:40px">
-  <div class="product-grid" id="products">
+  <div class="product-grid" id="products" style="gap:{{48 if is_editorial else 32 if is_warm else 24}}px">
     {cards}
   </div>
 </main>
