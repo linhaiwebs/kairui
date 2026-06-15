@@ -2124,11 +2124,8 @@ pipelineStatuses[siteId].demo_importing = false;
         }
 
         async function registerMCForSite(site) {
-            let profileDir = mcProfileDir.value;
-            if (fingerprintEnabled.value && !profileDir && site.cloakbrowser_profile_name) {
-                profileDir = site.cloakbrowser_profile_name;
-            }
-            if (!profileDir) { showToast('请选择 CloakBrowser Profile 目录', 'error'); return; }
+            let profileDir = mcProfileDir.value || site.cloakbrowser_profile_name || '';
+            if (!profileDir) { showToast('请先关联 CloakBrowser Profile', 'error'); return; }
             if (mcRegistering.value[site.id]) return;
 
             taskLogTitle.value = `注册 MC — ${site.site_name}`;
