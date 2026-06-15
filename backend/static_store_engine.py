@@ -2121,7 +2121,7 @@ def render_order_page(design, brand_kit):
 def render_policy_pages(design, brand_kit):
     """Return dict {filename: html_content} for policy/info pages.
 
-    Keys: about.html, contact.html, privacy.html, terms.html, shipping.html, returns.html, faq.html
+    Keys: about/, contact/, privacy.html, terms.html, shipping.html, returns.html, faq.html
     """
     brand_name = _safe_str(brand_kit.get("brand_name") or brand_kit.get("name", ""), "Store")
     footer_text = _get_footer_text(brand_kit)
@@ -2186,7 +2186,7 @@ def render_policy_pages(design, brand_kit):
 
     files = {}
 
-    files["about.html"] = _page("About Us", f"""
+    files["about/index.html"] = _page("About Us", f"""
 <p>Welcome to {_esc(brand_name)}, your trusted destination for quality products.</p>
 <p>We are committed to providing exceptional value and outstanding customer service. Our team carefully curates every product in our collection to ensure it meets the highest standards of quality and design.</p>
 <h2>Our Mission</h2>
@@ -2198,7 +2198,7 @@ def render_policy_pages(design, brand_kit):
 <p><strong>Secure Shopping:</strong> Your data is always protected with industry-standard encryption.</p>
 """)
 
-    files["contact.html"] = _page("Contact Us", f"""
+    files["contact/index.html"] = _page("Contact Us", f"""
 <p>We would love to hear from you! Reach out to us using any of the methods below.</p>
 <div style="background:#f9fafb;padding:24px;border-radius:var(--radius);margin-top:20px;border:1px solid var(--border)">
   <p><strong>Address:</strong><br>{_esc(biz_address)}</p>
@@ -2212,7 +2212,7 @@ def render_policy_pages(design, brand_kit):
 <p style="margin-top:20px">We typically respond to all inquiries within 24 hours.</p>
 """)
 
-    files["privacy.html"] = _page("Privacy Policy", f"""
+    files["privacy/index.html"] = _page("Privacy Policy", f"""
 <p>Last Updated: January 2025</p>
 <p>{_esc(brand_name)} ("we", "our", or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you visit our website.</p>
 <h2>Information We Collect</h2>
@@ -2229,7 +2229,7 @@ def render_policy_pages(design, brand_kit):
 <p>If you have questions about this Privacy Policy, please contact us at <a href="mailto:{_esc(biz_email)}">{_esc(biz_email)}</a>.</p>
 """)
 
-    files["terms.html"] = _page("Terms of Service", f"""
+    files["terms/index.html"] = _page("Terms of Service", f"""
 <p>Last Updated: January 2025</p>
 <p>By accessing or using the {_esc(brand_name)} website, you agree to be bound by these Terms of Service.</p>
 <h2>Use of the Site</h2>
@@ -2246,7 +2246,7 @@ def render_policy_pages(design, brand_kit):
 <p>We reserve the right to update these terms at any time. Changes will be effective immediately upon posting to this page.</p>
 """)
 
-    files["shipping.html"] = _page("Shipping Policy", f"""
+    files["shipping/index.html"] = _page("Shipping Policy", f"""
 <h2>Shipping Destinations</h2>
 <p>We ship to most countries worldwide. If you are unsure whether we ship to your location, please contact us at <a href="mailto:{_esc(biz_email)}">{_esc(biz_email)}</a> before placing your order.</p>
 <h2>Processing Time</h2>
@@ -2264,7 +2264,7 @@ def render_policy_pages(design, brand_kit):
 <p>International orders may be subject to customs fees, import duties, or taxes. These charges are the responsibility of the recipient and are not included in the item price or shipping cost.</p>
 """)
 
-    files["returns.html"] = _page("Returns Policy", f"""
+    files["returns/index.html"] = _page("Returns Policy", f"""
 <h2>Return Window</h2>
 <p>We accept returns within 30 days of delivery. After 30 days, unfortunately we cannot offer a refund or exchange.</p>
 <h2>Return Conditions</h2>
@@ -2287,7 +2287,7 @@ def render_policy_pages(design, brand_kit):
 <p>We only replace items if they are defective or damaged. If you need to exchange an item, please contact us at <a href="mailto:{_esc(biz_email)}">{_esc(biz_email)}</a>.</p>
 """)
 
-    files["faq.html"] = _page("FAQ", f"""
+    files["faq/index.html"] = _page("FAQ", f"""
 <p>Find answers to the most common questions below. If you cannot find what you are looking for, visit our <a href="/contact/">Contact page</a> to get in touch.</p>
 <details class="faq-item"><summary>What payment methods do you accept?</summary><div class="faq-answer"><p>We accept all major credit cards (Visa, Mastercard, American Express), PayPal, and Apple Pay. All payments are processed securely.</p></div></details>
 <details class="faq-item"><summary>How long does shipping take?</summary><div class="faq-answer"><p>Standard shipping takes 5-10 business days domestically and 10-20 business days internationally. Express shipping options are available at checkout.</p></div></details>
@@ -2322,7 +2322,7 @@ def _render_page_by_type(page_type, design, brand_kit, products):
         return render_order_page(design, brand_kit)
     elif page_type in ("about", "contact", "faq", "privacy", "terms", "shipping", "returns"):
         pages = render_policy_pages(design, brand_kit)
-        return pages.get(f"{page_type}.html", "")
+        return pages.get(f"{page_type}/index.html", "")
     return ""
 
 
@@ -2371,16 +2371,16 @@ def try_stitch_design(brand_kit, progress_callback=None):
 _LINK_TEXT_MAP = {
     "home": "index.html", "shop": "index.html", "store": "index.html",
     "products": "index.html", "product": "index.html", "catalog": "index.html",
-    "cart": "cart.html", "bag": "cart.html", "basket": "cart.html",
-    "checkout": "checkout.html",
-    "order": "order.html", "orders": "order.html", "track order": "order.html",
-    "about": "about.html", "about us": "about.html", "our story": "about.html",
-    "contact": "contact.html", "contact us": "contact.html", "support": "contact.html",
-    "faq": "faq.html", "help": "faq.html",
-    "privacy": "privacy.html", "privacy policy": "privacy.html",
-    "terms": "terms.html", "terms of service": "terms.html", "terms & conditions": "terms.html",
-    "shipping": "shipping.html", "shipping info": "shipping.html", "delivery": "shipping.html",
-    "returns": "returns.html", "returns & refunds": "returns.html", "refund": "returns.html",
+    "cart": "cart/index.html", "bag": "cart.html", "basket": "cart.html",
+    "checkout": "checkout/index.html",
+    "order": "order/index.html", "orders": "order.html", "track order": "order.html",
+    "about": "about/index.html", "about us": "about.html", "our story": "about.html",
+    "contact": "contact/index.html", "contact us": "contact.html", "support": "contact.html",
+    "faq": "faq/index.html", "help": "faq.html",
+    "privacy": "privacy/index.html", "privacy policy": "privacy.html",
+    "terms": "terms/index.html", "terms of service": "terms.html", "terms & conditions": "terms.html",
+    "shipping": "shipping/index.html", "shipping info": "shipping.html", "delivery": "shipping.html",
+    "returns": "returns/index.html", "returns & refunds": "returns.html", "refund": "returns.html",
     "account": "#", "login": "#", "sign in": "#", "register": "#", "sign up": "#",
     "search": "#", "wishlist": "#",
 }
@@ -2618,7 +2618,7 @@ def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
         for p in (products or []):
             pid = p.get("id", "")
             if pid:
-                result[f"products/{pid}.html"] = render_product_page(p, design, brand_kit, products)
+                result[f"products/{pid}/index.html"] = render_product_page(p, design, brand_kit, products)
         return result
 
     # Fallback: try saved screens from previous Stitch generation first
@@ -2661,7 +2661,7 @@ def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
     for p in (products or []):
         pid = p.get("id", "")
         if pid:
-            result[f"products/{pid}.html"] = render_product_page(p, design, brand_kit, products)
+            result[f"products/{pid}/index.html"] = render_product_page(p, design, brand_kit, products)
     return result
 
 def render_site(domain, brand_kit, products, site_dir=None):
@@ -2706,7 +2706,7 @@ def render_site(domain, brand_kit, products, site_dir=None):
         if not pid:
             continue
         product_html = render_product_page(p, design, brand_kit, products)
-        product_path = os.path.join(products_dir, f"{pid}.html")
+        product_path = os.path.join(products_dir, f"{pid}", "index.html")
         with open(product_path, "w", encoding="utf-8") as f:
             f.write(product_html)
         files_written += 1
@@ -2714,28 +2714,28 @@ def render_site(domain, brand_kit, products, site_dir=None):
 
     # 5. Cart page
     cart_html = render_cart_page(design, brand_kit)
-    cart_path = os.path.join(site_dir, "cart.html")
+    cart_path = os.path.join(site_dir, "cart", "index.html")
     with open(cart_path, "w", encoding="utf-8") as f:
         f.write(cart_html)
     files_written += 1
 
     # 6. Checkout page
     checkout_html = render_checkout_page(design, brand_kit)
-    checkout_path = os.path.join(site_dir, "checkout.html")
+    checkout_path = os.path.join(site_dir, "checkout", "index.html")
     with open(checkout_path, "w", encoding="utf-8") as f:
         f.write(checkout_html)
     files_written += 1
 
     # 7. Order confirmation page
     order_html = render_order_page(design, brand_kit)
-    order_path = os.path.join(site_dir, "order.html")
+    order_path = os.path.join(site_dir, "order", "index.html")
     with open(order_path, "w", encoding="utf-8") as f:
         f.write(order_html)
     files_written += 1
 
     # 8. Policy pages
     policy_files = render_policy_pages(design, brand_kit)
-    for filename, content in policy_files.items():
+    for filename, content in policy_files["about/index.html"]items():
         fpath = os.path.join(site_dir, filename)
         with open(fpath, "w", encoding="utf-8") as f:
             f.write(content)
