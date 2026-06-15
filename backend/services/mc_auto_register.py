@@ -851,9 +851,11 @@ async def _navigate_to_gmc(page, log_callback=None) -> str:
     if "accounts.google.com" in current_url:
         _emit(log_callback, "info", "需要登录 Google 账户", "navigate")
         return "login"
-    if any(kw in await page.content() for kw in ["Get started", "Create account", "Sign up"]):
+
+    page_content = await page.content()
+    if any(kw in page_content for kw in ["Get started", "Create account", "Sign up"]):
         return "landing"
-    if any(kw in await page.content() for kw in ["Performance", "Dashboard", "All products"]):
+    if any(kw in page_content for kw in ["Performance", "Dashboard", "All products"]):
         return "dashboard"
     if "/mc/setup" in current_url or "flow=onlineOnboarding" in current_url:
         return "setup"
