@@ -1306,7 +1306,7 @@ async def _solve_captcha_image_grid(page, challenge_text: str, log_callback=None
 
 async def _exec_blocked(page, ctx, log_callback=None):
     _emit(log_callback, "warning", "检测到无关页面 -> 返回 GMC", "blocked")
-    await page.goto("https://merchants.google.com/?hl=en", wait_until="domcontentloaded", timeout=30000)
+    await page.goto("https://merchants.google.com/?hl=en-US&gl=US", wait_until="domcontentloaded", timeout=30000)
     await _human_delay(2000, 3000)
     await _dismiss_overlays(page)
     return "continue"
@@ -1386,13 +1386,6 @@ async def register_gmc(
 
     try:
         context = await launch_persistent_context_async(**launch_kwargs)
-        # Force navigator.language to en-US (overrides system/browser locale)
-        for p in context.pages:
-            try:
-                await p.evaluate("Object.defineProperty(navigator, 'language', {get: () => 'en-US'})")
-                await p.evaluate("Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']})")
-            except Exception:
-                pass
         page = context.pages[0] if context.pages else await context.new_page()
     except Exception as e:
         _emit(log_callback, "error", f"浏览器启动失败: {e}", "launch")
@@ -1412,22 +1405,10 @@ async def register_gmc(
         # --- Navigate to GMC ---
         _emit(log_callback, "info", "访问 merchants.google.com", "navigate")
         page.set_default_navigation_timeout(90000)
-        # Force English via URL + cookies + navigator
-        await page.goto("https://merchants.google.com/?hl=en-US&gl=US", wait_until="domcontentloaded", timeout=90000)
+        # Force English: header (set at launch) + Google official URL params
+        await page.goto("https://merchants.google.com/?hl=en-US&gl=US-US&gl=US", wait_until="domcontentloaded", timeout=90000)
         await _human_delay(2000, 3000)
         await _dismiss_overlays(page)
-        try:
-            await page.evaluate("""
-                document.cookie = 'gl_lang=en; path=/; domain=.google.com; max-age=31536000';
-                document.cookie = 'CONSENT=PENDING+en; path=/; domain=.google.com; max-age=31536000';
-                document.cookie = 'NID=en; path=/; domain=.google.com; max-age=31536000';
-                Object.defineProperty(navigator, 'language', {get: () => 'en-US'});
-                Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-                localStorage.setItem('gmlcLanguage', 'en-US');
-                sessionStorage.setItem('gmlcLocale', 'en-US');
-            """)
-        except Exception:
-            pass
 
         # --- Main AI+Script loop ---
         ctx = {"google_email": google_email, "google_password": google_password,
