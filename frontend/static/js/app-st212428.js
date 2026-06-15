@@ -359,6 +359,7 @@ const app = createApp({
         const profileCategories = ref([]);  // profile_name → category_id mapping
         const newCategoryName = ref('');
         // Settings Tabs
+        const statsSubmenuOpen = ref(false);
         const settingsActiveTab = ref('wordpress');
         const settingsTabs = [
             { key: 'resource', label: '资源总览' },
@@ -2926,7 +2927,7 @@ async function loadProfileCategories() {
 
             activeFingerprintCategory, importingFingerprintText, importingFingerprints, importFingerprintResult,
             resourceKits, resourceStats, loadResourceOverview,
-            getProfilesByCategory, importFingerprintProfiles, removeProfileFromCategory,            settingsActiveTab, settingsTabs,
+            getProfilesByCategory, importFingerprintProfiles, removeProfileFromCategory,            statsSubmenuOpen, settingsActiveTab, settingsTabs,
 
             exportSystemData, importSystemData, handleImportFile, importFileInput,            panelEnvironments, showPanelEnvModal, panelEnvEditId, panelEnvForm, panelEnvFormError,
             loadPanelEnvironments, openPanelEnvModal, closePanelEnvModal, handleSavePanelEnv,
@@ -3014,9 +3015,20 @@ async function loadProfileCategories() {
             <div class="sidebar-nav">
                 <a @click="currentPage = 'dashboard'" :class="['sidebar-link', currentPage === 'dashboard' ? 'active' : '']">
                     <span class="material-symbols-outlined">dashboard</span> 仪表盘
-                </a>
-                <a @click="currentPage = 'woo-stats'; loadWooStats()" :class="['sidebar-link', currentPage === 'woo-stats' ? 'active' : '']">
-                    <span class="material-symbols-outlined">trending_up</span> 销售统计
+                <div class="sidebar-group">
+                    <a @click="statsSubmenuOpen = !statsSubmenuOpen" :class="['sidebar-link', (currentPage === 'woo-stats' || currentPage === 'resource-overview') ? 'active' : '']">
+                        <span class="material-symbols-outlined">analytics</span> 统计总览
+                        <span class="material-symbols-outlined ml-auto" style="font-size:16px">{{ statsSubmenuOpen ? 'expand_less' : 'expand_more' }}</span>
+                    </a>
+                    <div v-show="statsSubmenuOpen || currentPage === 'woo-stats' || currentPage === 'resource-overview'" class="sidebar-submenu">
+                        <a @click="currentPage = 'woo-stats'; loadWooStats()" :class="['sidebar-sublink', currentPage === 'woo-stats' ? 'active' : '']">
+                            <span class="material-symbols-outlined">trending_up</span> 销售统计
+                        </a>
+                        <a @click="currentPage = 'resource-overview'; loadResourceOverview()" :class="['sidebar-sublink', currentPage === 'resource-overview' ? 'active' : '']">
+                            <span class="material-symbols-outlined">account_tree</span> 资源总览
+                        </a>
+                    </div>
+                </div>
                 </a>
                 <a @click="currentPage = 'sites'" :class="['sidebar-link', currentPage === 'sites' ? 'active' : '']">
                     <span class="material-symbols-outlined">language</span> 站点列表
@@ -4115,6 +4127,28 @@ async function loadProfileCategories() {
                         </div>
                         <div class="overflow-y-auto flex-1 text-sm text-on-surface whitespace-pre-wrap">{{ feedDescContent }}</div>
                     </div>
+                </div>
+            </div>
+
+            <!-- 资源总览 -->
+            <div v-if="currentPage === 'resource-overview'" class="fade-in">
+                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-semibold text-on-surface"><i class="fas fa-tasks mr-2 text-primary"></i>资源总览</h3>
+                        <button @click="loadResourceOverview" class="text-xs text-primary hover:text-primary"><i class="fas fa-sync mr-1"></i>刷新</button>
+                    </div>
+                    <div class="grid grid-cols-4 gap-3 mb-6">
+                        <div class="bg-surface-container-low rounded-lg p-3 text-center"><div class="text-2xl font-bold text-[#146c2e]">{{ resourceStats.complete || 0 }}</div><div class="text-xs text-on-surface-variant mt-1">完整</div></div>
+                        <div class="bg-surface-container-low rounded-lg p-3 text-center"><div class="text-2xl font-bold text-yellow-600">{{ resourceStats.missing_google || 0 }}</div><div class="text-xs text-on-surface-variant mt-1">缺谷歌</div></div>
+                        <div class="bg-surface-container-low rounded-lg p-3 text-center"><div class="text-2xl font-bold text-yellow-600">{{ resourceStats.missing_profile || 0 }}</div><div class="text-xs text-on-surface-variant mt-1">缺指纹</div></div>
+                        <div class="bg-surface-container-low rounded-lg p-3 text-center"><div class="text-2xl font-bold text-blue-600">{{ resourceStats.free_google || 0 }}</div><div class="text-xs text-on-surface-variant mt-1">空闲谷歌</div></div>
+                    </div>
+                    <div class="overflow-x-auto" v-if="resourceKits.length">
+                        <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">品牌套件</th><th class="px-3 py-2 text-left">操作员</th><th class="px-3 py-2 text-left">谷歌账户</th><th class="px-3 py-2 text-center">TOTP</th><th class="px-3 py-2 text-left">指纹环境</th><th class="px-3 py-2 text-center">代理</th><th class="px-3 py-2 text-center">站点</th><th class="px-3 py-2 text-center">状态</th></tr></thead>
+                        <tbody class="divide-y"><tr v-for="kit in resourceKits" :key="kit.kit_id" class="hover:bg-surface-container-low"><td class="px-3 py-2 font-medium text-xs">{{ kit.brand_name || kit.kit_name }}</td><td class="px-3 py-2 text-on-surface-variant text-xs">{{ kit.created_by_user || '-' }}</td><td class="px-3 py-2 text-xs"><span v-if="kit.google_email" class="text-[#146c2e]">{{ kit.google_email }}</span><span v-else class="text-red-500">未分配</span></td><td class="px-3 py-2 text-center"><span v-if="kit.has_totp" class="text-[#146c2e]"><i class="fas fa-check"></i></span><span v-else class="text-yellow-600"><i class="fas fa-exclamation-triangle"></i></span></td><td class="px-3 py-2 text-xs font-mono"><span v-if="kit.cloakbrowser_profile_name" class="text-primary">{{ kit.cloakbrowser_profile_name }}</span><span v-else class="text-red-500">未分配</span></td><td class="px-3 py-2 text-center text-xs"><span v-if="kit.proxy" class="text-[#146c2e]"><i class="fas fa-check"></i></span><span v-else class="text-on-surface-variant">-</span></td><td class="px-3 py-2 text-center text-xs">{{ kit.site_count || 0 }}</td><td class="px-3 py-2 text-center"><span v-if="kit.google_email && kit.cloakbrowser_profile_name && kit.has_totp" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">完整</span><span v-else class="badge bg-yellow-100 text-yellow-700 text-xs">不完整</span></td></tr></tbody>
+                        </table>
+                    </div>
+                    <div v-else class="text-center py-10 text-on-surface-variant text-sm">暂无品牌套件</div>
                 </div>
             </div>
 
