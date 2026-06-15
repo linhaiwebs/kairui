@@ -1520,14 +1520,6 @@ async def register_gmc(
     try:
         context = await launch_persistent_context_async(**launch_kwargs)
         page = context.pages[0] if context.pages else await context.new_page()
-        # Force English: intercept ALL requests and override Accept-Language header
-        # Using page.route() is more reliable than extra_http_headers in launch kwargs
-        # because it intercepts at the Playwright level, not CloakBrowser's level.
-        async def _force_en(route):
-            hdrs = {**route.request.headers}
-            hdrs["Accept-Language"] = "en-US,en;q=0.9"
-            await route.continue_(headers=hdrs)
-        await page.route("**/*google*", _force_en)
     except Exception as e:
         _emit(log_callback, "error", f"浏览器启动失败: {e}", "launch")
         return {"success": False, "message": f"Browser launch failed: {e}", "steps": 0}
