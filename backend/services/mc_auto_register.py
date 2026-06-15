@@ -899,10 +899,11 @@ async def _exec_gmc_dashboard(page, ctx, log_callback=None):
 async def _exec_gmc_landing(page, ctx, log_callback=None):
     """Click GMC landing page button to enter registration.
 
-    GMC flow: 'Sign in' (top-right) → panel with 2 options:
-      1. 'Create account' → registration (new tab)
-      2. 'Sign in to existing' → login
-    We click option 1. 'Get started' button (if visible) → direct entry.
+    GMC flow: 'Sign in' (top-right) → panel with 2 PRODUCT options:
+      1. 'Merchant Center' → registration wizard (click this)
+      2. 'Manufacturer Center' → ignore
+
+    'Get started' button (if visible) → direct entry to registration."""
     """
     await asyncio.sleep(3)
 
@@ -964,27 +965,32 @@ async def _exec_gmc_landing(page, ctx, log_callback=None):
 
     await _human_delay(1500, 2500)
 
-    # ── Step 2: Click the FIRST registration option in the panel ──
+    # ── Step 2: Click the FIRST option (Merchant Center) in the panel ──
+    # Panel shows: 1. Merchant Center　2. Manufacturer Center
+    # We always click the FIRST one: "Merchant Center"
     # JS scans panel DOM (read-only) → returns selector → Playwright clicks (real mouse events)
     try:
         panel_selector = await page.evaluate("""
             (() => {
-                const panels = document.querySelectorAll(
-                    '[role="dialog"], [role="menu"], [class*="panel"], [class*="dropdown"], ' +
-                    '[class*="popup"], [class*="overlay"], [class*="modal"], [class*="drawer"]'
+                // Target: ANY visible element containing "Merchant Center" but NOT "Manufacturer"
+                const keywords = ['merchant center', 'merchant', 'google merchant'];
+                const exclude = ['manufacturer'];
+                const all = document.querySelectorAll(
+                    'a, button, [role="button"], [role="menuitem"], [role="option"], ' +
+                    '[role="link"], li, div[role="listitem"], span[role="button"]'
                 );
-                const keywords = ['create', 'get started', 'start now', 'sign up',
-                                  'new account', 'register', 'konto erstellen', 'los geht', 'registrieren'];
-                for (const panel of panels) {
-                    if (panel.offsetParent === null) continue;
-                    const links = panel.querySelectorAll('a, [role="menuitem"], [role="option"]');
-                    for (const link of links) {
-                        if (link.offsetParent === null) continue;
-                        const t = link.textContent.trim().toLowerCase();
-                        if (keywords.some(k => t.includes(k))) {
-                            if (link.id) return '#' + link.id;
-                            return 'a:has-text(\"' + link.textContent.trim().substring(0, 20) + '\")';
+                for (const el of all) {
+                    if (el.offsetParent === null) continue;
+                    const t = el.textContent.trim().toLowerCase();
+                    if (t.length < 5 || t.length > 60) continue;
+                    if (exclude.some(e => t.includes(e))) continue;
+                    if (keywords.some(k => t.includes(k))) {
+                        if (el.id) return '#' + CSS.escape(el.id);
+                        if (el.classList.length > 0) {
+                            const cls = Array.from(el.classList).filter(c => c && !c.match(/^\\d/)).slice(0,2).join('.');
+                            if (cls) return el.tagName.toLowerCase() + '.' + CSS.escape(cls);
                         }
+                        return el.tagName.toLowerCase() + ':has-text(\"' + el.textContent.trim().substring(0, 25) + '\")';
                     }
                 }
                 return null;
@@ -996,7 +1002,7 @@ async def _exec_gmc_landing(page, ctx, log_callback=None):
                 await el.hover()
                 await _human_delay(200, 500)
                 await el.click(timeout=5000)
-                _emit(log_callback, "info", f"选择注册选项", "gmc")
+                _emit(log_callback, "info", "选择 Merchant Center", "gmc")
     except Exception as e:
         _emit(log_callback, "warning", f"面板选项异常: {e}", "gmc")
 
