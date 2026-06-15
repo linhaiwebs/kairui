@@ -1172,7 +1172,8 @@ async def _solve_recaptcha_audio(page, log_callback=None) -> bool:
                 if token:
                     # Inject the token
                     await page.evaluate(f"""
-                        document.getElementById('g-recaptcha-response').innerHTML = '{token}';
+                        var el = document.getElementById('g-recaptcha-response');
+                        if (el) el.value = '{token}';
                         if (typeof ___grecaptcha_cfg !== 'undefined') {{
                             for (const c of Object.values(___grecaptcha_cfg.clients || {{}})) {{
                                 if (c && c.callback) c.callback('{token}');
@@ -1488,14 +1489,15 @@ async def register_gmc(
                       f"[{step}/{max_steps}] 失败 → 页面类型: {page_type}", "gmc")
                 return {"success": False, "message": f"Failed at step {step} ({page_type})", "steps": step, "meta_tag": ctx.get("extracted_meta_tag", "")}
 
-            # Post-login: after Google login completes, navigate to GMC registration
+            # Post-login: redirect to GMC ONLY when login is actually done
             if page_type.startswith("login_"):
-                _emit(log_callback, "info", "登录完成 → 跳转 GMC 注册入口", "gmc")
-                await page.goto(
-                    "https://merchants.google.com/mc/default?mcsubid=us-en-bgc-mc-web!o3&hl=en&fmp=2",
-                    wait_until="domcontentloaded", timeout=60000)
-                await _human_delay(2000, 3000)
-                await _dismiss_overlays(page)
+                if "accounts.google.com" not in page.url:
+                    _emit(log_callback, "info", "登录完成 → 跳转 GMC 注册入口", "gmc")
+                    await page.goto(
+                        "https://merchants.google.com/mc/default?mcsubid=us-en-bgc-mc-web!o3&hl=en&fmp=2",
+                        wait_until="domcontentloaded", timeout=60000)
+                    await _human_delay(2000, 3000)
+                    await _dismiss_overlays(page)
                 continue
 
             # Skip AI verification for single-page wizard transitional steps
