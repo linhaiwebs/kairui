@@ -1144,6 +1144,10 @@ async def _solve_recaptcha_audio_challenge(page, log_callback=None) -> bool:
         _emit(log_callback, "warning", f"音频挑战失败: {e}", "captcha")
     return False
 
+
+async def _solve_recaptcha_audio(page, log_callback=None) -> bool:
+    """Use recaptcha-bypass library for API-level bypass (no browser challenge)."""
+    try:
         # Get current URL
         url = page.url
 
