@@ -667,7 +667,16 @@ JSON: {{"page_type":"xxx","confidence":0.9,"reasoning":"brief"}}"""
             loop = asyncio.get_event_loop()
             raw = await loop.run_in_executor(None, lambda: rotate_deepseek(_call, keys))
             raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
-            result = json.loads(raw)
+            try:
+                result = json.loads(raw)
+            except json.JSONDecodeError:
+                # Try regex extraction: find page_type value in malformed JSON
+                import re as _re3
+                m = _re3.search(r'"page_type"\s*:\s*"(\w+)"', raw)
+                if m:
+                    result = {"page_type": m.group(1), "confidence": 0.5, "reasoning": "regex extraction"}
+                else:
+                    raise
             _emit(log_callback, "info", f"AI判定 -> {result['page_type']} (c={result.get('confidence', '?')})", "ai")
             return result
     except Exception as e:
@@ -685,7 +694,8 @@ def _keyword_classify(url: str, text: str) -> dict:
         ("captcha", ["captcha", "robot", "verify you are human", "unusual traffic"]),
         ("login_2fa", ["2-step verification", "authenticator", "enter the code"]),
         ("login_password", ["password", "welcome"]),
-        ("login_email", ["email or phone", "sign in", "to continue to"]),
+        ("login_email", ["email or phone", "sign in", "to continue to",
+                         "anmelden", "email oder telefon", "eingeben"]),
         ("login_challenge", ["recovery", "verify it's you", "confirm you", "protect your"]),
         ("gmc_dashboard", ["performance", "all products", "diagnostics"]),
         ("gmc_complete", ["account created", "congratulations", "welcome to merchant"]),
@@ -702,6 +712,12 @@ def _keyword_classify(url: str, text: str) -> dict:
         if sum(1 for kw in keywords if kw in t) >= 2:
             return {"page_type": page_type, "confidence": 0.7, "reasoning": f"keyword: {page_type}"}
     if "merchants.google.com" in url:
+        # Extra check: if page shows dashboard indicators, it's not landing
+        if sum(1 for kw in ["performance", "all products", "diagnostics"] if kw in t) >= 2:
+            return {"page_type": "gmc_dashboard", "confidence": 0.8, "reasoning": "dashboard on GMC"}
+        # Detect German GMC landing page (before English override takes effect)
+        if any(kw in t for kw in ["anmelden", "registrieren", "konto erstellen", "los gehts", "los geht's"]):
+            return {"page_type": "gmc_landing", "confidence": 0.85, "reasoning": "German GMC landing"}
         return {"page_type": "gmc_landing", "confidence": 0.6, "reasoning": "on GMC domain"}
     return {"page_type": "unknown", "confidence": 0, "reasoning": "no match"}
 
@@ -1461,7 +1477,7 @@ async def register_gmc(
         _emit(log_callback, "info", "访问 merchants.google.com", "navigate")
         page.set_default_navigation_timeout(90000)
         # Force English: header (set at launch) + Google official URL params
-        await page.goto("https://merchants.google.com/?hl=en-US&gl=US-US&gl=US", wait_until="domcontentloaded", timeout=90000)
+        await page.goto("https://merchants.google.com/?hl=en-US&gl=US", wait_until="domcontentloaded", timeout=90000)
         await _human_delay(2000, 3000)
         await _dismiss_overlays(page)
 
