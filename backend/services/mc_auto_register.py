@@ -1048,7 +1048,7 @@ async def _solve_recaptcha_checkbox(page, log_callback=None) -> bool:
 async def _solve_recaptcha_audio(page, log_callback=None) -> bool:
     """Use recaptcha-bypass library for audio challenge solving."""
     try:
-        from recaptcha_bypass import solve_recaptcha_v2
+        from recaptcha_bypass import ReCaptchaEnterpriseV2Bypass
 
         # Get current URL
         url = page.url
@@ -1079,8 +1079,9 @@ async def _solve_recaptcha_audio(page, log_callback=None) -> bool:
         if sitekey:
             _emit(log_callback, "info", f"reCAPTCHA sitekey: {sitekey}", "captcha")
             try:
+                bypasser = ReCaptchaEnterpriseV2Bypass(url)
                 token = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: solve_recaptcha_v2(sitekey, url)
+                    None, lambda: (bypasser.bypass(), bypasser.get_response())[1]
                 )
                 if token:
                     # Inject the token
