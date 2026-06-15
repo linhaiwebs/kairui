@@ -3098,10 +3098,10 @@ async function loadProfileCategories() {
                         {{ panelConnected ? '1Panel' : '离线' }}
                     </span>
                 </div>
-                <button @click="syncWithPanel" class="btn btn-secondary btn-sm">
+                <button v-if="currentPage === 'sites'" @click="syncWithPanel" class="btn btn-secondary btn-sm">
                     <span class="material-symbols-outlined" style="font-size:16px">sync</span> 同步
                 </button>
-                <button @click="refreshSites" class="btn btn-primary btn-sm">
+                <button v-if="currentPage === 'sites'" @click="refreshSites" class="btn btn-primary btn-sm">
                     <span class="material-symbols-outlined" style="font-size:16px">refresh</span> 刷新
                 </button>
             </div>
@@ -3124,8 +3124,8 @@ async function loadProfileCategories() {
                     <button v-if="currentPage === 'settings'" @click="exportSystemData" class="flex items-center gap-sm px-md py-sm bg-primary-container text-on-primary rounded-lg hover:bg-primary transition-colors font-label-md text-label-md shadow-level-1" title="导出所有配置和数据"><span class="material-symbols-outlined text-[18px]">download</span>导出配置</button>
                     <button v-if="currentPage === 'settings'" @click="importSystemData" class="flex items-center gap-sm px-md py-sm bg-surface-container-low border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container-high transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]">upload</span>导入配置</button>
                     <input v-if="currentPage === 'settings'" type="file" ref="importFileInput" @change="handleImportFile" accept=".json" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden">
-                    <button v-if="currentPage !== 'settings'" @click="syncWithPanel" class="flex items-center gap-sm px-md py-sm bg-primary-container text-on-primary rounded-lg hover:bg-primary transition-colors font-label-md text-label-md shadow-level-1" title="从1Panel同步数据"><span class="material-symbols-outlined text-[18px]">sync</span>同步1Panel</button>
-                    <button v-if="currentPage !== 'settings'" @click="refreshSites" class="flex items-center gap-sm px-md py-sm bg-surface-container-low border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container-high transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]" :class="loading ? 'animate-spin' : ''">refresh</span>刷新</button>
+                    <button v-if="currentPage === 'sites'" @click="syncWithPanel" class="flex items-center gap-sm px-md py-sm bg-primary-container text-on-primary rounded-lg hover:bg-primary transition-colors font-label-md text-label-md shadow-level-1" title="从1Panel同步数据"><span class="material-symbols-outlined text-[18px]">sync</span>同步1Panel</button>
+                    <button v-if="currentPage === 'sites'" @click="refreshSites" class="flex items-center gap-sm px-md py-sm bg-surface-container-low border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container-high transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]" :class="loading ? 'animate-spin' : ''">refresh</span>刷新</button>
                 </div>
             </div>
 
