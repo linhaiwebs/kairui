@@ -367,7 +367,6 @@ const app = createApp({
             } catch (e) {}
         }
         const settingsActiveTab = ref('wordpress');
-        const gardenRecipes = [{"v":"linear","l":"Linear"},{"v":"vercel-mesh","l":"Vercel Mesh"},{"v":"raycast","l":"Raycast"},{"v":"notion-pre-ai","l":"Notion Pre-AI"},{"v":"aesop","l":"Aesop"},{"v":"muji-kenya-hara","l":"MUJI Kenya Hara"},{"v":"monocle-magazine","l":"Monocle Magazine"},{"v":"tufte-dataink","l":"Tufte Data-Ink"},{"v":"stripe-press","l":"Stripe Press"},{"v":"apple-hig","l":"Apple HIG"},{"v":"dieter-rams-braun","l":"Dieter Rams Braun"},{"v":"vignelli-swiss-helvetica","l":"Vignelli Swiss"},{"v":"pentagram","l":"Pentagram"},{"v":"bloomberg-terminal","l":"Bloomberg Terminal"},{"v":"bloomberg-businessweek-turley","l":"Businessweek Turley"},{"v":"nyt-the-daily","l":"NYT The Daily"},{"v":"mailchimp-freddie","l":"Mailchimp Freddie"},{"v":"headspace-meditation","l":"Headspace Calm"},{"v":"mid-century-modern","l":"Mid-Century Modern"},{"v":"y2k-retrofuturism","l":"Y2K Retrofuturism"},{"v":"are-na","l":"Are.na"},{"v":"balenciaga-post-2017","l":"Balenciaga"},{"v":"field-io","l":"Field.io"},{"v":"active-theory","l":"Active Theory"},{"v":"resn-storytelling","l":"Resn Storytelling"}];
         const settingsTabs = [
             { key: 'wordpress', label: 'WordPress 默认' },
             { key: 'panel', label: '1Panel 环境' },
@@ -2798,7 +2797,7 @@ pipelineStatuses[siteId].demo_importing = false;
             loadUsers, openUserModal, closeUserModal, handleSaveUser, handleDeleteUser,
 
             resourceActiveTab, resourceOperators, resourceStats, loadResourceOverview,
-            toggleStats, statsSubmenuOpen, gardenRecipes, settingsActiveTab, settingsTabs,
+            toggleStats, statsSubmenuOpen, settingsActiveTab, settingsTabs,
 
             exportSystemData, importSystemData, handleImportFile, importFileInput,            panelEnvironments, showPanelEnvModal, panelEnvEditId, panelEnvForm, panelEnvFormError,
             loadPanelEnvironments, openPanelEnvModal, closePanelEnvModal, handleSavePanelEnv,
@@ -4538,7 +4537,7 @@ pipelineStatuses[siteId].demo_importing = false;
                         <tbody class="divide-y divide-outline-variant">
                             <tr v-for="kit in brandKits" :key="kit.id" class="hover:bg-surface-container-low transition cursor-pointer" @click="openBrandKitDetail(kit)">
                                 <td class="px-4 py-3">
-                                    <div v-if="kit.processed_svg || kit.raw_svg" v-html="kit.processed_svg || kit.raw_svg" class="w-8 h-8 svg-preview"></div>
+                                    <div v-if="kit.processed_svg || kit.raw_svg" v-html="kit.processed_svg || kit.raw_svg" class="w-8 h-8 svg-preview" style="overflow:hidden;max-width:32px;max-height:32px"></div>
                                     <i v-else class="fas fa-paint-brush text-on-surface-variant text-lg"></i>
                                 </td>
                                 <td class="px-4 py-3">
@@ -5251,7 +5250,6 @@ pipelineStatuses[siteId].demo_importing = false;
                             <option value="汽车配件">汽车配件</option>
                         </select>
                     </div>
-                    <div><label class="block text-sm font-medium text-on-surface mb-1">设计风格 <span class="text-xs text-on-surface-variant">garden-skills</span></label><select v-model="brandKitForm.style_recipe" class="w-full px-4 py-2 border rounded-lg focus:border-primary"><option value="">默认</option><option v-for="r in gardenRecipes" :key="r.v" :value="r.v">{{ r.l }}</option></select></div>
                     <!-- 指纹环境 (包含代理) — 从系统设置中同步 -->
                     <div>
                         <label class="block text-sm font-medium text-on-surface mb-1">指纹环境 <span class="text-xs text-on-surface-variant">(可选，含代理)</span></label>

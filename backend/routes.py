@@ -9423,8 +9423,11 @@ Respond with strict JSON only (no markdown code blocks):
             proxy_id_in = data.get("proxy_id") or None
             ds = {}
             style_recipe = (data.get("style_recipe") or "").strip()
-            if style_recipe:
-                ds = {"style_recipe": style_recipe}
+            if not style_recipe:
+                import random
+                from garden_recipes import STYLE_RECIPES
+                style_recipe = random.choice(list(STYLE_RECIPES.keys()))
+            ds = {"style_recipe": style_recipe}
             ga_id_in = data.get("google_account_id") or None
             logger.info(f"[create_brand_kit] proxy_id={proxy_id_in!r} google_account_id={ga_id_in!r} data_keys={list(data.keys())}")
             kit = create_brand_kit({
