@@ -3188,20 +3188,6 @@ async function loadProfileCategories() {
                     </div>
                 </div>
             </div>
-            <div v-if="currentPage === 'dashboard'" class="space-y-lg fade-in">
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-md mb-lg">
-                    <div class="card"><div class="flex items-center justify-between"><div><p class="font-body-md text-on-surface-variant font-medium">站点总数</p><p class="font-display-md mt-xs text-on-surface">{{ sites.length }}</p></div><div class="p-xs bg-surface-container-low rounded-md"><span class="material-symbols-outlined">language</span></div></div></div>
-                    <div class="card"><div class="flex items-center justify-between"><div><p class="font-body-md text-on-surface-variant font-medium">1Panel连接</p><p class="text-3xl font-bold mt-1" :class="panelConnected ? 'text-[#146c2e]' : 'text-error'">{{ panelConnected ? '正常' : '断开' }}</p></div><div class="w-12 h-12 rounded-lg flex items-center justify-center" :class="panelConnected ? 'bg-[#146c2e]/10' : 'bg-error-container'"><i class="fas fa-server text-xl" :class="panelConnected ? 'text-[#146c2e]' : 'text-error'"></i></div></div></div>
-                </div>
-                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
-                    <h3 class="font-semibold text-on-surface mb-4"><span class="material-symbols-outlined">bolt</span>快速操作</h3>
-                    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                        <button @click="openWizard('single')" class="flex flex-col items-center justify-center gap-sm p-4 border-2 border-dashed border-outline-variant rounded-xl hover:border-primary-container hover:bg-primary-container/5 transition-all text-center"><span class="material-symbols-outlined text-2xl">add_circle</span><p class="text-sm font-medium text-on-surface">创建单个站点</p></button>
-                        <button @click="openWizard('batch')" class="flex flex-col items-center justify-center gap-sm p-4 border-2 border-dashed border-outline-variant rounded-xl hover:border-primary-container hover:bg-primary-container/5 transition-all text-center"><span class="material-symbols-outlined text-2xl">library_add</span><p class="text-sm font-medium text-on-surface">批量创建站点</p></button>
-                        <button @click="exportCSV" class="flex flex-col items-center justify-center gap-sm p-4 border-2 border-dashed border-outline-variant rounded-xl hover:border-[#146c2e]/40 hover:bg-[#146c2e]/5 transition-all text-center"><span class="material-symbols-outlined text-2xl">description</span><p class="text-sm font-medium text-on-surface">导出CSV</p></button>
-                    </div>
-                </div>
-            </div>
 
             <!-- 网站产品 Stats -->
             <div v-if="currentPage === 'woo-stats'" class="fade-in">
