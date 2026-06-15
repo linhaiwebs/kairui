@@ -1366,6 +1366,10 @@ def render_homepage(products, design, brand_kit):
     brand_name = _safe_str(brand_kit.get("brand_name") or brand_kit.get("name", ""), "Store")
     colors = _brand_colors(brand_kit)
     primary = colors[0]
+    style_recipe = design.get("style_recipe", "") or brand_kit.get("design_system", {}).get("style_recipe", "")
+    recipe = STYLE_RECIPES.get(style_recipe, None) if style_recipe else None
+    is_dark = recipe and ("dark" in (recipe.get("school","") or "").lower() or style_recipe in ("linear","vercel-mesh","bloomberg-terminal","y2k-retrofuturism"))
+    is_editorial = recipe and ("editorial" in (recipe.get("school","") or "").lower() or style_recipe in ("aesop","muji-kenya-hara","monocle-magazine","tufte-dataink","nyt-the-daily"))
     accent = colors[1] if len(colors) > 1 else "#667eea"
 
     hero = design.get("layout", {}).get("hero", {})
