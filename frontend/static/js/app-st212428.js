@@ -4149,7 +4149,50 @@ async function loadProfileCategories() {
                         <button v-for="(op, i) in resourceOperators" :key="op.user_id" @click="resourceActiveTab = i + 1" :class="['px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition', resourceActiveTab === i + 1 ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface']">{{ op.operator_name }} ¥{{ op.total_cost }}</button>
                     </div>
                     <div v-show="resourceActiveTab === 0" class="p-4"><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">运营</th><th class="px-3 py-2 text-center">谷歌</th><th class="px-3 py-2 text-center">指纹</th><th class="px-3 py-2 text-center">套件</th><th class="px-3 py-2 text-right">成本</th></tr></thead><tbody class="divide-y"><tr v-for="op in resourceOperators" :key="op.user_id" class="hover:bg-surface-container-low"><td class="px-3 py-2 font-medium">{{ op.operator_name }}</td><td class="px-3 py-2 text-center text-xs">{{ op.google_count }} 个</td><td class="px-3 py-2 text-center text-xs">{{ op.profile_count }} 个</td><td class="px-3 py-2 text-center text-xs">{{ op.kits.length }}</td><td class="px-3 py-2 text-right font-bold text-[#146c2e] text-xs">¥{{ op.total_cost }}</td></tr></tbody></table></div></div>
-                    <div v-for="(op, i) in resourceOperators" :key="op.user_id" v-show="resourceActiveTab === i + 1" class="p-4"><div class="flex items-center gap-4 mb-3 text-sm"><span><i class="fab fa-google mr-1"></i>谷歌: {{ op.google_count }} 个 · ¥{{ op.google_cost }}</span><span><i class="fas fa-fingerprint mr-1"></i>指纹: {{ op.profile_count }} 个 · ¥{{ op.profile_cost }}</span><span class="font-bold text-[#146c2e]">合计: ¥{{ op.total_cost }}</span></div><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">品牌套件</th><th class="px-3 py-2 text-left">谷歌账户</th><th class="px-3 py-2 text-center">TOTP</th><th class="px-3 py-2 text-left">指纹环境</th><th class="px-3 py-2 text-center">代理</th><th class="px-3 py-2 text-center">站点</th><th class="px-3 py-2 text-center">状态</th></tr></thead><tbody class="divide-y"><tr v-for="kit in op.kits" :key="kit.kit_id" class="hover:bg-surface-container-low"><td class="px-3 py-2 font-medium text-xs">{{ kit.brand_name || kit.kit_name }}</td><td class="px-3 py-2 text-xs"><span v-if="kit.google_email" class="text-[#146c2e]">{{ kit.google_email }}</span><span v-else class="text-red-500">未分配</span></td><td class="px-3 py-2 text-center"><span v-if="kit.has_totp" class="text-[#146c2e]">OK</span><span v-else class="text-yellow-600">NO</span></td><td class="px-3 py-2 text-xs font-mono"><span v-if="kit.cloakbrowser_profile_name" class="text-primary">{{ kit.cloakbrowser_profile_name }}</span><span v-else class="text-red-500">-</span></td><td class="px-3 py-2 text-center text-xs"><span v-if="kit.proxy" class="text-[#146c2e]">OK</span><span v-else>-</span></td><td class="px-3 py-2 text-center text-xs">{{ kit.site_count || 0 }}</td><td class="px-3 py-2 text-center"><span v-if="kit.google_email && kit.cloakbrowser_profile_name && kit.has_totp" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">完整</span><span v-else class="badge bg-yellow-100 text-yellow-700 text-xs">不完整</span></td></tr></tbody></table></div></div>
+                    <div v-for="(op, i) in resourceOperators" :key="op.user_id" v-show="resourceActiveTab === i + 1" class="p-4">
+                        <div class="bg-surface-container-low rounded-lg p-4 mb-4 border">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <div class="text-xs text-on-surface-variant mb-2"><i class="fab fa-google mr-1 text-primary"></i>谷歌邮箱 · 1元/个</div>
+                                    <div class="font-bold text-lg">{{ op.google_count }} <span class="text-sm font-normal text-on-surface-variant">个</span></div>
+                                    <div class="text-[#146c2e] font-medium">¥{{ op.google_cost }}</div>
+                                </div>
+                                <div>
+                                    <div class="text-xs text-on-surface-variant mb-2"><i class="fas fa-fingerprint mr-1 text-purple-600"></i>指纹环境 · 2元/个</div>
+                                    <div class="font-bold text-lg">{{ op.profile_count }} <span class="text-sm font-normal text-on-surface-variant">个</span></div>
+                                    <div class="text-[#146c2e] font-medium">¥{{ op.profile_cost }}</div>
+                                </div>
+                            </div>
+                            <div class="mt-3 pt-3 border-t text-right">
+                                <span class="text-xs text-on-surface-variant">合计 </span>
+                                <span class="font-bold text-[#146c2e] text-lg">¥{{ op.total_cost }}</span>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="bg-surface-container-lowest rounded-lg border overflow-hidden">
+                                <div class="px-3 py-2 bg-blue-50 border-b text-xs font-medium text-primary"><i class="fab fa-google mr-1"></i>谷歌账户</div>
+                                <div v-if="op.kits.filter(k=>k.google_email).length" class="divide-y">
+                                    <div v-for="kit in op.kits.filter(k=>k.google_email)" :key="'g'+kit.kit_id" class="px-3 py-2 text-xs">
+                                        <div class="font-medium truncate">{{ kit.google_email }}</div>
+                                        <div class="text-on-surface-variant">{{ kit.brand_name || kit.kit_name }} · TOTP: <span :class="kit.has_totp ? 'text-[#146c2e]' : 'text-yellow-600'">{{ kit.has_totp ? '有' : '无' }}</span></div>
+                                        <div class="text-on-surface-variant" style="font-size:10px" v-if="kit.google_updated_at">分配时间: {{ kit.google_updated_at }}</div>
+                                    </div>
+                                </div>
+                                <div v-else class="px-3 py-4 text-center text-xs text-on-surface-variant">无谷歌账户</div>
+                            </div>
+                            <div class="bg-surface-container-lowest rounded-lg border overflow-hidden">
+                                <div class="px-3 py-2 bg-purple-50 border-b text-xs font-medium text-purple-700"><i class="fas fa-fingerprint mr-1"></i>指纹环境</div>
+                                <div v-if="op.kits.filter(k=>k.cloakbrowser_profile_name).length" class="divide-y">
+                                    <div v-for="kit in op.kits.filter(k=>k.cloakbrowser_profile_name)" :key="'f'+kit.kit_id" class="px-3 py-2 text-xs">
+                                        <div class="font-medium font-mono text-primary truncate">{{ kit.cloakbrowser_profile_name }}</div>
+                                        <div class="text-on-surface-variant">{{ kit.brand_name || kit.kit_name }} · 代理: <span :class="kit.proxy ? 'text-[#146c2e]' : 'text-on-surface-variant'">{{ kit.proxy ? '有' : '无' }}</span> · {{ kit.site_count || 0 }} 个站点</div>
+                                        <div class="text-on-surface-variant" style="font-size:10px" v-if="kit.kit_updated_at">分配时间: {{ kit.kit_updated_at }}</div>
+                                    </div>
+                                </div>
+                                <div v-else class="px-3 py-4 text-center text-xs text-on-surface-variant">无指纹环境</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div v-else class="text-center py-10 text-on-surface-variant text-sm">暂无运营数据</div>
             </div>

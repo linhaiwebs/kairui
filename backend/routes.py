@@ -9970,8 +9970,8 @@ Make UNIQUE decisions — different hero type, card style, layout from typical d
         db = get_db()
         rows = db.execute("""
             SELECT bk.id AS kit_id, bk.name AS kit_name, bk.brand_name,
-                bk.cloakbrowser_profile_name, bk.google_account_id, bk.proxy,
-                ga.email AS google_email, ga.country AS google_country,
+                bk.cloakbrowser_profile_name, bk.google_account_id, bk.proxy, bk.updated_at AS kit_updated_at,
+                ga.email AS google_email, ga.country AS google_country, ga.updated_at AS google_updated_at,
                 CASE WHEN ga.totp_secret IS NOT NULL AND ga.totp_secret != '' THEN 1 ELSE 0 END AS has_totp,
                 u.id AS user_id, u.username AS operator_name,
                 (SELECT COUNT(*) FROM sites WHERE brand_kit_id = bk.id) AS site_count
