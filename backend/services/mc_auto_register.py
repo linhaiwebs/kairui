@@ -350,10 +350,9 @@ async def _google_login(
     timeout_ms: int = 180000,
 ) -> bool:
     """Perform Google login on the given Playwright page. Returns True on success."""
-    _emit(log_callback, "info", f"Google 登录: {email}", "google_login")
+    _emit(log_callback, "info", f"登录 Google → {email}", "google_login")
 
     # --- Phase 1: Email ---
-    _emit(log_callback, "info", "填写邮箱...", "google_login")
     for sel in [
         "input[type='email']", "input[name='identifier']",
         "input[aria-label*='Email']", "input[aria-label*='email']",
@@ -362,7 +361,6 @@ async def _google_login(
         if await inp.count() > 0:
             await inp.first.fill(email)
             await asyncio.sleep(1)
-            _emit(log_callback, "info", f"已填写邮箱", "google_login")
             break
 
     for btn_text in ["Next", "Continue"]:
@@ -371,11 +369,9 @@ async def _google_login(
             await btn.first.click()
             await page.wait_for_load_state("domcontentloaded")
             await asyncio.sleep(3)
-            _emit(log_callback, "info", f"点击了 '{btn_text}'", "google_login")
             break
 
     # --- Phase 2: Password ---
-    _emit(log_callback, "info", "填写密码...", "google_login")
     for sel in [
         "input[type='password']", "input[name='password']", "input[name='Passwd']",
         "input[aria-label*='password']", "input[aria-label*='Password']",
@@ -384,7 +380,6 @@ async def _google_login(
         if await inp.count() > 0:
             await inp.first.fill(password)
             await asyncio.sleep(1)
-            _emit(log_callback, "info", "已填写密码", "google_login")
             break
 
     for btn_text in ["Next", "Sign in"]:
@@ -393,18 +388,16 @@ async def _google_login(
             await btn.first.click()
             await page.wait_for_load_state("domcontentloaded")
             await asyncio.sleep(3)
-            _emit(log_callback, "info", f"点击了 '{btn_text}'", "google_login")
             break
 
     # --- Phase 3: 2FA ---
     await asyncio.sleep(2)
     content = await page.content()
     if totp_secret and ("2-Step Verification" in content or "authenticator" in content.lower() or "verify" in page.url.lower()):
-        _emit(log_callback, "info", "检测到 2FA 验证，生成 TOTP 验证码...", "google_login")
+        _emit(log_callback, "info", "需要两步验证 → 生成 TOTP 验证码", "google_login")
         try:
             totp = pyotp.TOTP(totp_secret)
             code = totp.now()
-            _emit(log_callback, "info", "已生成 TOTP 验证码", "google_login")
         except Exception as e:
             _emit(log_callback, "error", f"TOTP 生成失败: {e}", "google_login")
             return False
@@ -418,7 +411,6 @@ async def _google_login(
             if await inp.count() > 0:
                 await inp.first.fill(code)
                 await asyncio.sleep(1)
-                _emit(log_callback, "info", "已填写 TOTP 验证码", "google_login")
                 break
 
         for btn_text in ["Next", "Verify", "Continue"]:
@@ -427,56 +419,43 @@ async def _google_login(
                 await btn.first.click()
                 await page.wait_for_load_state("domcontentloaded")
                 await asyncio.sleep(4)
-                _emit(log_callback, "info", "已提交 2FA 验证码", "google_login")
                 break
 
-    # --- Phase 4: Dismiss extra prompts (loop until none left or login completes) ---
-    # Google often shows MULTIPLE sequential prompts after password:
-    #   "Confirm your recovery email" → "Add phone number?" → "Verify it's you" →
-    #   "Protect your account" → "Stay signed in?" → "Welcome back"
-    # We loop and dismiss each one until we reach a real Google service page.
-    _emit(log_callback, "info", "处理登录后的额外提示...", "google_login")
+    # --- Phase 4: Dismiss extra prompts ---
     for _ in range(10):
         await asyncio.sleep(2)
         current_url = page.url
 
-        # Already logged in — check if we're on a Google service page
         if "accounts.google.com" not in current_url or "/signin/" not in current_url:
             if any(d in current_url for d in [
                 "merchants.google.com", "business.google.com",
                 "myaccount.google.com", "google.com",
             ]):
-                _emit(log_callback, "info", f"登录成功! URL: {current_url[:100]}", "google_login")
+                _emit(log_callback, "info", "登录成功 → 进入 Google Merchant Center", "google_login")
                 return True
 
         content = await page.content()
         content_lower = content.lower()
 
-        # Check for password error
         if "wrong password" in content_lower:
             _emit(log_callback, "error", "密码错误", "google_login")
             return False
 
-        # Collect ALL dismiss-able buttons on the current page
-        # Priority: skip/dismiss over confirm/accept (to avoid giving Google more data)
         skip_buttons = ["Skip", "Not now", "Later", "No thanks", "Cancel"]
         accept_buttons = ["Confirm", "Accept", "Yes", "I agree", "Continue", "Done"]
 
         clicked = False
-        # Try skip buttons first (prefer to skip rather than confirm)
         for btn_text in skip_buttons + accept_buttons:
             try:
                 btn = page.locator(f"button:has-text('{btn_text}'), a:has-text('{btn_text}')").first
                 if await btn.count() > 0 and await btn.is_visible():
                     await btn.click(timeout=3000)
                     await asyncio.sleep(2)
-                    _emit(log_callback, "info", f"跳过提示: '{btn_text}'", "google_login")
                     clicked = True
                     break
             except Exception:
                 continue
 
-        # Also handle "Stay signed in?" checkbox + button pattern
         if not clicked:
             try:
                 cb = page.locator("input[type='checkbox']").first
@@ -487,20 +466,14 @@ async def _google_login(
                 if await next_btn.count() > 0 and await next_btn.is_visible():
                     await next_btn.click(timeout=3000)
                     await asyncio.sleep(2)
-                    _emit(log_callback, "info", "确认 '保持登录' 提示", "google_login")
                     clicked = True
             except Exception:
                 pass
 
         if not clicked:
-            # No more prompts — check if login succeeded
             current_url = page.url
             if "accounts.google.com" not in current_url or "/signin/" not in current_url:
-                _emit(log_callback, "info", "无更多提示，登录完成", "google_login")
                 return True
-            # Still on accounts.google.com with no dismissable buttons — might be stuck
-            _emit(log_callback, "warning", f"无法跳过的提示，当前URL: {current_url[:100]}", "google_login")
-            # Try one more time then give up
             await asyncio.sleep(3)
 
     current_url = page.url
@@ -509,8 +482,10 @@ async def _google_login(
         success = any(d in current_url for d in [
             "merchants.google.com", "business.google.com", "myaccount.google.com",
         ])
-    _emit(log_callback, "info" if success else "warning",
-          "Google 登录完成" if success else f"可能仍在登录页面: {current_url[:100]}", "google_login")
+    if success:
+        _emit(log_callback, "info", "登录完成 → Google Merchant Center", "google_login")
+    else:
+        _emit(log_callback, "warning", f"登录后仍停留在验证页: {current_url[:80]}", "google_login")
     return success
 
 
@@ -550,7 +525,6 @@ async def _click_button(page, texts: list[str], log_callback=None, step: str = "
             }})()
         """)
         if result:
-            _emit(log_callback, "info", f"点击了: {result}", step)
             await asyncio.sleep(3)
             return True
     except Exception:
@@ -561,7 +535,6 @@ async def _click_button(page, texts: list[str], log_callback=None, step: str = "
             btn = page.get_by_text(text, exact=False).first
             if await btn.count() > 0 and await btn.is_visible():
                 await btn.click(timeout=5000)
-                _emit(log_callback, "info", f"点击了(PL): {text}", step)
                 await asyncio.sleep(3)
                 return True
         except Exception:
@@ -580,7 +553,6 @@ async def _fill_input(page, selectors: list[str], value: str, log_callback=None,
                 await inp.fill("")
                 await inp.fill(value)
                 await asyncio.sleep(0.5)
-                _emit(log_callback, "info", f"填写: {value[:60]}", step)
                 return True
         except Exception:
             continue
@@ -595,7 +567,6 @@ async def _select_option(page, selectors: list[str], option_text: str, log_callb
             if await el.count() > 0 and await el.is_visible():
                 await el.select_option(label=option_text)
                 await asyncio.sleep(0.5)
-                _emit(log_callback, "info", f"选择: {option_text}", step)
                 return True
         except Exception:
             pass
@@ -622,24 +593,20 @@ async def _gmc_click_get_started(page, log_callback=None) -> bool:
     CRITICAL: Do NOT click 'Sign in' — that's for existing accounts.
     A fresh Google account sees 'Get started' / 'Create account'.
     """
-    _emit(log_callback, "info", "查找 'Get started' 按钮...", "gmc_start")
-    # Priority 1: Explicit registration buttons
     clicked = await _click_button(page, [
         "Get started", "Create account", "Sign up", "Start now",
         "Begin", "Create a Merchant Center account",
         "Create Merchant Center account", "Get Started",
     ], log_callback, "gmc_start")
     if clicked:
+        _emit(log_callback, "info", "点击创建账户 → 进入注册向导", "gmc_start")
         return True
 
-    # Priority 2: If only "Sign in" is visible, the account may already have GMC
-    # OR it's a pre-login state. Check URL.
     current_url = page.url
     if "mc/setup" in current_url or "flow=onlineOnboarding" in current_url:
-        _emit(log_callback, "info", "已在注册流程中", "gmc_start")
         return True
 
-    _emit(log_callback, "warning", "未找到注册按钮，可能已注册或页面异常", "gmc_start")
+    _emit(log_callback, "warning", "未找到注册入口，可能已注册或有异常", "gmc_start")
     return False
 
 
@@ -651,9 +618,6 @@ async def _gmc_select_merchant_type(page, log_callback=None) -> bool:
       Option 2: Comparison Shopping Service (CSS) / Advanced — for aggregators
     We always select Option 1.
     """
-    _emit(log_callback, "info", "选择商户账户类型...", "gmc_type")
-
-    # Strategy 1: Look for radio buttons or option cards
     merchant_keywords = [
         "Online store", "online store", "Merchant", "merchant",
         "Business", "business", "Shopping ads",
@@ -670,7 +634,6 @@ async def _gmc_select_merchant_type(page, log_callback=None) -> bool:
                 else:
                     await el.click()
                     await asyncio.sleep(1)
-                _emit(log_callback, "info", f"选择了: {keyword}", "gmc_type")
                 break
         except Exception:
             continue
@@ -698,7 +661,7 @@ async def _gmc_fill_business_info(page, business_info: dict, log_callback=None) 
     country = bi.get("country", "US")
     phone = bi.get("phone", "")
 
-    _emit(log_callback, "info", f"填写商家信息: {company}", "gmc_form")
+    _emit(log_callback, "info", f"填写商家信息 → {company}, {city}, {state} {postcode}", "gmc_form")
 
     # --- Company Name ---
     if company:
@@ -779,7 +742,7 @@ async def _gmc_fill_website(page, site_url: str, log_callback=None) -> bool:
     """Fill the store website URL."""
     if not site_url:
         return True
-    _emit(log_callback, "info", f"填写网站URL: {site_url}", "gmc_website")
+    _emit(log_callback, "info", f"填写网站 → {site_url}", "gmc_website")
     await _fill_input(page, [
         "input[aria-label*='website' i]",
         "input[aria-label*='store URL' i]",
@@ -798,7 +761,7 @@ async def _gmc_setup_feed(page, feed_url: str, log_callback=None) -> bool:
     """Configure the product feed / data source."""
     if not feed_url:
         return True
-    _emit(log_callback, "info", f"设置Feed URL: {feed_url}", "gmc_feed")
+    _emit(log_callback, "info", f"配置数据源 → {feed_url}", "gmc_feed")
     # GMC may ask how products are added — choose "Add products via feed" or similar
     await _click_button(page, [
         "Add products", "Add products via feed",
@@ -821,9 +784,8 @@ async def _gmc_setup_feed(page, feed_url: str, log_callback=None) -> bool:
 
 async def _gmc_complete_registration(page, log_callback=None) -> bool:
     """Accept terms, finalize registration."""
-    _emit(log_callback, "info", "完成注册...", "gmc_done")
+    _emit(log_callback, "info", "接受条款 → 完成注册", "gmc_done")
 
-    # Accept terms of service
     for checkbox in [
         "input[type='checkbox']",
         "md-checkbox",
@@ -834,7 +796,6 @@ async def _gmc_complete_registration(page, log_callback=None) -> bool:
             if await cb.count() > 0 and not await cb.is_checked():
                 await cb.check()
                 await asyncio.sleep(0.5)
-                _emit(log_callback, "info", "已勾选同意条款", "gmc_done")
                 break
         except Exception:
             continue
@@ -878,19 +839,17 @@ async def _extract_mc_id(page) -> str:
 
 async def _navigate_to_gmc(page, log_callback=None) -> str:
     """Navigate to GMC, handle login, dismiss overlays. Returns page phase."""
-    _emit(log_callback, "info", "导航到 Google Merchant Center...", "navigate")
+    _emit(log_callback, "info", "访问 merchants.google.com", "navigate")
     page.set_default_navigation_timeout(90000)
 
-    # Go directly to GMC — Google will redirect to login if needed
     await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=90000)
     await asyncio.sleep(3)
     await _dismiss_overlays(page)
 
     current_url = page.url
-    _emit(log_callback, "info", f"当前URL: {current_url[:120]}", "navigate")
 
-    # Detect phase
     if "accounts.google.com" in current_url:
+        _emit(log_callback, "info", "需要登录 Google 账户", "navigate")
         return "login"
     if any(kw in await page.content() for kw in ["Get started", "Create account", "Sign up"]):
         return "landing"
@@ -937,13 +896,9 @@ async def register_gmc(
     os.environ.setdefault("DISPLAY", ":99")
 
     # --- Load profile config ---
-    _emit(log_callback, "info", "加载 profile 配置...", "config")
     config = load_profile_config(profile_dir) or {}
     proxy = (config.get("proxy", "") or "").replace("socks5h://", "socks5://")
-
     fingerprint_args = _build_launch_args(config)
-    proxy_display = proxy[:40] + "..." if len(proxy) > 40 else (proxy or "(none)")
-    _emit(log_callback, "info", f"Profile: {os.path.basename(profile_dir)} | proxy={proxy_display}", "config")
 
     # --- Launch browser ---
     from cloakbrowser import launch_persistent_context_async
@@ -957,14 +912,14 @@ async def register_gmc(
     if proxy:
         launch_kwargs["proxy"] = _normalize_proxy_for_launch(proxy)
 
-    _emit(log_callback, "info", "启动 CloakBrowser...", "launch")
+    profile_name = os.path.basename(profile_dir)
+    _emit(log_callback, "info", f"启动浏览器 → {profile_name}", "launch")
     _unlock_profile(profile_dir)
     context = page = None
 
     try:
         context = await launch_persistent_context_async(**launch_kwargs)
         page = context.pages[0] if context.pages else await context.new_page()
-        _emit(log_callback, "info", "浏览器启动成功", "launch")
     except Exception as e:
         _emit(log_callback, "error", f"浏览器启动失败: {e}", "launch")
         return {"success": False, "message": f"Browser launch failed: {e}", "steps": 0}
@@ -976,14 +931,12 @@ async def register_gmc(
         # ============ Step 2: Login if needed ============
         if phase == "login":
             if google_email and google_password:
-                _emit(log_callback, "info", f"登录: {google_email}", "login")
                 logged_in = await _google_login(
                     page, google_email, google_password, google_totp_secret,
                     log_callback=log_callback,
                 )
                 if not logged_in:
                     return {"success": False, "message": "Google login failed", "steps": 1}
-                # After login, re-navigate to GMC
                 await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=30000)
                 await asyncio.sleep(3)
                 await _dismiss_overlays(page)
@@ -995,17 +948,18 @@ async def register_gmc(
         content = await page.content()
         if "Performance" in content and "All products" in content:
             mc_id = await _extract_mc_id(page) or "existing"
-            _emit(log_callback, "info", f"GMC 已注册! MC ID: {mc_id}", "done")
+            _emit(log_callback, "info", f"已注册 → MC ID: {mc_id}", "done")
             return {"success": True, "mc_account_id": mc_id, "message": "Already registered", "steps": 1, "meta_tag": ""}
 
         # ============ Step 4: Click "Get started" ============
-        _emit(log_callback, "info", "=== 开始 GMC 注册流程 ===", "register")
+        _emit(log_callback, "info", "开始 GMC 注册向导", "register")
         await _gmc_click_get_started(page, log_callback)
         await asyncio.sleep(2)
 
         # ============ Step 5: Select account type (Merchant) ============
         content = await page.content()
         if any(kw in content for kw in ["Online store", "online store", "Shopping ads", "Comparison Shopping"]):
+            _emit(log_callback, "info", "选择商户类型 → 在线商店", "register")
             await _gmc_select_merchant_type(page, log_callback)
             await asyncio.sleep(2)
 
@@ -1016,22 +970,19 @@ async def register_gmc(
             current_url = page.url
             content = await page.content()
 
-            # Support page guard — navigate back
+            # Support page guard
             if any(p in current_url for p in _BLOCKED_URL_PATTERNS):
-                _emit(log_callback, "warning", f"误入 blocked 页面，返回 GMC...", "blocked")
+                _emit(log_callback, "warning", "检测到无关页面 → 返回 GMC", "blocked")
                 await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=30000)
                 await asyncio.sleep(3)
                 continue
 
-            # Check if done: dashboard or success
+            # Check if done
             if ("Performance" in content and "All products" in content) or \
                ("merchant account" in content.lower() and "success" in content.lower()):
-                _emit(log_callback, "info", "注册向导完成!", "done")
+                _emit(log_callback, "info", "注册完成 → 已进入管理中心", "done")
                 break
 
-            _emit(log_callback, "info", f"--- 向导步骤 {page_num}/{max_pages} ---", "wizard")
-
-            # Detect what's on the current page and handle it
             content_lower = content.lower()
 
             # Business info form
@@ -1041,7 +992,6 @@ async def register_gmc(
                 "business address", "street address",
                 "legal business name",
             ]):
-                _emit(log_callback, "info", "填写商家信息表单...", "wizard")
                 await _gmc_fill_business_info(page, business_info, log_callback)
                 await asyncio.sleep(3)
                 continue
@@ -1083,50 +1033,44 @@ async def register_gmc(
                 await asyncio.sleep(3)
                 continue
 
-            # Phone verification — choose "Other methods" to skip
+            # Phone verification — skip via other methods
             if any(kw in content_lower for kw in [
                 "phone verification", "verify your phone",
                 "phone number", "verification code",
             ]):
-                _emit(log_callback, "info", "检测到手机验证，选择其他方式...", "phone_verify")
-                # Click "Other methods" / "Try another way" / "Skip" — DO NOT enter phone
+                _emit(log_callback, "info", "手机验证 → 选择其他验证方式", "phone_verify")
                 clicked = await _click_button(page, [
                     "Other methods", "Try another way", "More options",
                     "Use a different method", "Skip",
                 ], log_callback, "phone_verify")
                 if not clicked:
-                    # Fallback: try to skip via link text
                     await _click_button(page, [
                         "Skip", "Not now", "Cancel", "Later",
                     ], log_callback, "phone_verify")
                 await asyncio.sleep(3)
                 continue
 
-            # URL verification / claim website — extract meta tag and inject
+            # URL verification
             if any(kw in content_lower for kw in [
                 "verify your website", "claim your website",
                 "html tag", "google tag", "website verification",
             ]):
-                # First, try the HTML tag option
+                _emit(log_callback, "info", "网站验证 → 获取 HTML 标签", "verify")
                 await _click_button(page, [
                     "HTML tag", "Google tag", "Google Analytics",
                     "Add HTML tag",
                 ], log_callback, "verify")
                 await asyncio.sleep(2)
 
-                # Extract the meta tag from the page
                 meta_tag = None
                 try:
                     meta_tag = await page.evaluate("""
                         (() => {
-                            // Look for google-site-verification meta tag
                             const meta = document.querySelector('meta[name="google-site-verification"]');
                             if (meta) return meta.outerHTML;
-                            // Look for content in verification instructions
                             const body = document.body.innerText;
                             const m = body.match(/<meta\\s+name=["']google-site-verification["']\\s+content=["']([^"']+)["']\\s*\\/?>/i);
                             if (m) return m[0];
-                            // Try to find the content value alone
                             const m2 = body.match(/content=["']([^"']{20,})["']/);
                             if (m2) return '<meta name="google-site-verification" content="' + m2[1] + '">';
                             return null;
@@ -1137,9 +1081,9 @@ async def register_gmc(
 
                 if meta_tag:
                     extracted_meta_tag = str(meta_tag)
-                    _emit(log_callback, "info", f"提取到验证标签: {extracted_meta_tag[:120]}", "verify")
+                    _emit(log_callback, "info", f"已获取验证标签 → 自动注入站点", "verify")
                 else:
-                    _emit(log_callback, "warning", "未找到验证meta标签，尝试跳过...", "verify")
+                    _emit(log_callback, "warning", "未能提取验证标签", "verify")
 
                 await _click_button(page, [
                     "Verify", "Verify URL", "Continue", "Next",
@@ -1147,31 +1091,27 @@ async def register_gmc(
                 await asyncio.sleep(3)
                 continue
 
-            # Shipping / returns / tax settings
+            # Shipping / returns / tax
             if any(kw in content_lower for kw in [
                 "shipping", "delivery", "return policy",
                 "return window", "restocking fee", "tax",
             ]):
-                _emit(log_callback, "info", "跳过配送/退货配置...", "shipping")
                 await _click_button(page, ["Continue", "Next", "Skip", "Save"], log_callback, "shipping")
                 await asyncio.sleep(3)
                 continue
 
-            # Generic: try clicking Continue if stuck
-            _emit(log_callback, "info", f"未知页面，尝试点击 Continue...", "wizard")
+            # Generic advance
             clicked = await _click_button(page, [
                 "Continue", "Next", "Save", "Skip",
             ], log_callback, "wizard")
             if not clicked:
-                _emit(log_callback, "warning", "无法自动推进，可能需要手动干预", "wizard")
-                # Could be a captcha or unexpected page
+                _emit(log_callback, "warning", f"步骤 {page_num} 无可用操作", "wizard")
                 return {"success": False, "message": f"Stuck at wizard step {page_num}", "steps": page_num}
             await asyncio.sleep(3)
 
         # ============ Extract MC Account ID ============
         mc_account_id = await _extract_mc_id(page)
         if not mc_account_id:
-            # Try navigating to GMC home to find the ID
             try:
                 await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=30000)
                 await asyncio.sleep(3)
@@ -1180,19 +1120,18 @@ async def register_gmc(
                 pass
 
         if mc_account_id:
-            _emit(log_callback, "info", f"GMC 注册成功! MC ID: {mc_account_id}", "done")
+            _emit(log_callback, "info", f"注册成功 → MC ID: {mc_account_id}", "done")
             return {"success": True, "mc_account_id": mc_account_id,
                     "message": f"GMC registration complete. MC ID: {mc_account_id}",
                     "steps": max_pages, "meta_tag": extracted_meta_tag}
         else:
-            # Check if we're on the dashboard (success even without extracted ID)
             content = await page.content()
             if "Performance" in content or "All products" in content:
-                _emit(log_callback, "info", "GMC 注册完成(已进入Dashboard)", "done")
+                _emit(log_callback, "info", "注册成功 → 已进入管理中心", "done")
                 return {"success": True, "mc_account_id": "registered",
                         "message": "GMC registration complete (dashboard detected)",
                         "steps": max_pages, "meta_tag": extracted_meta_tag}
-            _emit(log_callback, "warning", "注册流程完成但未能提取MC ID", "done")
+            _emit(log_callback, "warning", "注册完成但未能提取 MC ID", "done")
             return {"success": True, "mc_account_id": "unknown",
                     "message": "Registration completed but MC ID not found",
                     "steps": max_pages, "meta_tag": extracted_meta_tag}
@@ -1245,7 +1184,7 @@ async def auto_verify_google_site(
     if proxy:
         launch_kwargs["proxy"] = _normalize_proxy_for_launch(proxy)
 
-    _emit(log_callback, "info", "启动浏览器进行网站验证...", "verify_start")
+    _emit(log_callback, "info", "启动浏览器 → 网站验证", "verify_start")
     _unlock_profile(profile_dir)
     context = page = None
 
