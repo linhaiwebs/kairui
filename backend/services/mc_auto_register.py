@@ -1264,7 +1264,7 @@ async def _solve_captcha_image_grid(page, challenge_text: str, log_callback=None
 
 async def _exec_blocked(page, ctx, log_callback=None):
     _emit(log_callback, "warning", "检测到无关页面 -> 返回 GMC", "blocked")
-    await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=30000)
+    await page.goto("https://merchants.google.com/?hl=en", wait_until="domcontentloaded", timeout=30000)
     await _human_delay(2000, 3000)
     await _dismiss_overlays(page)
     return "continue"
@@ -1359,9 +1359,15 @@ async def register_gmc(
         # --- Navigate to GMC ---
         _emit(log_callback, "info", "访问 merchants.google.com", "navigate")
         page.set_default_navigation_timeout(90000)
-        await page.goto("https://merchants.google.com/", wait_until="domcontentloaded", timeout=90000)
+        await page.goto("https://merchants.google.com/?hl=en", wait_until="domcontentloaded", timeout=90000)
         await _human_delay(2000, 3000)
         await _dismiss_overlays(page)
+        # Force English locale in GMC (overrides IP-based language detection)
+        try:
+            await page.evaluate("document.cookie = 'gl_lang=en; path=/; domain=.google.com; max-age=31536000'")
+            await page.evaluate("document.cookie = 'CONSENT=PENDING+en; path=/; domain=.google.com; max-age=31536000'")
+        except Exception:
+            pass
 
         # --- Main AI+Script loop ---
         ctx = {"google_email": google_email, "google_password": google_password,
