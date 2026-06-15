@@ -5097,7 +5097,7 @@ def register_routes(app):
                     task_id, site_id, site_domain, os.path.basename(profile_dir))
 
         import asyncio
-        from services.mc_auto_register import register_gmc_ai
+        from services.mc_auto_register import register_gmc
 
         def _run():
             loop = asyncio.new_event_loop()
@@ -5106,7 +5106,7 @@ def register_routes(app):
                 google_email, google_password, google_totp_secret = _resolve_google_account_from_site(site)
                 business_info = _resolve_business_info(site)
 
-                result = loop.run_until_complete(register_gmc_ai(
+                result = loop.run_until_complete(register_gmc(
                     profile_dir=profile_dir,
                     site_url=site.get("url", site_domain),
                     google_email=google_email,
