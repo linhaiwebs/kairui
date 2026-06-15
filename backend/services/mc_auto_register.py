@@ -606,6 +606,14 @@ async def _gmc_click_get_started(page, log_callback=None) -> bool:
     if "mc/setup" in current_url or "flow=onlineOnboarding" in current_url:
         return True
 
+    # Fallback: no explicit registration button → try "Sign in" (some accounts use this as entry)
+    clicked = await _click_button(page, [
+        "Sign in", "Sign In", "Sign-in",
+    ], log_callback, "gmc_start")
+    if clicked:
+        _emit(log_callback, "info", "点击 Sign in → 进入注册流程", "gmc_start")
+        return True
+
     _emit(log_callback, "warning", "未找到注册入口，可能已注册或有异常", "gmc_start")
     return False
 
