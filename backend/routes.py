@@ -5171,6 +5171,22 @@ def register_routes(app):
         threading.Thread(target=_run, daemon=True).start()
         return jsonify({"code": 200, "data": {"task_id": task_id}, "message": "任务已启动"})
 
+    @app.route("/api/tasks/<task_id>/cancel", methods=["POST"])
+    @jwt_required()
+    def task_cancel(task_id):
+        """Cancel a running task."""
+        from models import get_db
+        db = get_db()
+        try:
+            db.execute(
+                "UPDATE bg_tasks SET status = 'failed', result = ? WHERE id = ? AND status = 'running'",
+                ('{"success": false, "message": "用户取消"}', task_id),
+            )
+            db.commit()
+            return jsonify({"code": 200, "message": "任务已取消"})
+        finally:
+            db.close()
+
     @app.route("/api/tasks/<task_id>/logs", methods=["GET"])
     @jwt_required()
     def task_logs(task_id):

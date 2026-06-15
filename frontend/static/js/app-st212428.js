@@ -306,6 +306,7 @@ const app = createApp({
         const taskLogResult = ref(null);
         const taskLogAfter = ref(0);
         const taskLogPollTimer = ref(null);
+        const taskLogTaskId = ref(null);  // current task ID for cancel
         const taskLogRef = ref(null);  // DOM ref for auto-scroll
         const fingerprintEnabled = computed({
             get: () => globalConfig.fingerprint_enabled === 'true',
@@ -2084,6 +2085,7 @@ pipelineStatuses[siteId].demo_importing = false;
         // ---- Google Merchant Center (任务 + 日志窗口) ----
         function _startLogPolling(taskId, siteId) {
             if (taskLogPollTimer.value) clearInterval(taskLogPollTimer.value);
+            taskLogTaskId.value = taskId;
             taskLogAfter.value = 0;
             taskLogLines.value = [];
             taskLogStatus.value = 'running';
@@ -2164,17 +2166,26 @@ pipelineStatuses[siteId].demo_importing = false;
                 } catch (e) { /* ignore */ }
             }, 1000);
         }
-        function closeTaskLog() {
+        async function closeTaskLog() {
+            const tid = taskLogTaskId.value;
+            // Cancel the backend task first
+            if (tid && taskLogStatus.value === 'running') {
+                try { await API.cancelTask(tid); } catch (e) { /* ignore */ }
+            }
             if (taskLogPollTimer.value) {
                 clearInterval(taskLogPollTimer.value);
                 taskLogPollTimer.value = null;
             }
             taskLogVisible.value = false;
             taskLogSilent.value = false;
+            taskLogTaskId.value = null;
+            // Clear mcRegistering state for the site
+            Object.keys(mcRegistering.value).forEach(k => { if (mcRegistering.value[k]) delete mcRegistering.value[k]; });
         }
         function muteTaskLog() {
             taskLogVisible.value = false;
             taskLogSilent.value = true;
+            // Keep polling — just hide the modal
         }
         async function loadMCStatusForSite(site) {
             try {
@@ -4454,7 +4465,7 @@ async function loadProfileCategories() {
                                             <span class="ml-1.5 px-1.5 py-0.5 rounded-full text-xs opacity-80" :class="activeFingerprintCategory === cat.id ? 'bg-white/20' : 'bg-outline-variant/30'">
                                                 {{ getProfilesByCategory(cat.id).length }}
                                             </span>
-                                            <span @click.stop="deleteFingerprintCategory(cat.id)" class="ml-1.5 text-on-surface-variant hover:text-error cursor-pointer text-lg leading-none" title="删除分类">&times;</span>
+                                            <span @click.stop="deleteFingerprintCategory(cat.id)" class="ml-1.5 text-on-surface-variant hover:text-error cursor-pointer text-lg leading-none" title="删除分类">关闭并取消</span>
                                         </button>
                                     </div>
                                     <div v-else class="text-center py-6 text-sm text-on-surface-variant">
@@ -5387,8 +5398,8 @@ async function loadProfileCategories() {
                     </div>
                     <div class="flex items-center gap-3">
                         <a href="http://163.123.236.110:6080/vnc.html?autoconnect=true&resize=scale" target="_blank" class="text-green-400 hover:text-green-300 text-xs underline">🖥 VNC</a>
-                        <button @click="muteTaskLog" class="text-gray-400 hover:text-gray-300 text-xs underline">静默</button>
-                        <button @click="closeTaskLog" class="text-on-surface-variant hover:text-on-primary text-lg leading-none">&times;</button>
+                        <button @click="muteTaskLog" class="text-gray-400 hover:text-gray-300 text-xs underline">静默运行</button>
+                        <button @click="closeTaskLog" class="text-on-surface-variant hover:text-on-primary text-lg leading-none">关闭并取消</button>
                     </div>
                 </div>
                 <!-- Log lines -->

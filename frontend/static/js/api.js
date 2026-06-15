@@ -159,6 +159,9 @@ const API = {
     async getTaskLogs(taskId, after = 0) {
         return this.request('GET', `/api/tasks/${encodeURIComponent(taskId)}/logs?after=${after}`);
     },
+    async cancelTask(taskId) {
+        return this.request('POST', `/api/tasks/${encodeURIComponent(taskId)}/cancel`);
+    },
 
     // Panel proxy
     async panelSearchApps(name = '') {
