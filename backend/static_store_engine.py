@@ -1485,11 +1485,6 @@ def _render_ai(products, design, brand_kit, brand_name, headline, subheadline):
     
     # Cache directory
     
-    # Try AI-generated unique template first
-    ai_html = _render_ai(products, design, brand_kit, brand_name, headline, subheadline)
-    if ai_html:
-        return ai_html
-    
     import os as _os
     cache_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "recipe_templates")
     _os.makedirs(cache_dir, exist_ok=True)
