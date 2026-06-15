@@ -367,6 +367,7 @@ const app = createApp({
             } catch (e) {}
         }
         const settingsActiveTab = ref('wordpress');
+        const gardenRecipes = [[{value:"linear",label:"Linear"},{value:"vercel-mesh",label:"Vercel Mesh"},{value:"raycast",label:"Raycast"},{value:"notion-pre-ai",label:"Notion Pre-AI"},{value:"aesop",label:"Aesop"},{value:"muji-kenya-hara",label:"MUJI Kenya Hara"},{value:"monocle-magazine",label:"Monocle Magazine"},{value:"tufte-dataink",label:"Tufte Data-Ink"},{value:"stripe-press",label:"Stripe Press"},{value:"apple-hig",label:"Apple HIG"},{value:"dieter-rams-braun",label:"Dieter Rams Braun"},{value:"vignelli-swiss-helvetica",label:"Vignelli Swiss"},{value:"pentagram",label:"Pentagram"},{value:"bloomberg-terminal",label:"Bloomberg Terminal"},{value:"bloomberg-businessweek-turley",label:"Businessweek Turley"},{value:"nyt-the-daily",label:"NYT The Daily"},{value:"mailchimp-freddie",label:"Mailchimp Freddie"},{value:"headspace-meditation",label:"Headspace Calm"},{value:"mid-century-modern",label:"Mid-Century Modern"},{value:"y2k-retrofuturism",label:"Y2K Retrofuturism"},{value:"are-na",label:"Are.na"},{value:"balenciaga-post-2017",label:"Balenciaga"},{value:"field-io",label:"Field.io"},{value:"active-theory",label:"Active Theory"},{value:"resn-storytelling",label:"Resn Storytelling"}];
         const settingsTabs = [
             { key: 'wordpress', label: 'WordPress 默认' },
             { key: 'panel', label: '1Panel 环境' },
@@ -2797,7 +2798,7 @@ pipelineStatuses[siteId].demo_importing = false;
             loadUsers, openUserModal, closeUserModal, handleSaveUser, handleDeleteUser,
 
             resourceActiveTab, resourceOperators, resourceStats, loadResourceOverview,
-            toggleStats, statsSubmenuOpen, settingsActiveTab, settingsTabs,
+            toggleStats, statsSubmenuOpen, gardenRecipes, settingsActiveTab, settingsTabs,
 
             exportSystemData, importSystemData, handleImportFile, importFileInput,            panelEnvironments, showPanelEnvModal, panelEnvEditId, panelEnvForm, panelEnvFormError,
             loadPanelEnvironments, openPanelEnvModal, closePanelEnvModal, handleSavePanelEnv,
