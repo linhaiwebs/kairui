@@ -361,6 +361,7 @@ const app = createApp({
         // Settings Tabs
         const statsSubmenuOpen = ref(false);
         const resourceOperators = ref([]);
+        const resourceActiveTab = ref(0); // 0=总览, 1+=运营商
         const resourceStats = ref({});
         async function loadResourceOverview() {
             try {
@@ -2925,7 +2926,7 @@ async function loadProfileCategories() {
             loadProfileCategories, handleSetProfileCategory,
 
             activeFingerprintCategory, importingFingerprintText, importingFingerprints, importFingerprintResult,
-            resourceOperators, resourceStats, loadResourceOverview,
+            resourceActiveTab, resourceOperators, resourceStats, loadResourceOverview,
             getProfilesByCategory, importFingerprintProfiles, removeProfileFromCategory,            statsSubmenuOpen, statsSubmenuOpen, resourceOperators, resourceStats, loadResourceOverview, settingsActiveTab, settingsTabs,
 
             exportSystemData, importSystemData, handleImportFile, importFileInput,            panelEnvironments, showPanelEnvModal, panelEnvEditId, panelEnvForm, panelEnvFormError,
@@ -3034,6 +3035,10 @@ async function loadProfileCategories() {
                 <a @click="currentPage = 'brand-kits'; loadBrandKits()" :class="['sidebar-link', currentPage === 'brand-kits' || currentPage === 'brand-kits-detail' ? 'active' : '']">
                     <span class="material-symbols-outlined">branding_watermark</span> 品牌套件
                 </a>
+                <div class="sidebar-divider" v-if="currentUserRole === 'admin'"></div>
+                <a v-if="currentUserRole === 'admin'" @click="currentPage = 'users'; loadUsers()" :class="['sidebar-link', currentPage === 'users' ? 'active' : '']">
+                    <span class="material-symbols-outlined">group</span> 用户管理
+                </a>
                 <div v-if="currentUserRole === 'admin'" class="sidebar-group">
                     <a @click="statsSubmenuOpen = !statsSubmenuOpen" :class="['sidebar-link', (currentPage === 'woo-stats' || currentPage === 'resource-overview') ? 'active' : '']">
                         <span class="material-symbols-outlined">analytics</span> 统计总览
@@ -3048,10 +3053,6 @@ async function loadProfileCategories() {
                         </a>
                     </div>
                 </div>
-                <div class="sidebar-divider" v-if="currentUserRole === 'admin'"></div>
-                <a v-if="currentUserRole === 'admin'" @click="currentPage = 'users'; loadUsers()" :class="['sidebar-link', currentPage === 'users' ? 'active' : '']">
-                    <span class="material-symbols-outlined">group</span> 用户管理
-                </a>
                 <a v-if="currentUserRole === 'admin'" @click="currentPage = 'settings'" :class="['sidebar-link', currentPage === 'settings' ? 'active' : '']">
                     <span class="material-symbols-outlined">settings</span> 系统设置
                 </a>
@@ -4133,63 +4134,22 @@ async function loadProfileCategories() {
             <div v-if="currentPage === 'resource-overview'" class="fade-in">
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="font-semibold text-on-surface"><i class="fas fa-account_tree mr-2 text-primary"></i>资源总览</h3>
-                    <button @click="loadResourceOverview" class="text-xs text-primary hover:text-primary"><i class="fas fa-sync mr-1"></i>刷新</button>
-                </div>
-                <div class="grid grid-cols-4 gap-3 mb-6">
-                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><div class="text-2xl font-bold text-primary">{{ resourceStats.total_google || 0 }}</div><div class="text-xs text-on-surface-variant mt-1">谷歌账户</div></div>
-                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><div class="text-2xl font-bold text-purple-600">{{ resourceStats.total_profile || 0 }}</div><div class="text-xs text-on-surface-variant mt-1">指纹环境</div></div>
-                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><div class="text-2xl font-bold text-[#146c2e]">¥{{ resourceStats.total_cost || 0 }}</div><div class="text-xs text-on-surface-variant mt-1">总成本 RMB</div></div>
-                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><div class="text-2xl font-bold text-blue-600">{{ resourceStats.free_google || 0 }}</div><div class="text-xs text-on-surface-variant mt-1">空闲谷歌</div></div>
-                </div>
-                <div class="text-xs text-on-surface-variant mb-4">计费: 谷歌邮箱 1元/个 · 指纹环境 2元/个</div>
-                <div v-if="resourceOperators && resourceOperators.length" class="space-y-4">
-                    <div v-for="op in resourceOperators" :key="op.user_id" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
-                        <div class="px-5 py-3 bg-surface-container-low border-b flex items-center justify-between">
-                            <div class="flex items-center gap-3">
-                                <span class="w-8 h-8 bg-primary-container text-on-primary rounded-full flex items-center justify-center text-sm font-bold">{{ op.operator_name.charAt(0).toUpperCase() }}</span>
-                                <div><span class="font-semibold text-on-surface">{{ op.operator_name }}</span><span class="text-xs text-on-surface-variant ml-2">{{ op.kits.length }} 个套件</span></div>
-                            </div>
-                            <div class="flex items-center gap-4 text-sm">
-                                <span title="谷歌账户"><i class="fab fa-google text-on-surface-variant mr-1"></i>{{ op.google_count }} 个</span>
-                                <span title="指纹环境"><i class="fas fa-fingerprint text-on-surface-variant mr-1"></i>{{ op.profile_count }} 个</span>
-                                <span class="font-bold text-[#146c2e]">¥{{ op.total_cost }}</span>
-                            </div>
-                        </div>
-                        <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">品牌套件</th><th class="px-3 py-2 text-left">谷歌账户</th><th class="px-3 py-2 text-center">TOTP</th><th class="px-3 py-2 text-left">指纹环境</th><th class="px-3 py-2 text-center">代理</th><th class="px-3 py-2 text-center">站点</th><th class="px-3 py-2 text-center">状态</th></tr></thead><tbody class="divide-y"><tr v-for="kit in op.kits" :key="kit.kit_id" class="hover:bg-surface-container-low"><td class="px-3 py-2 font-medium text-xs">{{ kit.brand_name || kit.kit_name }}</td><td class="px-3 py-2 text-xs"><span v-if="kit.google_email" class="text-[#146c2e]">{{ kit.google_email }}</span><span v-else class="text-red-500">未分配</span></td><td class="px-3 py-2 text-center"><span v-if="kit.has_totp" class="text-[#146c2e]">OK</span><span v-else class="text-yellow-600">NO</span></td><td class="px-3 py-2 text-xs font-mono"><span v-if="kit.cloakbrowser_profile_name" class="text-primary">{{ kit.cloakbrowser_profile_name }}</span><span v-else class="text-red-500">-</span></td><td class="px-3 py-2 text-center text-xs"><span v-if="kit.proxy" class="text-[#146c2e]">OK</span><span v-else>-</span></td><td class="px-3 py-2 text-center text-xs">{{ kit.site_count || 0 }}</td><td class="px-3 py-2 text-center"><span v-if="kit.google_email && kit.cloakbrowser_profile_name && kit.has_totp" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">完整</span><span v-else class="badge bg-yellow-100 text-yellow-700 text-xs">不完整</span></td></tr></tbody></table></div>
-                    </div>
-                </div>
-                <div v-else class="text-center py-10 text-on-surface-variant text-sm">暂无运营数据</div>
-            </div>
-
-
-            <!-- 资源总览 -->
-            <div v-if="currentPage === 'resource-overview'" class="fade-in">
-                <div class="flex items-center justify-between mb-4">
-                    <h3 class="font-semibold text-on-surface"><i class="fas fa-account_tree mr-2 text-primary"></i>资源总览</h3>
                     <button @click="loadResourceOverview" class="text-xs text-primary"><i class="fas fa-sync mr-1"></i>刷新</button>
                 </div>
-                <div class="grid grid-cols-4 gap-3 mb-6">
+                <div class="grid grid-cols-4 gap-3 mb-4">
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><div class="text-2xl font-bold text-primary">{{ resourceStats.total_google || 0 }}</div><div class="text-xs text-on-surface-variant mt-1">谷歌账户</div></div>
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><div class="text-2xl font-bold text-purple-600">{{ resourceStats.total_profile || 0 }}</div><div class="text-xs text-on-surface-variant mt-1">指纹环境</div></div>
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><div class="text-2xl font-bold text-[#146c2e]">¥{{ resourceStats.total_cost || 0 }}</div><div class="text-xs text-on-surface-variant mt-1">总成本 RMB</div></div>
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><div class="text-2xl font-bold text-blue-600">{{ resourceStats.free_google || 0 }}</div><div class="text-xs text-on-surface-variant mt-1">空闲谷歌</div></div>
                 </div>
-                <div class="text-xs text-on-surface-variant mb-4">计费: 谷歌邮箱 1元/个 · 指纹环境 2元/个</div>
-                <div v-if="resourceOperators && resourceOperators.length" class="space-y-4">
-                    <div v-for="op in resourceOperators" :key="op.user_id" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
-                        <div class="px-5 py-3 bg-surface-container-low border-b flex items-center justify-between">
-                            <div class="flex items-center gap-3">
-                                <span class="w-8 h-8 bg-primary-container text-on-primary rounded-full flex items-center justify-center text-sm font-bold">{{ op.operator_name.charAt(0).toUpperCase() }}</span>
-                                <div><span class="font-semibold text-on-surface">{{ op.operator_name }}</span><span class="text-xs text-on-surface-variant ml-2">{{ op.kits.length }} 个套件</span></div>
-                            </div>
-                            <div class="flex items-center gap-4 text-sm">
-                                <span><i class="fab fa-google mr-1"></i>{{ op.google_count }} 个 · ¥{{ op.google_cost }}</span>
-                                <span><i class="fas fa-fingerprint mr-1"></i>{{ op.profile_count }} 个 · ¥{{ op.profile_cost }}</span>
-                                <span class="font-bold text-[#146c2e]">¥{{ op.total_cost }}</span>
-                            </div>
-                        </div>
-                        <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">品牌套件</th><th class="px-3 py-2 text-left">谷歌账户</th><th class="px-3 py-2 text-center">TOTP</th><th class="px-3 py-2 text-left">指纹环境</th><th class="px-3 py-2 text-center">代理</th><th class="px-3 py-2 text-center">站点</th><th class="px-3 py-2 text-center">状态</th></tr></thead><tbody class="divide-y"><tr v-for="kit in op.kits" :key="kit.kit_id" class="hover:bg-surface-container-low"><td class="px-3 py-2 font-medium text-xs">{{ kit.brand_name || kit.kit_name }}</td><td class="px-3 py-2 text-xs"><span v-if="kit.google_email" class="text-[#146c2e]">{{ kit.google_email }}</span><span v-else class="text-red-500">未分配</span></td><td class="px-3 py-2 text-center"><span v-if="kit.has_totp" class="text-[#146c2e]">OK</span><span v-else class="text-yellow-600">NO</span></td><td class="px-3 py-2 text-xs font-mono"><span v-if="kit.cloakbrowser_profile_name" class="text-primary">{{ kit.cloakbrowser_profile_name }}</span><span v-else class="text-red-500">-</span></td><td class="px-3 py-2 text-center text-xs"><span v-if="kit.proxy" class="text-[#146c2e]">OK</span><span v-else>-</span></td><td class="px-3 py-2 text-center text-xs">{{ kit.site_count || 0 }}</td><td class="px-3 py-2 text-center"><span v-if="kit.google_email && kit.cloakbrowser_profile_name && kit.has_totp" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">完整</span><span v-else class="badge bg-yellow-100 text-yellow-700 text-xs">不完整</span></td></tr></tbody></table></div>
+                <div class="text-xs text-on-surface-variant mb-4">谷歌 1元/个 · 指纹 2元/个</div>
+                <div v-if="resourceOperators && resourceOperators.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
+                    <div class="flex border-b border-outline-variant bg-surface-container-low overflow-x-auto">
+                        <button @click="resourceActiveTab = 0" :class="['px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition', resourceActiveTab === 0 ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface']"><i class="fas fa-chart-pie mr-1"></i>总览</button>
+                        <button v-for="(op, i) in resourceOperators" :key="op.user_id" @click="resourceActiveTab = i + 1" :class="['px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition', resourceActiveTab === i + 1 ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface']">{{ op.operator_name }} ¥{{ op.total_cost }}</button>
                     </div>
+                    <div v-show="resourceActiveTab === 0" class="p-4"><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">运营</th><th class="px-3 py-2 text-center">谷歌</th><th class="px-3 py-2 text-center">指纹</th><th class="px-3 py-2 text-center">套件</th><th class="px-3 py-2 text-right">成本</th></tr></thead><tbody class="divide-y"><tr v-for="op in resourceOperators" :key="op.user_id" class="hover:bg-surface-container-low"><td class="px-3 py-2 font-medium">{{ op.operator_name }}</td><td class="px-3 py-2 text-center text-xs">{{ op.google_count }} 个</td><td class="px-3 py-2 text-center text-xs">{{ op.profile_count }} 个</td><td class="px-3 py-2 text-center text-xs">{{ op.kits.length }}</td><td class="px-3 py-2 text-right font-bold text-[#146c2e] text-xs">¥{{ op.total_cost }}</td></tr></tbody></table></div></div>
+                    <div v-for="(op, i) in resourceOperators" :key="op.user_id" v-show="resourceActiveTab === i + 1" class="p-4"><div class="flex items-center gap-4 mb-3 text-sm"><span><i class="fab fa-google mr-1"></i>谷歌: {{ op.google_count }} 个 · ¥{{ op.google_cost }}</span><span><i class="fas fa-fingerprint mr-1"></i>指纹: {{ op.profile_count }} 个 · ¥{{ op.profile_cost }}</span><span class="font-bold text-[#146c2e]">合计: ¥{{ op.total_cost }}</span></div><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">品牌套件</th><th class="px-3 py-2 text-left">谷歌账户</th><th class="px-3 py-2 text-center">TOTP</th><th class="px-3 py-2 text-left">指纹环境</th><th class="px-3 py-2 text-center">代理</th><th class="px-3 py-2 text-center">站点</th><th class="px-3 py-2 text-center">状态</th></tr></thead><tbody class="divide-y"><tr v-for="kit in op.kits" :key="kit.kit_id" class="hover:bg-surface-container-low"><td class="px-3 py-2 font-medium text-xs">{{ kit.brand_name || kit.kit_name }}</td><td class="px-3 py-2 text-xs"><span v-if="kit.google_email" class="text-[#146c2e]">{{ kit.google_email }}</span><span v-else class="text-red-500">未分配</span></td><td class="px-3 py-2 text-center"><span v-if="kit.has_totp" class="text-[#146c2e]">OK</span><span v-else class="text-yellow-600">NO</span></td><td class="px-3 py-2 text-xs font-mono"><span v-if="kit.cloakbrowser_profile_name" class="text-primary">{{ kit.cloakbrowser_profile_name }}</span><span v-else class="text-red-500">-</span></td><td class="px-3 py-2 text-center text-xs"><span v-if="kit.proxy" class="text-[#146c2e]">OK</span><span v-else>-</span></td><td class="px-3 py-2 text-center text-xs">{{ kit.site_count || 0 }}</td><td class="px-3 py-2 text-center"><span v-if="kit.google_email && kit.cloakbrowser_profile_name && kit.has_totp" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">完整</span><span v-else class="badge bg-yellow-100 text-yellow-700 text-xs">不完整</span></td></tr></tbody></table></div></div>
                 </div>
                 <div v-else class="text-center py-10 text-on-surface-variant text-sm">暂无运营数据</div>
             </div>

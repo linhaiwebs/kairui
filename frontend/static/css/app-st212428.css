@@ -345,3 +345,24 @@ button .material-symbols-outlined,button .fas,button .far,button .fab{line-heigh
     align-items: center;
     gap: 0;
 }
+
+/* Sidebar expandable group */
+.sidebar-group .sidebar-submenu {
+    display: flex;
+    flex-direction: column;
+    padding-left: 32px;
+    background: rgba(0,0,0,0.03);
+}
+.sidebar-sublink {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    font-size: 13px;
+    color: var(--on-surface-variant);
+    text-decoration: none;
+    border-radius: 4px;
+    margin: 1px 8px;
+}
+.sidebar-sublink:hover { background: rgba(0,0,0,0.05); color: var(--on-surface); }
+.sidebar-sublink.active { background: var(--primary-container); color: var(--on-primary); }
