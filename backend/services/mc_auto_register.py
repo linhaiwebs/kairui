@@ -904,9 +904,14 @@ async def _exec_gmc_landing(page, ctx, log_callback=None):
       - Skips Sign in → panel → Merchant Center → new tab flow entirely
       - Works regardless of language (no button text matching needed)
     """
-    _emit(log_callback, "info", "直接导航到 GMC 注册向导", "gmc")
-    await page.goto("https://merchants.google.com/mc/setup?hl=en-US&gl=US",
-                    wait_until="domcontentloaded", timeout=60000)
+    _emit(log_callback, "info", "直接导航到 GMC 注册入口", "gmc")
+    # /mc/default — 注册入口页面 (非 /mc/setup, 那是向导页)
+    # hl=en — 强制英文
+    # mcsubid=us-en — 强制US English locale (比hl更底层)
+    # 去掉Google Analytics追踪参数 (_gl/_ga/_gcl_au)
+    await page.goto(
+        "https://merchants.google.com/mc/default?mcsubid=us-en-bgc-mc-web!o3&hl=en&fmp=2",
+        wait_until="domcontentloaded", timeout=60000)
     await _human_delay(2000, 3000)
     await _dismiss_overlays(page)
     return "continue"
@@ -1327,7 +1332,7 @@ async def _solve_captcha_image_grid(page, challenge_text: str, log_callback=None
 
 async def _exec_blocked(page, ctx, log_callback=None):
     _emit(log_callback, "warning", "检测到无关页面 -> 返回 GMC", "blocked")
-    await page.goto("https://merchants.google.com/?hl=en-US&gl=US", wait_until="domcontentloaded", timeout=30000)
+    await page.goto("https://merchants.google.com/mc/default?mcsubid=us-en-bgc-mc-web!o3&hl=en&fmp=2", wait_until="domcontentloaded", timeout=30000)
     await _human_delay(2000, 3000)
     await _dismiss_overlays(page)
     return "continue"
@@ -1423,7 +1428,7 @@ async def register_gmc(
         _emit(log_callback, "info", "访问 merchants.google.com", "navigate")
         page.set_default_navigation_timeout(90000)
         # Force English: header (set at launch) + Google official URL params
-        await page.goto("https://merchants.google.com/?hl=en-US&gl=US", wait_until="domcontentloaded", timeout=90000)
+        await page.goto("https://merchants.google.com/mc/default?mcsubid=us-en-bgc-mc-web!o3&hl=en&fmp=2", wait_until="domcontentloaded", timeout=90000)
         await _human_delay(2000, 3000)
         await _dismiss_overlays(page)
 
