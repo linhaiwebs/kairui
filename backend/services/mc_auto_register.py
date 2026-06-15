@@ -753,7 +753,7 @@ def _keyword_classify(url: str, text: str) -> dict:
     for page_type, keywords in checks:
         if sum(1 for kw in keywords if kw in t) >= 2:
             return {"page_type": page_type, "confidence": 0.7, "reasoning": f"keyword: {page_type}"}
-    if "merchants.google.com" in url:
+    if any(d in url for d in ["merchants.google.com", "business.google.com"]):
         # Extra check: if page shows dashboard indicators, it's not landing
         if sum(1 for kw in ["performance", "all products", "diagnostics"] if kw in t) >= 2:
             return {"page_type": "gmc_dashboard", "confidence": 0.8, "reasoning": "dashboard on GMC"}
@@ -906,9 +906,11 @@ async def _exec_gmc_landing(page, ctx, log_callback=None):
     'Get started' button (if visible) → direct entry to registration."""
     await asyncio.sleep(3)
 
-    # Guard: if we left GMC domain, navigate back
+    # Guard: if we left ALL GMC domains, navigate back
+    # Google may redirect merchants.google.com → business.google.com/XX/merchant-center/
     current_url = page.url
-    if "merchants.google.com" not in current_url:
+    gmc_domains = ["merchants.google.com", "business.google.com", "ads.google.com"]
+    if not any(d in current_url for d in gmc_domains):
         _emit(log_callback, "warning", f"已离开GMC({current_url[:80]}) → 返回", "gmc")
         await page.goto("https://merchants.google.com/?hl=en-US&gl=US", wait_until="domcontentloaded", timeout=30000)
         await _human_delay(2000, 3000)
@@ -937,7 +939,9 @@ async def _exec_gmc_landing(page, ctx, log_callback=None):
                     if (el.offsetParent === null) continue;
                     const t = el.textContent.trim();
                     const texts = ['Sign in','Sign In','Get started','Create account','Start now',
-                                   'Sign up','Anmelden','Los geht\\'s','Registrieren'];
+                                   'Sign up','Anmelden','Los geht','Registrieren',
+                                   'Voiti','Sozdat akkaunt','Nachat','Войти','Создать аккаунт','Начать',
+                                   'Iniciar sesion','Crear cuenta','Acceder','Commencer','Accedi'];
                     if (texts.includes(t)) {
                         if (el.id) return '#' + CSS.escape(el.id);
                         const cls = Array.from(el.classList).filter(c => c && !c.match(/^\\d/)).slice(0,2).join('.');
