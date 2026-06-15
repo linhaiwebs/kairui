@@ -350,14 +350,9 @@ const app = createApp({
         const userFormError = ref('');
         // Fingerprint Categories & Profile Mapping
         const fingerprintCategories = ref([]);
-        const activeFingerprintCategory = ref(null);
-        const importingFingerprintText = ref('');
-        const importingFingerprints = ref(false);
-        const importFingerprintResult = ref('');
         const importFileInput = ref(null);
 
         const profileCategories = ref([]);  // profile_name → category_id mapping
-        const newCategoryName = ref('');
         // Settings Tabs
         const statsSubmenuOpen = ref(false);
         function toggleStats() { statsSubmenuOpen.value = !statsSubmenuOpen.value; }
@@ -2642,34 +2637,12 @@ pipelineStatuses[siteId].demo_importing = false;
         }
 
         // ---- Fingerprint Categories & Profile Mapping ----
-        async function loadFingerprintCategories() {
-            try { const resp = await API.getFingerprintCategories(); if (resp.code === 200) fingerprintCategories.value = resp.data || []; } catch (e) {}
-        }
-        async function createFingerprintCategory() {
-            const name = newCategoryName.value.trim();
-            if (!name) { showToast('请输入分类名称', 'error'); return; }
-            try {
-                const resp = await API.createFingerprintCategory({ name });
-                if (resp.code === 200) { showToast('分类已创建'); newCategoryName.value = ''; loadFingerprintCategories(); }
-                else { showToast(resp.message || '创建失败', 'error'); }
-            } catch (e) { showToast('创建失败', 'error'); }
-        }
-        async function deleteFingerprintCategory(catId) {
-            if (!confirm('确定删除此分类？Profile 将变为未分类。')) return;
-            try {
-                const resp = await API.deleteFingerprintCategory(catId);
-                if (resp.code === 200) { showToast('分类已删除'); loadFingerprintCategories(); loadProfileCategories(); }
-                else { showToast(resp.message || '删除失败', 'error'); }
-            } catch (e) { showToast('删除失败', 'error'); }
-        }
+        
+        
+        
         
         // Get profiles filtered by category
-        function getProfilesByCategory(catId) {
-            const profileNames = profileCategories.value
-                .filter(pc => pc.category_id === catId)
-                .map(pc => pc.profile_name);
-            return cloakbrowserProfiles.value.filter(p => profileNames.includes(p.name));
-        }
+        
 
                 // Export all system data
         async function exportSystemData() {
@@ -2724,131 +2697,11 @@ pipelineStatuses[siteId].demo_importing = false;
         }
 
 // Import fingerprint profiles from text input (auto-parses proxy, syncs to SOCKS5 pool)
-        async function importFingerprintProfiles() {
-            const text = importingFingerprintText.value.trim();
-            if (!text) { showToast('请输入 Profile 名称', 'error'); return; }
-            if (!activeFingerprintCategory.value) { showToast('请先选择分类', 'error'); return; }
-
-            const names = text.split('\n').map(n => n.trim()).filter(n => n.length > 0);
-            if (!names.length) { showToast('未识别到有效的 Profile 名称', 'error'); return; }
-
-            importingFingerprints.value = true;
-            importFingerprintResult.value = '';
-            let created = 0, skipped = 0;
-            // Collect proxy lines in IP:PORT:USER:PASS format for batch import
-            const proxyLines = [];
-
-            for (const name of names) {
-                try {
-                    let proxy = '', country = 'US';
-                    let host = '', port = '', user = '', pass = '';
-
-                    // Format 1: user:pass@host:port (contains @)
-                    const atIdx = name.indexOf('@');
-                    if (atIdx >= 0) {
-                        const userPass = name.substring(0, atIdx);
-                        const hostPort = name.substring(atIdx + 1);
-                        const upColon = userPass.indexOf(':');
-                        const hpColon = hostPort.lastIndexOf(':');
-                        if (upColon >= 0 && hpColon >= 0) {
-                            user = userPass.substring(0, upColon);
-                            pass = userPass.substring(upColon + 1);
-                            host = hostPort.substring(0, hpColon);
-                            port = hostPort.substring(hpColon + 1);
-                        }
-                    } else {
-                        // Format 2: host:port:user:pass_profile-params
-                        const parts = name.split(':');
-                        if (parts.length >= 4) {
-                            // Check if 2nd part looks like a port (numeric, 2-5 digits)
-                            if (/^\d{2,5}$/.test(parts[1])) {
-                                // host:port:user:pass_PROFILE_PARAMS
-                                host = parts[0]; port = parts[1]; user = parts[2]; pass = parts[3];
-                            } else {
-                                // user:pass:host:port
-                                user = parts[0]; pass = parts[1]; host = parts[2]; port = parts[3];
-                            }
-                        }
-                    }
-
-                    // Extract profile params from password (format: PASS_country-XX_session-XXX_lifetime-XXh...)
-                    let profileName = name;  // fallback: sanitized full string
-                    let purePass = pass;
-                    if (pass && pass.includes('_country-')) {
-                        const underscoreIdx = pass.indexOf('_country-');
-                        purePass = pass.substring(0, underscoreIdx);
-                        profileName = pass.substring(underscoreIdx + 1);  // country-us_session-xxx_lifetime-72h...
-                        // Extract country from profile name
-                        const countryMatch = profileName.match(/country-([a-z]{2})/i);
-                        if (countryMatch) {
-                            country = countryMatch[1].toUpperCase();
-                        }
-                    } else if (pass && pass.includes('_session-')) {
-                        const underscoreIdx = pass.indexOf('_session-');
-                        purePass = pass.substring(0, underscoreIdx);
-                        profileName = pass.substring(underscoreIdx + 1);
-                    }
-
-                    if (host && port && user && purePass) {
-                        proxy = 'socks5://' + encodeURIComponent(user) + ':' + encodeURIComponent(purePass) + '@' + host + ':' + port;
-                        // Collect for batch proxy import: IP:PORT:USER:PASS (pure password)
-                        proxyLines.push(host + ':' + port + ':' + user + ':' + purePass);
-                    }
-
-                    const resp = await API.createCloakbrowserProfile(profileName, '', proxy, country, null);
-                    if (resp.code === 200 || resp.code === 409) {
-                        if (resp.code === 200) created++;
-                        else skipped++;
-                        const sanitizedName = profileName.replace(/[^a-zA-Z0-9\-_]/g, '-');
-                        await API.setProfileCategory(sanitizedName, activeFingerprintCategory.value);
-                    }
-                } catch (e) {
-                    console.error('Import profile error:', name, e);
-                }
-            }
-
-            // Auto-sync proxies to SOCKS5 pool (IP:PORT:USER:PASS format)
-            if (proxyLines.length > 0) {
-                try {
-                    const proxyText = proxyLines.join('\n');
-                    const proxyResp = await API.importProxiesText(proxyText, 'socks5');
-                    if (proxyResp.code === 200) {
-                        console.log('Proxy auto-sync: ' + proxyResp.message);
-                    }
-                } catch (e) {
-                    console.error('Auto-sync proxy error:', e);
-                }
-            }
-
-            importingFingerprints.value = false;
-            importingFingerprintText.value = '';
-            if (created === 0 && skipped > 0) {
-                importFingerprintResult.value = '所有 ' + skipped + ' 个 Profile 均已存在，已关联到当前分类（代理已同步）';
-            } else if (created > 0 && skipped > 0) {
-                importFingerprintResult.value = '成功导入 ' + created + ' 个，' + skipped + ' 个已存在（已关联分类，代理已同步）';
-            } else if (created > 0) {
-                importFingerprintResult.value = '成功导入 ' + created + ' 个 Profile（代理已同步）';
-            } else {
-                importFingerprintResult.value = '未识别到有效的 Profile 名称';
-            }
-            await loadCloakbrowserProfiles();
-            await loadProfileCategories();
-            await loadProxies();
-        }
+        
 
         // Remove profile from current category (set to uncategorized)
-        async function removeProfileFromCategory(profileName) {
-            try {
-                await API.setProfileCategory(profileName, null);
-                showToast('已移除分类');
-                await loadProfileCategories();
-            } catch (e) {
-                showToast('操作失败', 'error');
-            }
-        }
-async function loadProfileCategories() {
-            try { const resp = await API.getProfileCategories(); if (resp.code === 200) profileCategories.value = resp.data || []; } catch (e) {}
-        }
+        
+
         async function handleSetProfileCategory(profileName, categoryId) {
             try {
                 const resp = await API.setProfileCategory(profileName, categoryId);
@@ -2950,13 +2803,10 @@ async function loadProfileCategories() {
             handleDownloadBrandKitFile, loadBrandKitConfigForms, saveBrandKitConfig,
             users, showUserModal, userEditId, userForm, userFormError,
             loadUsers, openUserModal, closeUserModal, handleSaveUser, handleDeleteUser,
-            fingerprintCategories, profileCategories, newCategoryName,
-            loadFingerprintCategories, createFingerprintCategory, deleteFingerprintCategory,
             loadProfileCategories, handleSetProfileCategory,
 
-            activeFingerprintCategory, importingFingerprintText, importingFingerprints, importFingerprintResult,
             resourceActiveTab, resourceOperators, resourceStats, loadResourceOverview,
-            getProfilesByCategory, importFingerprintProfiles, removeProfileFromCategory,            toggleStats, statsSubmenuOpen, settingsActiveTab, settingsTabs,
+            toggleStats, statsSubmenuOpen, settingsActiveTab, settingsTabs,
 
             exportSystemData, importSystemData, handleImportFile, importFileInput,            panelEnvironments, showPanelEnvModal, panelEnvEditId, panelEnvForm, panelEnvFormError,
             loadPanelEnvironments, openPanelEnvModal, closePanelEnvModal, handleSavePanelEnv,
@@ -4580,7 +4430,7 @@ async function loadProfileCategories() {
                                 </div>
                             </div>
                             <!-- Tab: 指纹环境 -->
-                            <div v-else-if="settingsActiveTab === 'fingerprint'" @vue:mounted="loadFingerprintCategories(); loadCloakbrowserProfiles(); loadProfileCategories()">
+                            <div v-else-if="settingsActiveTab === 'fingerprint'" @vue:mounted="loadCloakbrowserProfiles()">
                                 <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 mb-4 flex items-center justify-between">
                                     <div>
                                         <p class="font-medium text-on-surface"><i class="fas fa-power-off mr-2 text-primary"></i>启用指纹环境</p>
@@ -4594,100 +4444,11 @@ async function loadProfileCategories() {
                                                        fingerprintEnabled ? 'translate-x-5' : 'translate-x-0.5']"></span>
                                     </button>
                                 </div>
-
-                                <!-- Category Tabs -->
-                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 mb-4">
-                                    <div class="flex items-end gap-2 mb-4">
-                                        <div class="flex-1">
-                                            <label class="block text-xs text-on-surface-variant mb-1">新建分类</label>
-                                            <input v-model="newCategoryName" type="text" placeholder="输入分类名称" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary" @keyup.enter="createFingerprintCategory">
-                                        </div>
-                                        <button @click="createFingerprintCategory" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm whitespace-nowrap">创建分类</button>
+                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
+                                    <div v-if="cloakbrowserProfiles.length" class="overflow-x-auto">
+                                        <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">名称</th><th class="px-3 py-2 text-left">平台</th><th class="px-3 py-2 text-left">国家</th><th class="px-3 py-2 text-left">代理</th><th class="px-3 py-2 text-left">状态</th><th class="px-3 py-2 text-right">操作</th></tr></thead><tbody class="divide-y"><tr v-for="p in cloakbrowserProfiles" :key="p.name" class="hover:bg-surface-container-low"><td class="px-3 py-2 font-mono text-xs">{{ p.name }}</td><td class="px-3 py-2 text-xs">{{ p.platform || p.config?.platform || '-' }}</td><td class="px-3 py-2 text-xs">{{ p.country || p.config?.country || '-' }}</td><td class="px-3 py-2 text-xs max-w-[120px] truncate" :title="p.proxy">{{ p.proxy || '-' }}</td><td class="px-3 py-2"><span v-if="brandKits.some(bk => bk.cloakbrowser_profile_name === p.name)" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">使用中</span><span v-else class="badge bg-surface-container-high text-on-surface-variant text-xs">可用</span></td><td class="px-3 py-2 text-right"><button @click="deleteProfile(p.name)" class="text-xs text-error hover:text-error"><span class="material-symbols-outlined text-sm">delete</span></button></td></tr></tbody></table>
                                     </div>
-
-                                    <!-- Tab Cards -->
-                                    <div v-if="fingerprintCategories.length" class="flex gap-2 flex-wrap">
-                                        <button v-for="cat in fingerprintCategories" :key="cat.id"
-                                            @click="activeFingerprintCategory = cat.id"
-                                            :class="['px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap',
-                                                activeFingerprintCategory === cat.id
-                                                    ? 'bg-primary-container text-on-primary shadow-level-1'
-                                                    : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-low']">
-                                            {{ cat.name }}
-                                            <span class="ml-1.5 px-1.5 py-0.5 rounded-full text-xs opacity-80" :class="activeFingerprintCategory === cat.id ? 'bg-white/20' : 'bg-outline-variant/30'">
-                                                {{ getProfilesByCategory(cat.id).length }}
-                                            </span>
-                                            <span @click.stop="deleteFingerprintCategory(cat.id)" class="ml-1.5 text-on-surface-variant hover:text-error cursor-pointer text-lg leading-none" title="删除分类">关闭并取消</span>
-                                        </button>
-                                    </div>
-                                    <div v-else class="text-center py-6 text-sm text-on-surface-variant">
-                                        <i class="fas fa-inbox text-2xl mb-2 block"></i>暂无分类，请先创建
-                                    </div>
-                                </div>
-
-                                <!-- Active Category Content -->
-                                <div v-if="activeFingerprintCategory && fingerprintCategories.length">
-                                    <!-- Import Profiles -->
-                                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 mb-4">
-                                        <label class="block text-sm font-medium text-on-surface mb-1">导入指纹环境</label>
-                                        <p class="text-xs text-on-surface-variant mb-2">每行一个 Profile 名称</p>
-                                        <textarea v-model="importingFingerprintText" rows="4"
-                                            class="w-full px-3 py-2 border rounded-lg text-xs font-mono focus:border-primary"
-                                            placeholder="profile_alpha&#10;profile_beta&#10;profile_gamma"></textarea>
-                                        <button @click="importFingerprintProfiles" :disabled="importingFingerprints"
-                                            class="mt-2 btn-primary text-on-primary px-4 py-2 rounded-lg text-sm">
-                                            <i v-if="importingFingerprints" class="fas fa-spinner fa-spin mr-1"></i>
-                                            导入到 {{ fingerprintCategories.find(c => c.id === activeFingerprintCategory)?.name || '当前分类' }}
-                                        </button>
-                                        <p v-if="importFingerprintResult" :class="['text-xs mt-1', (importFingerprintResult.startsWith('成功') || importFingerprintResult.startsWith('所有')) ? 'text-[#146c2e]' : 'text-error']">
-                                            {{ importFingerprintResult }}
-                                        </p>
-                                    </div>
-
-                                    <!-- Profile List -->
-                                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
-                                        <div v-if="getProfilesByCategory(activeFingerprintCategory).length">
-                                            <table class="w-full text-sm">
-                                                <thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase">
-                                                    <tr>
-                                                        <th class="px-3 py-2 text-left">名称</th>
-                                                        <th class="px-3 py-2 text-left">平台</th>
-                                                        <th class="px-3 py-2 text-left">国家</th>
-                                                        <th class="px-3 py-2 text-left">代理</th>
-                                                        <th class="px-3 py-2 text-left">状态</th>
-                                                        <th class="px-3 py-2 text-right">操作</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody class="divide-y divide-outline-variant">
-                                                    <tr v-for="p in getProfilesByCategory(activeFingerprintCategory)" :key="p.name" class="hover:bg-surface-container-low">
-                                                        <td class="px-3 py-2 font-mono text-xs">{{ p.name }}</td>
-                                                        <td class="px-3 py-2 text-xs">{{ p.platform || p.config?.platform || '-' }}</td>
-                                                        <td class="px-3 py-2 text-xs">{{ p.country || p.config?.country || '-' }}</td>
-                                                        <td class="px-3 py-2 text-xs max-w-[120px] truncate" :title="p.proxy">{{ p.proxy || '-' }}</td>
-                                                        <td class="px-3 py-2">
-                                                            <span v-if="brandKits.some(bk => bk.cloakbrowser_profile_name === p.name)" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">使用中</span>
-                                                            <span v-else class="badge bg-surface-container-high text-on-surface-variant text-xs">可用</span>
-                                                        </td>
-                                                        <td class="px-3 py-2 text-right">
-                                                            <button @click="removeProfileFromCategory(p.name)" class="text-xs text-error hover:text-error px-1 py-0.5" title="从分类移除">
-                                                                <span class="material-symbols-outlined text-sm">link_off</span>
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                        <div v-else class="text-center py-8 text-sm text-on-surface-variant">
-                                            <i class="fas fa-inbox text-2xl mb-2 block"></i>
-                                            请在上方输入区导入 Profile 名称
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- No category selected -->
-                                <div v-if="!activeFingerprintCategory && fingerprintCategories.length" class="text-center py-8 text-sm text-on-surface-variant bg-surface-container-lowest rounded-xl shadow-level-1">
-                                    <i class="fas fa-hand-pointer text-2xl mb-2 block"></i>
-                                    请选择上方的分类标签卡
+                                    <div v-else class="text-center py-8 text-sm text-on-surface-variant">暂无指纹环境</div>
                                 </div>
                             </div>
                         </div>
