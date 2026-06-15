@@ -839,12 +839,54 @@ async def _exec_gmc_dashboard(page, ctx, log_callback=None):
     return "done"
 
 async def _exec_gmc_landing(page, ctx, log_callback=None):
-    if await _click_button(page, ["Get started", "Create account", "Sign up", "Start now", "Begin", "Create a Merchant Center account"], log_callback, "gmc"):
+    """Click Get started or Sign in. Retries with longer waits and iframe fallback."""
+    # Wait extra for GMC page to fully render (SPA, can be slow)
+    await asyncio.sleep(3)
+
+    # Strategy 1: Direct button click by text
+    for label in ["Get started", "Create account", "Sign up", "Start now", "Begin",
+                  "Create a Merchant Center account", "Get Started", "Sign in", "Sign In"]:
+        try:
+            btn = page.get_by_role("button", name=label).first
+            if await btn.count() > 0 and await btn.is_visible():
+                await btn.click(timeout=5000)
+                await _human_delay(2000, 3000)
+                _emit(log_callback, "info", f"点击 {label} -> 进入注册向导", "gmc")
+                return "continue"
+        except Exception:
+            pass
+
+    # Strategy 2: Text-based click (fallback)
+    if await _click_button(page, ["Get started", "Create account", "Sign up", "Start now", "Begin",
+                                    "Create a Merchant Center account", "Get Started"], log_callback, "gmc"):
         _emit(log_callback, "info", "点击创建账户 -> 进入注册向导", "gmc")
         return "continue"
     if await _click_button(page, ["Sign in", "Sign In"], log_callback, "gmc"):
         _emit(log_callback, "info", "点击 Sign in -> 进入注册流程", "gmc")
         return "continue"
+
+    # Strategy 3: Try clicking any visible link/button on the page (last resort)
+    try:
+        result = await page.evaluate("""
+            (() => {
+                const btns = document.querySelectorAll('a[href*=\"merchant\"], a[href*=\"signup\"], a[href*=\"setup\"], button, [role=\"button\"]');
+                for (const b of btns) {
+                    if (b.offsetParent === null) continue; // invisible
+                    const t = b.textContent.trim().toLowerCase();
+                    if (t && (t.includes('get started') || t.includes('create') || t.includes('sign') || t.includes('start'))) {
+                        b.click(); return t;
+                    }
+                }
+                return null;
+            })()
+        """)
+        if result:
+            _emit(log_callback, "info", f"通用点击: {result} -> 进入注册流程", "gmc")
+            await _human_delay(2000, 3000)
+            return "continue"
+    except Exception:
+        pass
+
     _emit(log_callback, "warning", "GMC首页无可点击入口", "gmc")
     return "fail"
 
