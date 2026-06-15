@@ -896,6 +896,27 @@ async def _exec_gmc_dashboard(page, ctx, log_callback=None):
     _emit(log_callback, "info", f"已注册 -> MC ID: {mc_id}", "done")
     return "done"
 
+async def _exec_gmc_account_type(page, ctx, log_callback=None):
+    """First step after entering GMC registration: 'Do you sell products online?'
+
+    The page asks a yes/no question. Click 'Yes' to proceed to website URL step.
+    AI determines this from page text → handler clicks the affirmative button.
+    """
+    # Click "Yes" / "Continue" — the affirmative answer to "sell products online?"
+    for label in ["Yes", "Continue", "Next", "Get started", "Start"]:
+        try:
+            btn = page.get_by_role("button", name=label).first
+            if await btn.count() > 0 and await btn.is_visible():
+                await btn.hover(); await _human_delay(200, 500); await btn.click(timeout=5000)
+                _emit(log_callback, "info", f"选择 '{label}' → 进入下一步", "gmc")
+                return "continue"
+        except Exception:
+            pass
+    # Fallback: any visible button
+    if await _click_button(page, ["Yes", "Continue", "Next", "Get started"], log_callback, "gmc"):
+        return "continue"
+    return "fail"
+
 async def _exec_gmc_business_form(page, ctx, log_callback=None):
     bi = ctx.get("business_info") or {}
     company = bi.get("company_name", bi.get("business_name", ""))
@@ -1312,7 +1333,9 @@ async def _exec_unknown(page, ctx, log_callback=None):
 _EXEC_DISPATCH = {
     "login_email": _exec_login_email, "login_password": _exec_login_password,
     "login_2fa": _exec_login_2fa, "login_challenge": _exec_login_challenge,
-    "gmc_dashboard": _exec_gmc_dashboard, "gmc_business_form": _exec_gmc_business_form,
+    "gmc_dashboard": _exec_gmc_dashboard,
+    "gmc_account_type": _exec_gmc_account_type,
+    "gmc_business_form": _exec_gmc_business_form,
     "gmc_website": _exec_gmc_website, "gmc_feed": _exec_gmc_feed,
     "gmc_phone_verify": _exec_gmc_phone_verify, "gmc_website_verify": _exec_gmc_website_verify,
     "gmc_shipping": _exec_gmc_shipping, "gmc_terms": _exec_gmc_terms,
