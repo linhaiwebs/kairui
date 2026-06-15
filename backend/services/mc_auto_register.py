@@ -896,52 +896,6 @@ async def _exec_gmc_dashboard(page, ctx, log_callback=None):
     _emit(log_callback, "info", f"已注册 -> MC ID: {mc_id}", "done")
     return "done"
 
-async def _exec_gmc_landing(page, ctx, log_callback=None):
-    """Enter GMC registration by navigating directly to the setup URL.
-
-    Why URL navigation instead of clicking buttons:
-      - Same as user typing URL or clicking bookmark → undetectable
-      - Skips Sign in → panel → Merchant Center → new tab flow entirely
-      - Works regardless of language (no button text matching needed)
-    """
-    _emit(log_callback, "info", "直接导航到 GMC 注册入口", "gmc")
-    # /mc/default — 注册入口页面 (非 /mc/setup, 那是向导页)
-    # hl=en — 强制英文
-    # mcsubid=us-en — 强制US English locale (比hl更底层)
-    # 去掉Google Analytics追踪参数 (_gl/_ga/_gcl_au)
-    await page.goto(
-        "https://merchants.google.com/mc/default?mcsubid=us-en-bgc-mc-web!o3&hl=en&fmp=2",
-        wait_until="domcontentloaded", timeout=60000)
-    await _human_delay(2000, 3000)
-    await _dismiss_overlays(page)
-    return "continue"
-
-async def _exec_gmc_account_type(page, ctx, log_callback=None):
-    """Select Merchant Center and advance — JS scan (read-only) → Playwright click."""
-    # Page shows: [Merchant Center] [Manufacturer Center]
-    # We click the first: "Merchant Center" (NOT "Manufacturer")
-    selector = await page.evaluate("""
-        (() => {
-            for (const el of document.querySelectorAll('label, div[role="radio"], div[role="listitem"], li, button, [role="option"], a')) {
-                if (el.offsetParent === null) continue;
-                const t = el.textContent.trim().toLowerCase();
-                if (t.includes('merchant') && !t.includes('manufacturer')) {
-                    if (el.id) return '#' + CSS.escape(el.id);
-                    return el.tagName.toLowerCase() + ':has-text("' + el.textContent.trim().substring(0, 25) + '")';
-                }
-            }
-            return null;
-        })()
-    """)
-    if selector:
-        el = page.locator(selector).first
-        if await el.count() > 0 and await el.is_visible():
-            await el.hover(); await _human_delay(200, 500); await el.click(timeout=5000)
-    await _human_delay(1000, 1500)
-    await _click_button(page, ["Continue", "Next"], log_callback, "gmc")
-    _emit(log_callback, "info", "选择 Merchant Center", "gmc")
-    return "continue"
-
 async def _exec_gmc_business_form(page, ctx, log_callback=None):
     bi = ctx.get("business_info") or {}
     company = bi.get("company_name", bi.get("business_name", ""))
@@ -1358,8 +1312,7 @@ async def _exec_unknown(page, ctx, log_callback=None):
 _EXEC_DISPATCH = {
     "login_email": _exec_login_email, "login_password": _exec_login_password,
     "login_2fa": _exec_login_2fa, "login_challenge": _exec_login_challenge,
-    "gmc_dashboard": _exec_gmc_dashboard, "gmc_landing": _exec_gmc_landing,
-    "gmc_account_type": _exec_gmc_account_type, "gmc_business_form": _exec_gmc_business_form,
+    "gmc_dashboard": _exec_gmc_dashboard, "gmc_business_form": _exec_gmc_business_form,
     "gmc_website": _exec_gmc_website, "gmc_feed": _exec_gmc_feed,
     "gmc_phone_verify": _exec_gmc_phone_verify, "gmc_website_verify": _exec_gmc_website_verify,
     "gmc_shipping": _exec_gmc_shipping, "gmc_terms": _exec_gmc_terms,
@@ -1479,6 +1432,16 @@ async def register_gmc(
                 _emit(log_callback, "error",
                       f"[{step}/{max_steps}] 失败 → 页面类型: {page_type}", "gmc")
                 return {"success": False, "message": f"Failed at step {step} ({page_type})", "steps": step, "meta_tag": ctx.get("extracted_meta_tag", "")}
+
+            # Post-login: after Google login completes, navigate to GMC registration
+            if page_type.startswith("login_"):
+                _emit(log_callback, "info", "登录完成 → 跳转 GMC 注册入口", "gmc")
+                await page.goto(
+                    "https://merchants.google.com/mc/default?mcsubid=us-en-bgc-mc-web!o3&hl=en&fmp=2",
+                    wait_until="domcontentloaded", timeout=60000)
+                await _human_delay(2000, 3000)
+                await _dismiss_overlays(page)
+                continue
 
             # === Step 3: AI verify ===
             await _human_delay(1500, 2500)
