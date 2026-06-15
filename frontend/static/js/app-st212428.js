@@ -759,7 +759,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 feedStatsLoading.value = false;
             }
         }
-        undefined
+        async function loadWooStats() {
             wooStatsLoading.value = true;
             try {
                 const params = { period: wooStatsPeriod.value };
