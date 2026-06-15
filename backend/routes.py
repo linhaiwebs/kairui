@@ -9466,14 +9466,24 @@ Respond with strict JSON only (no markdown code blocks):
     @jwt_required()
     def update_brand_kit_route(kit_id):
         """Update brand kit metadata."""
-            style_recipe = (data.get("style_recipe") or "").strip()
-            if style_recipe:
-                existing_ds = kit.get("design_system", {}) or {}
-                if isinstance(existing_ds, str):
-                    try: existing_ds = json.loads(existing_ds)
-                    except: existing_ds = {}
-                existing_ds["style_recipe"] = style_recipe
-                data["design_system"] = existing_ds
+        try:
+            kit = get_brand_kit(kit_id)
+            if not kit:
+                return jsonify({"code": 404, "message": "品牌套件不存在"}), 404
+            data = request.get_json(silent=True) or {}
+            sr = (data.pop("style_recipe", "") or "").strip()
+            if sr:
+                eds = kit.get("design_system", {}) or {}
+                if isinstance(eds, str):
+                    try: eds = json.loads(eds)
+                    except: eds = {}
+                eds["style_recipe"] = sr
+                data["design_system"] = eds
+            updated = update_brand_kit(kit_id, data)
+            return jsonify({"code": 200, "data": updated, "message": "已更新"})
+        except Exception as e:
+            logger.error(f"update_brand_kit: {e}")
+            return jsonify({"code": 500, "message": str(e)[:200]}), 500
         try:
             kit = get_brand_kit(kit_id)
             if not kit:
