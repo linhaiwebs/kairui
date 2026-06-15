@@ -3040,10 +3040,10 @@ async function loadProfileCategories() {
                     <span class="material-symbols-outlined">group</span> 用户管理
                 </a>
                 <div v-if="currentUserRole === 'admin'" class="sidebar-group">
-                    <a @click.prevent="statsSubmenuOpen = !statsSubmenuOpen" :class="['sidebar-link', (currentPage === 'woo-stats' || currentPage === 'resource-overview') ? 'active' : '']">
+                    <div @click="statsSubmenuOpen = !statsSubmenuOpen" :class="['sidebar-link', (currentPage === 'woo-stats' || currentPage === 'resource-overview') ? 'active' : '']" style="cursor:pointer">
                         <span class="material-symbols-outlined">analytics</span> 统计总览
                         <span class="material-symbols-outlined ml-auto" style="font-size:16px">{{ statsSubmenuOpen ? 'expand_less' : 'expand_more' }}</span>
-                    </a>
+                    </div>
                     <div v-show="statsSubmenuOpen || currentPage === 'woo-stats' || currentPage === 'resource-overview'" class="sidebar-submenu">
                         <a @click="currentPage = 'woo-stats'; loadWooStats()" :class="['sidebar-sublink', currentPage === 'woo-stats' ? 'active' : '']">
                             <span class="material-symbols-outlined">trending_up</span> 销售统计
