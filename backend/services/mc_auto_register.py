@@ -904,7 +904,6 @@ async def _exec_gmc_landing(page, ctx, log_callback=None):
       2. 'Manufacturer Center' → ignore
 
     'Get started' button (if visible) → direct entry to registration."""
-    """
     await asyncio.sleep(3)
 
     # Guard: if we left GMC domain, navigate back
