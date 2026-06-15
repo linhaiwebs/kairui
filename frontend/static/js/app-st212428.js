@@ -360,7 +360,6 @@ const app = createApp({
         const newCategoryName = ref('');
         // Settings Tabs
         const statsSubmenuOpen = ref(false);
-        const statsSubmenuOpen = ref(false);
         const resourceOperators = ref([]);
         const resourceStats = ref({});
         async function loadResourceOverview() {
@@ -374,7 +373,6 @@ const app = createApp({
         }
         const settingsActiveTab = ref('wordpress');
         const settingsTabs = [
-            { key: 'resource', label: '资源总览' },
             { key: 'wordpress', label: 'WordPress 默认' },
             { key: 'panel', label: '1Panel 环境' },
             { key: 'deepseek', label: 'DeepSeek API' },
@@ -383,17 +381,6 @@ const app = createApp({
             { key: 'google_account', label: '谷歌账户' },
             { key: 'fingerprint', label: '指纹环境' },
         ];
-        const resourceStats = ref({});
-        const resourceOperators = ref([]);
-        async function loadResourceOverview() {
-            try {
-                const resp = await API.request('GET', '/api/admin/resources');
-                if (resp.code === 200) {
-                    resourceStats.value = resp.data.stats || {};
-                    resourceOperators.value = resp.data.operators || []; resourceStats.value = resp.data.stats || {};
-                }
-            } catch (e) {}
-        }
         const panelEnvironments = ref([]);
         const showPanelEnvModal = ref(false);
         const panelEnvEditId = ref(null);
@@ -3047,7 +3034,7 @@ async function loadProfileCategories() {
                 <a @click="currentPage = 'brand-kits'; loadBrandKits()" :class="['sidebar-link', currentPage === 'brand-kits' || currentPage === 'brand-kits-detail' ? 'active' : '']">
                     <span class="material-symbols-outlined">branding_watermark</span> 品牌套件
                 </a>
-                <div class="sidebar-group">
+                <div v-if="currentUserRole === 'admin'" class="sidebar-group">
                     <a @click="statsSubmenuOpen = !statsSubmenuOpen" :class="['sidebar-link', (currentPage === 'woo-stats' || currentPage === 'resource-overview') ? 'active' : '']">
                         <span class="material-symbols-outlined">analytics</span> 统计总览
                         <span class="material-symbols-outlined ml-auto" style="font-size:16px">{{ statsSubmenuOpen ? 'expand_less' : 'expand_more' }}</span>
