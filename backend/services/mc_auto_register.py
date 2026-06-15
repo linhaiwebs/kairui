@@ -1070,71 +1070,79 @@ async def _exec_captcha(page, ctx, log_callback=None):
     max_attempts = 3
     for attempt in range(1, max_attempts + 1):
         try:
-            # Strategy A: reCAPTCHA audio bypass (most reliable)
+            # Strategy A: Click checkbox FIRST to start reCAPTCHA challenge
+            if captcha_info.get("hasCheckbox") or captcha_type in ("recaptcha", "unknown"):
+                _emit(log_callback, "info", f"点击 I'm not a robot (第{attempt}次)...", "captcha")
+                await _solve_recaptcha_checkbox(page, log_callback)
+                await _human_delay(2000, 4000)
+                has_challenge = await page.evaluate("document.querySelector('.rc-imageselect-challenge,.rc-audiochallenge,iframe[src*=\"bframe\"]') !== null")
+                if has_challenge:
+                    if await _solve_recaptcha_audio_challenge(page, log_callback):
+                        _emit(log_callback, "info", "CAPTCHA已通过! (音频)", "captcha")
+                        return "continue"
+                    if await _solve_captcha_image_grid(page, captcha_info.get("challengeText", ""), log_callback):
+                        _emit(log_callback, "info", "CAPTCHA已通过! (图像)", "captcha")
+                        return "continue"
+                else:
+                    _emit(log_callback, "info", "CAPTCHA直接通过!", "captcha")
+                    return "continue"
+
+            # Strategy B: API bypass fallback
             if captcha_type in ("recaptcha", "unknown"):
-                _emit(log_callback, "info", f"尝试 reCAPTCHA 音频绕过 (第{attempt}次)...", "captcha")
+                _emit(log_callback, "info", f"recaptcha API绕过 (第{attempt}次)...", "captcha")
                 if await _solve_recaptcha_audio(page, log_callback):
-                    _emit(log_callback, "info", "CAPTCHA已通过! (音频)", "captcha")
-                    return "continue"
-
-            # Strategy B: reCAPTCHA checkbox + auto-click
-            if captcha_info.get("hasCheckbox"):
-                _emit(log_callback, "info", "尝试点击 reCAPTCHA 复选框...", "captcha")
-                if await _solve_recaptcha_checkbox(page, log_callback):
-                    _emit(log_callback, "info", "CAPTCHA已通过! (复选框)", "captcha")
-                    return "continue"
-
-            # Strategy C: Image grid with YOLO
-            if captcha_info.get("hasImageGrid"):
-                _emit(log_callback, "info", "尝试 YOLO-V8 图像识别...", "captcha")
-                if await _solve_captcha_image_grid(page, captcha_info.get("challengeText", ""), log_callback):
-                    _emit(log_callback, "info", "CAPTCHA已通过! (YOLO)", "captcha")
+                    _emit(log_callback, "info", "CAPTCHA已通过! (API)", "captcha")
                     return "continue"
 
         except Exception as e:
-            _emit(log_callback, "warning", f"CAPTCHA求解({attempt}): {e}", "captcha")
-
+            _emit(log_callback, "warning", f"CAPTCHA({attempt}): {e}", "captcha")
         if attempt < max_attempts:
             await _human_delay(1000, 2000)
 
-    # Fallback: VNC manual
-    _emit(log_callback, "warning", "自主求解失败 -> 通过VNC手动完成(60秒)", "captcha")
+    _emit(log_callback, "warning", "自主求解失败 -> VNC手动(60秒)", "captcha")
     await asyncio.sleep(60)
     return "continue"
 
 
-async def _solve_recaptcha_checkbox(page, log_callback=None) -> bool:
-    """Click the reCAPTCHA checkbox and check if it passes immediately."""
+async def _solve_recaptcha_audio_challenge(page, log_callback=None) -> bool:
+    """Solve audio challenge AFTER checkbox has been clicked."""
     try:
-        # Switch to reCAPTCHA iframe
         frame = page.frame_locator("iframe[src*='recaptcha'], iframe[src*='google.com/recaptcha']")
-        cb = frame.locator(".recaptcha-checkbox, #recaptcha-anchor, div[role='checkbox']")
-        if await cb.count() > 0:
-            await cb.first.click(timeout=5000)
-            await _human_delay(2000, 4000)
-            # Check if passed (green checkmark appears)
-            is_checked = await frame.locator(".recaptcha-checkbox-checked, [aria-checked='true']").count() > 0
-            if is_checked:
-                return True
-    except Exception:
-        pass
-
-    # Also try clicking the checkbox directly on the page (not in iframe)
-    try:
-        cb = page.locator(".recaptcha-checkbox, #recaptcha-anchor")
-        if await cb.count() > 0:
-            await cb.first.click(timeout=5000)
-            await _human_delay(2000, 4000)
-    except Exception:
-        pass
-
+        audio_btn = frame.locator("#recaptcha-audio-button, button[title*='audio'], .rc-button-audio")
+        if await audio_btn.count() > 0:
+            await audio_btn.first.click(timeout=3000)
+            await _human_delay(2000, 3000)
+            audio_url = await frame.locator("audio source, .rc-audiochallenge-tdownload-link").first.get_attribute("src") or ""
+            if not audio_url:
+                audio_url = await page.evaluate("document.querySelector('audio source')?.src || ''")
+            if audio_url:
+                _emit(log_callback, "info", f"下载音频: {audio_url[:80]}", "captcha")
+                import tempfile, os, requests as http_requests
+                resp = http_requests.get(audio_url, timeout=15)
+                if resp.status_code == 200:
+                    tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+                    tmp.write(resp.content); tmp.close()
+                    try:
+                        import speech_recognition as sr
+                        r = sr.Recognizer()
+                        with sr.AudioFile(tmp.name) as source:
+                            audio = r.record(source)
+                        text = r.recognize_google(audio)
+                        _emit(log_callback, "info", f"语音识别: {text}", "captcha")
+                        inp = frame.locator("#audio-response, input[type='text']")
+                        if await inp.count() > 0:
+                            await inp.first.fill(text)
+                            await _human_delay(500, 1000)
+                            verify_btn = frame.locator("#recaptcha-verify-button, button[title*='Verify']")
+                            if await verify_btn.count() > 0:
+                                await verify_btn.first.click(timeout=3000)
+                                await _human_delay(2000, 3000)
+                                return True
+                    finally:
+                        os.unlink(tmp.name)
+    except Exception as e:
+        _emit(log_callback, "warning", f"音频挑战失败: {e}", "captcha")
     return False
-
-
-async def _solve_recaptcha_audio(page, log_callback=None) -> bool:
-    """Use recaptcha-bypass library for audio challenge solving."""
-    try:
-        from recaptcha_bypass import ReCaptchaEnterpriseV2Bypass
 
         # Get current URL
         url = page.url
