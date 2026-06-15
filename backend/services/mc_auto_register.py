@@ -274,8 +274,16 @@ def _build_launch_args(config: dict) -> list[str]:
         args.append("--fingerprint-platform=macos")
     else:
         args.append("--fingerprint-platform=windows")
-    if config.get("webrtc_ip"):
-        args.append(f"--fingerprint-webrtc-ip={config['webrtc_ip']}")
+    # WebRTC: extract IP from proxy if not explicitly set (prevents real IP leak)
+    webrtc_ip = config.get("webrtc_ip", "")
+    if not webrtc_ip:
+        proxy = config.get("proxy", "")
+        import re as _re
+        m = _re.search(r'@([\d.]+):', proxy)
+        if m:
+            webrtc_ip = m.group(1)
+    if webrtc_ip:
+        args.append(f"--fingerprint-webrtc-ip={webrtc_ip}")
     # Canvas noise — makes each session's canvas hash slightly different but consistent
     args.append("--fingerprint-canvas-noise")
     return args
@@ -927,6 +935,31 @@ async def register_gmc(
     # --- Load profile config ---
     config = load_profile_config(profile_dir) or {}
     proxy = (config.get("proxy", "") or "").replace("socks5h://", "socks5://")
+
+    # Auto-fix profile geo to match business info (critical for GMC country detection)
+    bi_country = (business_info or {}).get("country", "")
+    if bi_country and config:
+        region = _REGION_CONFIGS.get(bi_country, _REGION_CONFIGS.get("US"))
+        needs_fix = (
+            config.get("country") != bi_country or
+            config.get("locale") != region["locale"] or
+            config.get("timezone") not in region["timezones"]
+        )
+        if needs_fix:
+            _emit(log_callback, "info", f"修正Profile地理 → 国家={bi_country} 语言={region['locale']} 时区={region['timezones'][0]}", "config")
+            config["country"] = bi_country
+            config["locale"] = region["locale"]
+            config["timezone"] = region["timezones"][0]
+            save_profile_config(profile_dir, config)
+
+    # Auto-set WebRTC IP from proxy if not already set
+    if config and not config.get("webrtc_ip"):
+        import re as _re2
+        m = _re2.search(r'@([\d.]+):', proxy)
+        if m:
+            config["webrtc_ip"] = m.group(1)
+            save_profile_config(profile_dir, config)
+
     fingerprint_args = _build_launch_args(config)
 
     # --- Launch browser ---
@@ -957,10 +990,20 @@ async def register_gmc(
         # ============ Step 0: Pre-warm profile (avoid fresh-profile detection) ============
         try:
             _emit(log_callback, "info", "预热浏览器 → 建立浏览历史", "prewarm")
-            await page.goto("https://www.google.com/", wait_until="domcontentloaded", timeout=30000)
-            await _human_delay(1000, 2000)
-            await page.goto("https://search.google.com/search-console", wait_until="domcontentloaded", timeout=30000)
-            await _human_delay(1000, 2000)
+            warmup_sites = [
+                "https://www.google.com/",
+                "https://www.google.com/search?q=online+shopping+store",
+                "https://accounts.google.com/",
+                "https://myaccount.google.com/",
+                "https://search.google.com/search-console",
+            ]
+            for site_url in warmup_sites:
+                try:
+                    await page.goto(site_url, wait_until="domcontentloaded", timeout=25000)
+                    await _human_delay(1500, 3000)
+                except Exception:
+                    pass
+            _emit(log_callback, "info", "预热完成 → 5个Google站点已访问", "prewarm")
         except Exception:
             pass  # pre-warm is best-effort
 
