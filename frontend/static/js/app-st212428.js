@@ -5502,8 +5502,8 @@ async function loadProfileCategories() {
                         <label class="block text-sm font-medium text-on-surface mb-1">指纹环境 <span class="text-xs text-on-surface-variant">(可选，含代理)</span></label>
                         <select v-model="brandKitForm.cloakbrowser_profile_name" @change="onProfileChange" class="w-full px-4 py-2 border rounded-lg focus:border-primary">
                             <option value="">自动创建新的指纹环境</option>
-                            <option v-for="p in cloakbrowserProfiles" :key="p.name" :value="p.name" :disabled="p.bound && p.bound_kit_id !== brandKitEditId">
-                                [{{ p.bound && p.bound_kit_id !== brandKitEditId ? '已绑定' : '可用' }}] {{ p.name }}
+                            <option v-for="p in cloakbrowserProfiles.filter(p=>!p.bound||p.bound_kit_id===brandKitEditId)" :key="p.name" :value="p.name">
+                                {{ p.name }}
                                 <template v-if="p.proxy"> — {{ typeof p.proxy === 'string' ? p.proxy.substring(0, 50) : '' }}</template>
                             </option>
                         </select>
@@ -5521,7 +5521,7 @@ async function loadProfileCategories() {
                         <label class="block text-sm font-medium text-on-surface mb-1">Google 账户 <span class="text-xs text-on-surface-variant">(可选)</span></label>
                         <select v-model="brandKitForm.google_account_id" class="w-full px-4 py-2 border rounded-lg focus:border-primary">
                             <option :value="null">不使用 Google 账户</option>
-                            <option v-for="ga in availableGoogleAccounts" :key="ga.id" :value="ga.id" :disabled="ga.occupied_kit_id && ga.occupied_kit_id !== brandKitEditId">
+                            <option v-for="ga in availableGoogleAccounts.filter(g=>!g.occupied_kit_id||g.occupied_kit_id===brandKitEditId)" :key="ga.id" :value="ga.id">
                                 [{{ ga.occupied_kit_name && ga.occupied_kit_id !== brandKitEditId ? '占用' : '可用' }}] {{ ga.email }} ({{ ga.country || '未知' }})
                                 {{ ga.occupied_kit_name && ga.occupied_kit_id !== brandKitEditId ? ' — ' + ga.occupied_kit_name : '' }}
                             </option>
