@@ -9421,6 +9421,10 @@ Respond with strict JSON only (no markdown code blocks):
                     "email": business_info.get("email", ""),
                 }
             proxy_id_in = data.get("proxy_id") or None
+            ds = {}
+            style_recipe = (data.get("style_recipe") or "").strip()
+            if style_recipe:
+                ds = {"style_recipe": style_recipe}
             ga_id_in = data.get("google_account_id") or None
             logger.info(f"[create_brand_kit] proxy_id={proxy_id_in!r} google_account_id={ga_id_in!r} data_keys={list(data.keys())}")
             kit = create_brand_kit({
@@ -9437,6 +9441,7 @@ Respond with strict JSON only (no markdown code blocks):
                 "tax_config": tax_config,
                 "shipping_config": shipping_config,
                 "status": "draft",
+                "design_system": ds,
                 "created_by": get_current_user_id(),
             })
             return jsonify({"code": 200, "data": kit, "message": "品牌套件已创建"})
@@ -9461,6 +9466,14 @@ Respond with strict JSON only (no markdown code blocks):
     @jwt_required()
     def update_brand_kit_route(kit_id):
         """Update brand kit metadata."""
+            style_recipe = (data.get("style_recipe") or "").strip()
+            if style_recipe:
+                existing_ds = kit.get("design_system", {}) or {}
+                if isinstance(existing_ds, str):
+                    try: existing_ds = json.loads(existing_ds)
+                    except: existing_ds = {}
+                existing_ds["style_recipe"] = style_recipe
+                data["design_system"] = existing_ds
         try:
             kit = get_brand_kit(kit_id)
             if not kit:
