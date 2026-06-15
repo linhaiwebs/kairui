@@ -839,56 +839,111 @@ async def _exec_gmc_dashboard(page, ctx, log_callback=None):
     return "done"
 
 async def _exec_gmc_landing(page, ctx, log_callback=None):
-    """Click Get started or Sign in. Retries with longer waits and iframe fallback."""
-    # Wait extra for GMC page to fully render (SPA, can be slow)
+    """Click 'Sign in' or 'Get started' on GMC landing page.
+
+    GMC landing page flow:
+      - 'Get started' button → directly enters registration wizard
+      - 'Sign in' button → opens a panel with TWO options:
+          1. 'Create account' / 'Get started' → opens registration (new tab)
+          2. 'Sign in to existing account' → login to existing GMC
+
+    We always want option 1. After clicking the panel option, it opens a new tab.
+    We detect and switch to the new tab.
+    """
     await asyncio.sleep(3)
 
-    # Strategy 1: Direct button click by text
+    # ── Step 1: Click the main button (Get started or Sign in) ──
+    clicked_label = None
     for label in ["Get started", "Create account", "Sign up", "Start now", "Begin",
                   "Create a Merchant Center account", "Get Started", "Sign in", "Sign In"]:
         try:
             btn = page.get_by_role("button", name=label).first
             if await btn.count() > 0 and await btn.is_visible():
                 await btn.click(timeout=5000)
-                await _human_delay(2000, 3000)
-                _emit(log_callback, "info", f"点击 {label} -> 进入注册向导", "gmc")
-                return "continue"
+                clicked_label = label
+                _emit(log_callback, "info", f"点击 {label}", "gmc")
+                break
         except Exception:
             pass
 
-    # Strategy 2: Text-based click (fallback)
-    if await _click_button(page, ["Get started", "Create account", "Sign up", "Start now", "Begin",
-                                    "Create a Merchant Center account", "Get Started"], log_callback, "gmc"):
-        _emit(log_callback, "info", "点击创建账户 -> 进入注册向导", "gmc")
-        return "continue"
-    if await _click_button(page, ["Sign in", "Sign In"], log_callback, "gmc"):
-        _emit(log_callback, "info", "点击 Sign in -> 进入注册流程", "gmc")
-        return "continue"
+    if not clicked_label:
+        _emit(log_callback, "warning", "GMC首页无可点击入口", "gmc")
+        return "fail"
 
-    # Strategy 3: Try clicking any visible link/button on the page (last resort)
+    await _human_delay(1500, 2500)
+
+    # ── Step 2: Detect the panel/dropdown with two options ──
+    # After clicking 'Sign in', GMC shows a panel with:
+    #   "Create account" / "Get started" (first option → registration)
+    #   "Sign in" (second option → existing account)
+    # We click the FIRST registration link in the panel.
+    panel_clicked = False
     try:
+        # Find any link/button inside the panel that indicates registration
         result = await page.evaluate("""
             (() => {
-                const btns = document.querySelectorAll('a[href*=\"merchant\"], a[href*=\"signup\"], a[href*=\"setup\"], button, [role=\"button\"]');
-                for (const b of btns) {
-                    if (b.offsetParent === null) continue; // invisible
-                    const t = b.textContent.trim().toLowerCase();
-                    if (t && (t.includes('get started') || t.includes('create') || t.includes('sign') || t.includes('start'))) {
-                        b.click(); return t;
+                // Look for registration links in modal/panel/dropdown
+                const els = document.querySelectorAll(
+                    'a[href*="signup"], a[href*="setup"], a[href*="create"], ' +
+                    'a[href*="register"], [role="menuitem"], [role="option"], ' +
+                    '.panel a, .dropdown a, [class*="overlay"] a, [class*="modal"] a, ' +
+                    '[class*="dialog"] a, [class*="popup"] a'
+                );
+                for (const el of els) {
+                    if (el.offsetParent === null) continue;
+                    const t = el.textContent.trim().toLowerCase();
+                    if (t && (t.includes('create') || t.includes('get started') ||
+                              t.includes('sign up') || t.includes('start now') ||
+                              t.includes('new account') || t.includes('register'))) {
+                        const href = el.getAttribute('href') || '';
+                        el.click();
+                        return {text: t, href: href};
+                    }
+                }
+                // Fallback: any link that's not 'Sign in'
+                for (const el of els) {
+                    if (el.offsetParent === null) continue;
+                    const t = el.textContent.trim().toLowerCase();
+                    if (t && !t.includes('sign in')) {
+                        const href = el.getAttribute('href') || '';
+                        el.click();
+                        return {text: t, href: href};
                     }
                 }
                 return null;
             })()
         """)
         if result:
-            _emit(log_callback, "info", f"通用点击: {result} -> 进入注册流程", "gmc")
-            await _human_delay(2000, 3000)
-            return "continue"
-    except Exception:
-        pass
+            _emit(log_callback, "info", f"选择面板选项: {result['text']}", "gmc")
+            panel_clicked = True
+    except Exception as e:
+        _emit(log_callback, "warning", f"面板点击异常: {e}", "gmc")
 
-    _emit(log_callback, "warning", "GMC首页无可点击入口", "gmc")
-    return "fail"
+    await _human_delay(2000, 3000)
+
+    # ── Step 3: Check for new tab and switch to it ──
+    try:
+        # Access browser context from page
+        context = page.context
+        pages = context.pages
+        if len(pages) > 1:
+            # GMC opens registration in a new tab — switch to the latest one
+            new_page = pages[-1]
+            await new_page.wait_for_load_state("domcontentloaded")
+            await new_page.bring_to_front()
+            _emit(log_callback, "info", f"切换到新标签页: {new_page.url[:100]}", "gmc")
+            # Transfer page reference back via ctx
+            ctx["_new_page"] = new_page
+            return "switch_page"
+        elif panel_clicked:
+            # Panel clicked but no new tab — might have navigated in-place
+            await page.wait_for_load_state("domcontentloaded")
+            _emit(log_callback, "info", "注册流程已启动", "gmc")
+            return "continue"
+    except Exception as e:
+        _emit(log_callback, "warning", f"标签页切换异常: {e}", "gmc")
+
+    return "continue"
 
 async def _exec_gmc_account_type(page, ctx, log_callback=None):
     for keyword in ["Online store", "online store", "Merchant", "merchant", "Shopping ads"]:
@@ -1435,6 +1490,13 @@ async def register_gmc(
             handler = _EXEC_DISPATCH.get(page_type, _exec_unknown)
             expected = _ACTION_DESCRIPTIONS.get(page_type, "advance to next page")
             result = await handler(page, ctx, log_callback)
+
+            if result == "switch_page":
+                new_page = ctx.pop("_new_page", None)
+                if new_page:
+                    page = new_page
+                    _emit(log_callback, "info", "已切换到新标签页", "gmc")
+                    continue
 
             if result == "done":
                 mc_id = ctx.get("mc_account_id", "registered")
