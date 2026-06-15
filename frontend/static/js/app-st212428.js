@@ -4247,7 +4247,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <div><label class="block text-sm font-medium text-on-surface mb-1">默认管理员用户名</label><input v-model="globalConfig.default_admin_name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary"></div>
                                 <div class="mt-4"><label class="block text-sm font-medium text-on-surface mb-1">默认管理员密码</label><input v-model="globalConfig.default_admin_password" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary"><p class="text-xs text-on-surface-variant mt-1">应用于所有新创建的WordPress站点</p></div>
                                 <div class="mt-4"><label class="block text-sm font-medium text-on-surface mb-1">默认数据库服务</label><select v-model="globalConfig.db_service" class="w-full px-4 py-2 border rounded-lg focus:border-primary"><option value="mariadb">MariaDB</option><option value="mysql">MySQL</option></select></div>
-                    __REMOVED_WP__</div>
+                    </div>
                             </div>
                             <!-- Tab: 1Panel 环境 -->
                             <div v-else-if="settingsActiveTab === 'panel'" @vue:mounted="loadPanelEnvironments()">
