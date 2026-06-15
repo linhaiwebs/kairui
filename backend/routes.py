@@ -5120,6 +5120,47 @@ def register_routes(app):
                 if result.get("success") and result.get("mc_account_id"):
                     from models import update_site
                     update_site(site_id, {"google_mc_account_id": result.get("mc_account_id", "")})
+                # Auto-inject meta tag if extracted during registration
+                meta_tag = (result.get("meta_tag") or "").strip()
+                if meta_tag and meta_tag.startswith("<meta"):
+                    try:
+                        add_log(task_id, "info", f"自动注入验证标签: {meta_tag[:100]}", "meta_inject")
+                        from models import get_db as _get_db, update_global_config as _ugc
+                        _ = _get_db()  # ensure the inject-meta logic can use the db
+                        # Call the inject logic inline
+                        site_dir = site.get("static_dir", "")
+                        env = get_user_panel_environment(site.get("created_by") or 1)
+                        if env:
+                            pc = OnePanelClient(host=env["host"], port=env["port"], api_key=env["api_key"])
+                            nginx_alias = site.get("nginx_alias", "")
+                            if site_dir.startswith("/www/"):
+                                remote_path = f"/opt/1panel/apps/openresty/openresty{site_dir}/index.html"
+                            elif site_dir.startswith("/opt/"):
+                                remote_path = f"{site_dir}/index.html"
+                            else:
+                                remote_path = f"/opt/1panel/apps/openresty/openresty/www/sites/{nginx_alias}/index/index.html"
+                            content_resp = pc.read_file(remote_path)
+                            html = content_resp.get("data", {}).get("content", "") if isinstance(content_resp.get("data"), dict) else str(content_resp.get("data", ""))
+                            if not html:
+                                html = str(content_resp.get("data", ""))
+                            if html and "<head" in html.lower():
+                                if "</head>" in html:
+                                    html = html.replace("</head>", f"    {meta_tag}\n</head>")
+                                elif "<head>" in html:
+                                    html = html.replace("<head>", f"<head>\n    {meta_tag}")
+                                pc.delete_file(remote_path)
+                                pc.create_file(remote_path, is_dir=False)
+                                save_resp = pc.save_file(remote_path, html)
+                                if save_resp.get("code") == 200:
+                                    pc.reload_openresty()
+                                    update_site(site_id, {"google_verification_done": 1})
+                                    add_log(task_id, "info", "验证标签已自动注入站点", "meta_inject")
+                                else:
+                                    add_log(task_id, "warning", f"标签注入保存失败: {save_resp.get('message', '')}", "meta_inject")
+                            else:
+                                add_log(task_id, "warning", f"无法读取站点HTML({remote_path})，请手动注入: {meta_tag}", "meta_inject")
+                    except Exception as meta_e:
+                        add_log(task_id, "warning", f"自动注入验证标签失败: {meta_e}，请手动注入: {meta_tag}", "meta_inject")
             except Exception as e:
                 add_log(task_id, "error", f"任务异常: {e}", "")
                 complete_task(task_id, False, {"success": False, "message": str(e)})

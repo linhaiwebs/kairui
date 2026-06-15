@@ -4678,29 +4678,51 @@ async function loadProfileCategories() {
                 <div class="space-y-6">
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
                         <h3 class="font-semibold text-on-surface mb-2"><i class="fab fa-google mr-2 text-primary"></i>Google Merchant Center 自动化</h3>
-                        <p class="text-sm text-on-surface-variant mb-4">注入站点验证标签（Google 将自动抓取验证）、通过指纹浏览器自动注册 MC 账号。Feed 生成由 <a href="#" @click.prevent="currentPage='shai-pin-feed'" class="text-primary underline">筛品</a> 接管。</p>
+                        <p class="text-sm text-on-surface-variant mb-4">通过指纹浏览器自动注册 GMC 账号。先验证域名再注册。Feed 由 <a href="#" @click.prevent="currentPage='shai-pin-feed'" class="text-primary underline">数据源</a> 页面管理。</p>
                         <div v-if="sites.length === 0" class="text-center py-12 text-on-surface-variant"><i class="fas fa-inbox text-4xl mb-4"></i><p>暂无站点</p></div>
                         <div v-else class="overflow-x-auto">
                             <table class="w-full text-sm">
                                 <thead class="bg-surface-container-low"><tr><th class="px-4 py-3 text-left font-medium text-on-surface-variant">站点</th><th class="px-4 py-3 text-left font-medium text-on-surface-variant">Feed</th><th class="px-4 py-3 text-left font-medium text-on-surface-variant">域名验证</th><th class="px-4 py-3 text-left font-medium text-on-surface-variant">MC 账号</th><th class="px-4 py-3 text-right font-medium text-on-surface-variant">操作</th></tr></thead>
                                 <tbody class="divide-y">
                                     <tr v-for="site in sites" :key="site.id" class="hover:bg-surface-container-low">
-                                        <td class="px-4 py-3"><div class="font-medium text-on-surface">{{ site.site_name }}</div><div class="text-xs text-on-surface-variant">{{ site.url }}</div><div v-if="fingerprintEnabled && site.cloakbrowser_profile_name" class="mt-1"><span class="badge bg-blue-100 text-primary"><i class="fas fa-fingerprint mr-0.5"></i>{{ site.cloakbrowser_profile_name }}</span></div></td>
+                                        <!-- Col 1: Site name + fingerprint -->
                                         <td class="px-4 py-3">
-                                            <span v-if="mcFeedUrls[site.id]" class="text-[#146c2e] text-xs"><i class="fas fa-check-circle mr-1"></i>已生成</span>
+                                            <div class="font-medium text-on-surface">{{ site.site_name }}</div>
+                                            <div v-if="fingerprintEnabled && site.cloakbrowser_profile_name" class="mt-0.5">
+                                                <span class="text-[10px] text-primary bg-blue-50 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1">
+                                                    <i class="fas fa-fingerprint"></i>{{ site.cloakbrowser_profile_name }}
+                                                </span>
+                                            </div>
+                                            <div v-else class="text-[10px] text-on-surface-variant">无指纹</div>
+                                        </td>
+                                        <!-- Col 2: Feed status -->
+                                        <td class="px-4 py-3">
+                                            <span v-if="site.google_feed_url || mcFeedUrls[site.id]" class="text-[#146c2e] text-xs">
+                                                <i class="fas fa-check-circle mr-1"></i>{{ mcFeedUrls[site.id] ? '已生成' : '已配置' }}
+                                            </span>
                                             <span v-else class="text-on-surface-variant text-xs">未生成</span>
                                         </td>
+                                        <!-- Col 3: Domain verification -->
                                         <td class="px-4 py-3">
-                                            <span v-if="site.google_verification_done" class="text-[#146c2e] text-xs" title="验证标签已注入站点，Google 将自动抓取验证"><i class="fas fa-check-circle mr-1"></i>已注入</span>
-                                            <span v-else class="text-on-surface-variant text-xs">未注入</span>
+                                            <span v-if="site.google_verification_done" class="text-[#146c2e] text-xs"><i class="fas fa-check-circle mr-1"></i>已验证</span>
+                                            <button v-else @click="openMetaModal(site)" class="px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition">
+                                                <i class="fas fa-code mr-1"></i>注入标签
+                                            </button>
                                         </td>
+                                        <!-- Col 4: MC Account -->
                                         <td class="px-4 py-3">
                                             <span v-if="site.google_mc_account_id" class="text-[#146c2e] text-xs"><i class="fas fa-check-circle mr-1"></i>{{ site.google_mc_account_id }}</span>
                                             <span v-else class="text-on-surface-variant text-xs">未注册</span>
                                         </td>
+                                        <!-- Col 5: Actions -->
                                         <td class="px-4 py-3 text-right">
                                             <div class="flex items-center justify-end gap-1">
-                                                <button v-if="!site.google_mc_account_id" @click="registerMCForSite(site)" :disabled="mcRegistering[site.id]" class="px-2 py-1 text-xs bg-primary-container text-on-primary rounded hover:bg-primary">{{ mcRegistering[site.id] === 'register' ? '注册中...' : '注册MC' }}</button>
+                                                <button v-if="site.google_verification_done && !site.google_mc_account_id" @click="registerMCForSite(site)" :disabled="mcRegistering[site.id]" class="px-2 py-1 text-xs bg-primary-container text-on-primary rounded hover:bg-primary transition">
+                                                    {{ mcRegistering[site.id] === 'register' ? '注册中...' : '注册MC' }}
+                                                </button>
+                                                <button v-else-if="!site.google_verification_done" disabled class="px-2 py-1 text-xs bg-gray-100 text-gray-400 rounded cursor-not-allowed" title="请先注入验证标签">
+                                                    注册MC
+                                                </button>
                                                 <span v-if="taskLogSilent && mcRegistering[site.id] && taskLogLines.length" class="text-xs text-on-surface-variant ml-2 truncate" style="max-width:200px">{{ taskLogLines[taskLogLines.length-1]?.msg || '' }}</span>
                                             </div>
                                         </td>

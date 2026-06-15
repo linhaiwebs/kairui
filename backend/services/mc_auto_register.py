@@ -996,7 +996,7 @@ async def register_gmc(
         if "Performance" in content and "All products" in content:
             mc_id = await _extract_mc_id(page) or "existing"
             _emit(log_callback, "info", f"GMC 已注册! MC ID: {mc_id}", "done")
-            return {"success": True, "mc_account_id": mc_id, "message": "Already registered", "steps": 1}
+            return {"success": True, "mc_account_id": mc_id, "message": "Already registered", "steps": 1, "meta_tag": ""}
 
         # ============ Step 4: Click "Get started" ============
         _emit(log_callback, "info", "=== 开始 GMC 注册流程 ===", "register")
@@ -1011,6 +1011,7 @@ async def register_gmc(
 
         # ============ Steps 6-12: Wizard form pages ============
         max_pages = 12
+        extracted_meta_tag = ""
         for page_num in range(1, max_pages + 1):
             current_url = page.url
             content = await page.content()
@@ -1082,39 +1083,66 @@ async def register_gmc(
                 await asyncio.sleep(3)
                 continue
 
-            # Phone verification
+            # Phone verification — choose "Other methods" to skip
             if any(kw in content_lower for kw in [
                 "phone verification", "verify your phone",
                 "phone number", "verification code",
             ]):
-                _emit(log_callback, "warning", "需要手机验证! 等待手动输入...", "phone_verify")
-                # Enter phone from business_info if available
-                phone = (business_info or {}).get("phone", "")
-                if phone:
-                    await _fill_input(page, [
-                        "input[type='tel']",
-                        "input[aria-label*='phone' i]",
-                        "input[name*='phone' i]",
-                    ], phone, log_callback, "phone_verify")
-                    await _click_button(page, ["Send code", "Verify", "Next", "Continue"], log_callback, "phone_verify")
+                _emit(log_callback, "info", "检测到手机验证，选择其他方式...", "phone_verify")
+                # Click "Other methods" / "Try another way" / "Skip" — DO NOT enter phone
+                clicked = await _click_button(page, [
+                    "Other methods", "Try another way", "More options",
+                    "Use a different method", "Skip",
+                ], log_callback, "phone_verify")
+                if not clicked:
+                    # Fallback: try to skip via link text
+                    await _click_button(page, [
+                        "Skip", "Not now", "Cancel", "Later",
+                    ], log_callback, "phone_verify")
                 await asyncio.sleep(3)
                 continue
 
-            # URL verification / claim website
+            # URL verification / claim website — extract meta tag and inject
             if any(kw in content_lower for kw in [
                 "verify your website", "claim your website",
                 "html tag", "google tag", "website verification",
             ]):
-                _emit(log_callback, "info", "跳过网站验证(使用HTML tag方法)...", "verify")
-                # Try to skip or continue past verification
-                await _click_button(page, [
-                    "Skip", "Skip for now", "I'll do this later",
-                    "Continue", "Next",
-                ], log_callback, "verify")
-                # If Skip doesn't work, try the HTML tag/Google Analytics option
+                # First, try the HTML tag option
                 await _click_button(page, [
                     "HTML tag", "Google tag", "Google Analytics",
                     "Add HTML tag",
+                ], log_callback, "verify")
+                await asyncio.sleep(2)
+
+                # Extract the meta tag from the page
+                meta_tag = None
+                try:
+                    meta_tag = await page.evaluate("""
+                        (() => {
+                            // Look for google-site-verification meta tag
+                            const meta = document.querySelector('meta[name="google-site-verification"]');
+                            if (meta) return meta.outerHTML;
+                            // Look for content in verification instructions
+                            const body = document.body.innerText;
+                            const m = body.match(/<meta\\s+name=["']google-site-verification["']\\s+content=["']([^"']+)["']\\s*\\/?>/i);
+                            if (m) return m[0];
+                            // Try to find the content value alone
+                            const m2 = body.match(/content=["']([^"']{20,})["']/);
+                            if (m2) return '<meta name="google-site-verification" content="' + m2[1] + '">';
+                            return null;
+                        })()
+                    """)
+                except Exception:
+                    pass
+
+                if meta_tag:
+                    extracted_meta_tag = str(meta_tag)
+                    _emit(log_callback, "info", f"提取到验证标签: {extracted_meta_tag[:120]}", "verify")
+                else:
+                    _emit(log_callback, "warning", "未找到验证meta标签，尝试跳过...", "verify")
+
+                await _click_button(page, [
+                    "Verify", "Verify URL", "Continue", "Next",
                 ], log_callback, "verify")
                 await asyncio.sleep(3)
                 continue
@@ -1154,22 +1182,25 @@ async def register_gmc(
         if mc_account_id:
             _emit(log_callback, "info", f"GMC 注册成功! MC ID: {mc_account_id}", "done")
             return {"success": True, "mc_account_id": mc_account_id,
-                    "message": f"GMC registration complete. MC ID: {mc_account_id}", "steps": max_pages}
+                    "message": f"GMC registration complete. MC ID: {mc_account_id}",
+                    "steps": max_pages, "meta_tag": extracted_meta_tag}
         else:
             # Check if we're on the dashboard (success even without extracted ID)
             content = await page.content()
             if "Performance" in content or "All products" in content:
                 _emit(log_callback, "info", "GMC 注册完成(已进入Dashboard)", "done")
                 return {"success": True, "mc_account_id": "registered",
-                        "message": "GMC registration complete (dashboard detected)", "steps": max_pages}
+                        "message": "GMC registration complete (dashboard detected)",
+                        "steps": max_pages, "meta_tag": extracted_meta_tag}
             _emit(log_callback, "warning", "注册流程完成但未能提取MC ID", "done")
             return {"success": True, "mc_account_id": "unknown",
-                    "message": "Registration completed but MC ID not found", "steps": max_pages}
+                    "message": "Registration completed but MC ID not found",
+                    "steps": max_pages, "meta_tag": extracted_meta_tag}
 
     except Exception as e:
         _emit(log_callback, "error", f"注册异常: {e}", "exception")
         logger.exception("register_gmc error")
-        return {"success": False, "message": f"Registration error: {e}", "steps": 0}
+        return {"success": False, "message": f"Registration error: {e}", "steps": 0, "meta_tag": ""}
     finally:
         try:
             if context:
