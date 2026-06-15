@@ -326,7 +326,7 @@ const app = createApp({
         const showBrandKitModal = ref(false);
         const brandKitEditId = ref(null);
         const brandKitForm = reactive({
-            name: '', industry: '', proxy: '', proxy_id: null, google_account_id: null, cloakbrowser_profile_name: ''
+            name: '', industry: '', style_recipe: '', proxy: '', proxy_id: null, google_account_id: null, cloakbrowser_profile_name: ''
         });
         // Proxy Pool
         const proxies = ref([]);
@@ -2368,7 +2368,7 @@ pipelineStatuses[siteId].demo_importing = false;
             loadCloakbrowserProfiles();
             if (kit) {
                 brandKitEditId.value = kit.id;
-                Object.assign(brandKitForm, { name: kit.name, industry: kit.industry, proxy: kit.proxy || '', proxy_id: kit.proxy_id || null, google_account_id: kit.google_account_id || null, cloakbrowser_profile_name: kit.cloakbrowser_profile_name || '' });
+                Object.assign(brandKitForm, { name: kit.name, industry: kit.industry, proxy: kit.proxy || '', proxy_id: kit.proxy_id || null, google_account_id: kit.google_account_id || null, cloakbrowser_profile_name: kit.cloakbrowser_profile_name || '', style_recipe: kit.design_system?.style_recipe || '' });
                 onProfileChange();  // restore proxy preview
             } else {
                 brandKitEditId.value = null;
@@ -4247,6 +4247,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <div><label class="block text-sm font-medium text-on-surface mb-1">默认管理员用户名</label><input v-model="globalConfig.default_admin_name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary"></div>
                                 <div class="mt-4"><label class="block text-sm font-medium text-on-surface mb-1">默认管理员密码</label><input v-model="globalConfig.default_admin_password" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary"><p class="text-xs text-on-surface-variant mt-1">应用于所有新创建的WordPress站点</p></div>
                                 <div class="mt-4"><label class="block text-sm font-medium text-on-surface mb-1">默认数据库服务</label><select v-model="globalConfig.db_service" class="w-full px-4 py-2 border rounded-lg focus:border-primary"><option value="mariadb">MariaDB</option><option value="mysql">MySQL</option></select></div>
+                    <div><label class="block text-sm font-medium text-on-surface mb-1">设计风格 <span class="text-xs text-on-surface-variant">garden-skills</span></label><select v-model="brandKitForm.style_recipe" class="w-full px-4 py-2 border rounded-lg focus:border-primary"><option value="">默认</option><option value="linear">Linear Minimal</option><option value="aesop">Aesop Apothecary</option><option value="muji">MUJI / Kenya Hara</option><option value="stripe">Stripe Press</option><option value="vercel">Vercel Mesh</option><option value="midcentury">Mid-Century Modern</option><option value="tufte">Tufte Data-Ink</option><option value="y2k">Y2K Retrofuturism</option></select></div>
                             </div>
                             <!-- Tab: 1Panel 环境 -->
                             <div v-else-if="settingsActiveTab === 'panel'" @vue:mounted="loadPanelEnvironments()">
