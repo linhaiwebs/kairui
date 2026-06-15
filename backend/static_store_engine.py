@@ -1488,7 +1488,7 @@ def render_homepage(products, design, brand_kit):
 {trust_html}
 
 <main class="container" style="margin-top:40px;margin-bottom:40px">
-  <div class="product-grid" id="products" style="gap:{{48 if is_editorial else 32 if is_warm else 24}}px">
+  <div class="product-grid" id="products" style="gap:{48 if is_editorial else 32 if is_warm else 24}px">
     {cards}
   </div>
 </main>
