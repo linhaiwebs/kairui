@@ -508,7 +508,7 @@ class OnePanelClient:
         """Read file content via 1Panel file API."""
         return self._request("POST", "/files/read", {
             "path": path, "page": page, "pageSize": page_size,
-            "type": "read",
+            "type": "content",
         })
 
     def create_static_website(self, domain, alias, website_group_id=1):
