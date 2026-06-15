@@ -2927,7 +2927,7 @@ async function loadProfileCategories() {
 
             activeFingerprintCategory, importingFingerprintText, importingFingerprints, importFingerprintResult,
             resourceActiveTab, resourceOperators, resourceStats, loadResourceOverview,
-            getProfilesByCategory, importFingerprintProfiles, removeProfileFromCategory,            statsSubmenuOpen, statsSubmenuOpen, resourceOperators, resourceStats, loadResourceOverview, settingsActiveTab, settingsTabs,
+            getProfilesByCategory, importFingerprintProfiles, removeProfileFromCategory,            statsSubmenuOpen, resourceActiveTab, resourceOperators, resourceStats, loadResourceOverview, settingsActiveTab, settingsTabs,
 
             exportSystemData, importSystemData, handleImportFile, importFileInput,            panelEnvironments, showPanelEnvModal, panelEnvEditId, panelEnvForm, panelEnvFormError,
             loadPanelEnvironments, openPanelEnvModal, closePanelEnvModal, handleSavePanelEnv,
@@ -3040,7 +3040,7 @@ async function loadProfileCategories() {
                     <span class="material-symbols-outlined">group</span> 用户管理
                 </a>
                 <div v-if="currentUserRole === 'admin'" class="sidebar-group">
-                    <a @click="statsSubmenuOpen = !statsSubmenuOpen" :class="['sidebar-link', (currentPage === 'woo-stats' || currentPage === 'resource-overview') ? 'active' : '']">
+                    <a @click.prevent="statsSubmenuOpen = !statsSubmenuOpen" :class="['sidebar-link', (currentPage === 'woo-stats' || currentPage === 'resource-overview') ? 'active' : '']">
                         <span class="material-symbols-outlined">analytics</span> 统计总览
                         <span class="material-symbols-outlined ml-auto" style="font-size:16px">{{ statsSubmenuOpen ? 'expand_less' : 'expand_more' }}</span>
                     </a>

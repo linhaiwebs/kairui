@@ -366,3 +366,5 @@ button .material-symbols-outlined,button .fas,button .far,button .fab{line-heigh
 }
 .sidebar-sublink:hover { background: rgba(0,0,0,0.05); color: var(--on-surface); }
 .sidebar-sublink.active { background: var(--primary-container); color: var(--on-primary); }
+.sidebar-group > a { cursor: pointer; }
+.sidebar-sublink { cursor: pointer; }
