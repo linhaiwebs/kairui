@@ -759,7 +759,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 feedStatsLoading.value = false;
             }
         }
-        async function loadWooStats() {
+        undefined
             wooStatsLoading.value = true;
             try {
                 const params = { period: wooStatsPeriod.value };
@@ -1634,8 +1634,36 @@ pipelineStatuses[siteId].demo_importing = false;
         // Pipeline status polling when on sites page
         let pipelinePollTimer = null;
         watch(currentPage, (page) => {
+            if (page === 'dashboard') {
+                nextTick(() => {
+                    setTimeout(() => {
+                        ['chartSiteTypes','chartResources'].forEach(id => {
+                            const c = Chart.getChart(id);
+                            if (c) c.destroy();
+                        });
+                        const ctx1 = document.getElementById('chartSiteTypes');
+                        if (ctx1 && sites.value) {
+                            const st = sites.value.filter(s => s.site_type === 'static').length;
+                            const wp = sites.value.filter(s => s.site_type !== 'static').length;
+                            new Chart(ctx1, { type: 'doughnut',
+                                data: { labels: ['静态站点','WordPress'], datasets: [{ data: [st,wp], backgroundColor: ['#3b82f6','#10b981'] }] },
+                                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+                            });
+                        }
+                        const ctx2 = document.getElementById('chartResources');
+                        if (ctx2) {
+                            const ga = googleAccounts.value ? googleAccounts.value.length : 0;
+                            const pf = cloakbrowserProfiles.value ? cloakbrowserProfiles.value.length : 0;
+                            const bk = brandKits.value ? brandKits.value.length : 0;
+                            new Chart(ctx2, { type: 'bar',
+                                data: { labels: ['谷歌账户','指纹环境','品牌套件'], datasets: [{ data: [ga,pf,bk], backgroundColor: ['#f59e0b','#8b5cf6','#3b82f6'] }] },
+                                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+                            });
+                        }
+                    }, 500);
+                });
+            }
             if (page === 'woocommerce-products') {
-                loadWooProducts();
             }
             if (page === 'sites') {
                 pipelinePollTimer = setInterval(() => {
@@ -3130,6 +3158,36 @@ async function loadProfileCategories() {
             </div>
 
             <!-- Dashboard -->
+            <div v-if="currentPage === 'dashboard'" class="fade-in">
+                <!-- Top Stats -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5"><div class="flex items-center justify-between"><div><p class="text-xs text-on-surface-variant">站点总数</p><p class="text-3xl font-bold text-on-surface mt-1">{{ sites.length }}</p></div><div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center"><i class="fas fa-globe text-blue-600 text-lg"></i></div></div><div class="mt-3 text-xs text-on-surface-variant">静态 {{ sites.filter(s=>s.site_type==='static').length }} · WP {{ sites.filter(s=>s.site_type!=='static').length }}</div></div>
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5"><div class="flex items-center justify-between"><div><p class="text-xs text-on-surface-variant">产品总数</p><p class="text-3xl font-bold text-on-surface mt-1">{{ wooProducts.length + generatedFeed.length }}</p></div><div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center"><i class="fas fa-shopping-cart text-green-600 text-lg"></i></div></div><div class="mt-3 text-xs text-on-surface-variant">网站产品 {{ wooProducts.length }} · Feed {{ generatedFeed.length }}</div></div>
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5"><div class="flex items-center justify-between"><div><p class="text-xs text-on-surface-variant">品牌套件</p><p class="text-3xl font-bold text-on-surface mt-1">{{ brandKits.length }}</p></div><div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center"><i class="fas fa-palette text-purple-600 text-lg"></i></div></div><div class="mt-3 text-xs text-on-surface-variant">Google账户 {{ googleAccounts.length }}</div></div>
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5"><div class="flex items-center justify-between"><div><p class="text-xs text-on-surface-variant">1Panel</p><p class="text-3xl font-bold mt-1" :class="panelConnected ? 'text-[#146c2e]' : 'text-error'">{{ panelConnected ? '在线' : '离线' }}</p></div><div class="w-10 h-10 rounded-lg flex items-center justify-center" :class="panelConnected ? 'bg-green-100' : 'bg-red-100'"><i class="fas fa-server text-lg" :class="panelConnected ? 'text-green-600' : 'text-red-500'"></i></div></div><div class="mt-3 text-xs text-on-surface-variant">指纹环境 {{ cloakbrowserProfiles.length }}</div></div>
+                </div>
+                <!-- Charts Row -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5">
+                        <h4 class="text-sm font-semibold text-on-surface mb-3">站点类型分布</h4>
+                        <div style="height:200px"><canvas id="chartSiteTypes"></canvas></div>
+                    </div>
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5">
+                        <h4 class="text-sm font-semibold text-on-surface mb-3">资源使用概览</h4>
+                        <div style="height:200px"><canvas id="chartResources"></canvas></div>
+                    </div>
+                </div>
+                <!-- Quick Actions -->
+                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5">
+                    <h4 class="text-sm font-semibold text-on-surface mb-3">快速操作</h4>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <button @click="openWizard('single')" class="flex items-center gap-2 p-3 border rounded-lg hover:border-primary hover:bg-primary/5 transition text-sm"><i class="fas fa-plus-circle text-primary"></i> 创建站点</button>
+                        <button @click="currentPage = 'woocommerce-products'" class="flex items-center gap-2 p-3 border rounded-lg hover:border-primary hover:bg-primary/5 transition text-sm"><i class="fas fa-upload text-green-600"></i> 上传产品</button>
+                        <button @click="currentPage = 'shai-pin-feed'" class="flex items-center gap-2 p-3 border rounded-lg hover:border-primary hover:bg-primary/5 transition text-sm"><i class="fas fa-file-export text-[#146c2e]"></i> 生成Feed</button>
+                        <button @click="currentPage = 'resource-overview'" class="flex items-center gap-2 p-3 border rounded-lg hover:border-primary hover:bg-primary/5 transition text-sm"><i class="fas fa-chart-bar text-purple-600"></i> 资源总览</button>
+                    </div>
+                </div>
+            </div>
             <div v-if="currentPage === 'dashboard'" class="space-y-lg fade-in">
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-md mb-lg">
                     <div class="card"><div class="flex items-center justify-between"><div><p class="font-body-md text-on-surface-variant font-medium">站点总数</p><p class="font-display-md mt-xs text-on-surface">{{ sites.length }}</p></div><div class="p-xs bg-surface-container-low rounded-md"><span class="material-symbols-outlined">language</span></div></div></div>
