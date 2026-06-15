@@ -1378,11 +1378,13 @@ async def register_gmc(
                 await _click_button(page, ["Continue", "Next", "Skip", "Save"], log_callback, "stuck")
                 await _human_delay(2000, 3000); same_page_count = 0
 
+            # === Step 1: AI classify ===
             decision = await _ai_classify_page(page, log_callback)
             page_type = decision["page_type"]; last_page_type = page_type
-            _emit(log_callback, "info", f"步骤{step} -> AI判定: {page_type}", "step")
+            _emit(log_callback, "info",
+                  f"[{step}/{max_steps}] AI识别页面 → {page_type} (置信度={decision.get('confidence', '?')})", "step")
 
-            # Execute handler
+            # === Step 2: Execute handler ===
             handler = _EXEC_DISPATCH.get(page_type, _exec_unknown)
             expected = _ACTION_DESCRIPTIONS.get(page_type, "advance to next page")
             result = await handler(page, ctx, log_callback)
@@ -1390,18 +1392,21 @@ async def register_gmc(
             if result == "done":
                 mc_id = ctx.get("mc_account_id", "registered")
                 meta = ctx.get("extracted_meta_tag", "")
-                _emit(log_callback, "info", f"注册完成 -> MC ID: {mc_id}", "done")
+                _emit(log_callback, "info", f"注册成功 → MC ID: {mc_id} (共{step}步)", "done")
                 return {"success": True, "mc_account_id": mc_id, "message": f"GMC registered: {mc_id}", "steps": step, "meta_tag": meta}
             if result == "fail":
-                _emit(log_callback, "error", f"步骤{step}失败 -> {page_type}", "gmc")
+                _emit(log_callback, "error",
+                      f"[{step}/{max_steps}] 失败 → 页面类型: {page_type}", "gmc")
                 return {"success": False, "message": f"Failed at step {step} ({page_type})", "steps": step, "meta_tag": ctx.get("extracted_meta_tag", "")}
 
-            # AI verification: did the action produce the expected result?
+            # === Step 3: AI verify ===
             await _human_delay(1500, 2500)
             verify = await _ai_verify_action(page, expected, log_callback)
             if verify.get("success") == False:
+                new_pt = verify.get("new_page_type", "unknown")
+                reason = verify.get("reasoning", "?")
                 _emit(log_callback, "warning",
-                      f"AI验证不通过: {verify.get('reasoning','?')} -> 重试 {page_type}", "verify")
+                      f"[{step}/{max_steps}] 验证失败 → {reason} → 重试", "verify")
                 # Retry with alternative approach
                 if page_type == "gmc_landing":
                     await _click_button(page, ["Sign in", "Get started"], log_callback, "retry")
@@ -1411,8 +1416,9 @@ async def register_gmc(
                     await _click_button(page, ["Continue", "Next", "Save", "Skip"], log_callback, "retry")
                 await _human_delay(1000, 2000)
             else:
+                new_pt = verify.get("new_page_type", "?")
                 _emit(log_callback, "info",
-                      f"AI确认: {verify.get('reasoning','ok')[:80]}", "verify")
+                      f"[{step}/{max_steps}] 验证通过 → 进入 {new_pt}", "verify")
 
         _emit(log_callback, "warning", f"达到最大步骤({max_steps})", "gmc")
         return {"success": False, "message": f"Max steps ({max_steps})", "steps": max_steps, "meta_tag": ""}
