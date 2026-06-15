@@ -506,7 +506,10 @@ class OnePanelClient:
 
     def read_file(self, path, page=1, page_size=5000):
         """Read file content via 1Panel file API."""
-        return self._request("POST", "/files/read", {"path": path, "page": page, "pageSize": page_size})
+        return self._request("POST", "/files/read", {
+            "path": path, "page": page, "pageSize": page_size,
+            "type": "read",
+        })
 
     def create_static_website(self, domain, alias, website_group_id=1):
         """Create a static website in 1Panel (no app deployment, just directory + nginx).
