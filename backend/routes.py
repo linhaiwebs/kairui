@@ -7614,7 +7614,8 @@ Respond with strict JSON only (no markdown code blocks):
     def feed_list():
         """List generated feed products."""
         try:
-            products = list_generated_feed()
+            site_id = request.args.get("site_id", type=int)
+            products = list_generated_feed(site_id)
             return jsonify({"code": 200, "data": products})
         except Exception as e:
             return jsonify({"code": 500, "message": str(e)[:100]}), 500
@@ -8353,9 +8354,10 @@ Respond with strict JSON only (no markdown code blocks):
     @app.route("/api/shai-pin/woocommerce/products", methods=["GET"])
     @jwt_required()
     def woocommerce_products_list():
-        """List WooCommerce products."""
+        """List WooCommerce products. Filter by site_id query param."""
         try:
-            products = list_woocommerce_products()
+            site_id = request.args.get("site_id", type=int)
+            products = list_woocommerce_products(site_id)
             return jsonify({"code": 200, "data": products})
         except Exception as e:
             logger.error(f"WooCommerce list error: {e}")
@@ -8638,7 +8640,8 @@ Respond with strict JSON only (no markdown code blocks):
         """Convert saved WooCommerce products to Google Shopping Feed format."""
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        products = list_woocommerce_products()
+        site_id = request.args.get("site_id", type=int) or (request.get_json(silent=True) or {}).get("site_id")
+        products = list_woocommerce_products(site_id)
         if not products:
             return jsonify({"code": 400, "message": "没有 WooCommerce 产品可生成 Feed"}), 400
 
@@ -8688,7 +8691,7 @@ Respond with strict JSON only (no markdown code blocks):
                     "category": "woocommerce_products",
                     "extra_data": extra,
                 }
-                rid = save_generated_feed_product(feed_item)
+                rid = save_generated_feed_product({**feed_item, "site_id": site_id})
                 logger.info(f"[WooFeedGen] [{idx+1}/{total}] OK id={rid}: '{p.get('name','')[:50]}'")
                 return {"ok": True, "idx": idx, "id": rid, "title": p.get("name", "")[:60]}
             except Exception as e:

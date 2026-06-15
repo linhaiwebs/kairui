@@ -166,6 +166,9 @@ const app = createApp({
         // Site sync state (shared by Feed + Woo pages)
         const feedSyncSiteId = ref(null);
         const wooSyncSiteId = ref(null);
+        const wooActiveSiteTab = ref(null);
+        const feedActiveSiteTab = ref(null);
+        const feedSyncSiteId2 = ref(null); // for feed page
         const syncingFeed = ref(false);
         const syncingWoo = ref(false);
         const csvUploading = ref(false);
@@ -902,9 +905,10 @@ pipelineStatuses[siteId].demo_importing = false;
                 walmartEnrichProgress.value = '';
             }
         }
-        async function loadGeneratedFeed() {
+        async function loadGeneratedFeed(siteId) {
             try {
-                const resp = await API.listGeneratedFeed();
+                const sid = siteId || feedActiveSiteTab.value;
+                const resp = await API.listGeneratedFeed(sid);
                 if (resp.code === 200) generatedFeed.value = resp.data || [];
                 feedPage.value = 1;
             } catch (e) { /* silent */ }
@@ -1292,9 +1296,10 @@ pipelineStatuses[siteId].demo_importing = false;
                 wooConverting.value = false;
             }
         }
-        async function loadWooProducts() {
+        async function loadWooProducts(siteId) {
             try {
-                const resp = await API.getWooCommerceProducts();
+                const sid = siteId || wooActiveSiteTab.value;
+                const resp = await API.getWooCommerceProducts(sid);
                 if (resp.code === 200) wooProducts.value = resp.data || [];
                 wooPage.value = 1;
             } catch (e) { /* ignore */ }
@@ -2729,7 +2734,7 @@ pipelineStatuses[siteId].demo_importing = false;
             handleAmazonFileUpload, toggleAmazonSelect, selectAllAmazon,
             closeConvertLogModal, toggleFeedSelect, selectAllFeed, deleteSelectedFeedItems, showFeedDescription, buildFeedDetailText,
             wooProducts, wooSelectedIndices, wooConverting, wooConvertProgress,
-            feedSyncSiteId, wooSyncSiteId, syncingFeed, syncingWoo,
+            feedSyncSiteId, wooSyncSiteId, wooActiveSiteTab, feedActiveSiteTab, syncingFeed, syncingWoo,
             convertToWooCommerce, loadWooProducts, toggleWooSelect, selectAllWoo, deleteSelectedWooProducts,
             createFeedForSite, cleanFeedFromSite, syncWooToSite, cleanWooFromSite, generateFeedFromWoo, wooGeneratingFeed, feedUrl,
             csvUploading, csvFileInput, handleCsvUpload,
@@ -3864,6 +3869,11 @@ pipelineStatuses[siteId].demo_importing = false;
                         </a>
                     </h3>
                     <div class="flex items-center gap-3">
+                        <!-- Site tabs for Feed -->
+                        <div class="flex gap-1 flex-wrap mb-2">
+                            <button @click="feedActiveSiteTab=null;loadGeneratedFeed()" :class="[feedActiveSiteTab===null ? 'bg-[#146c2e] text-on-primary' : 'bg-surface-container text-on-surface-variant', 'px-2 py-1 rounded text-xs transition']">全部</button>
+                            <button v-for="s in sites" :key="s.id" @click="feedActiveSiteTab=s.id;loadGeneratedFeed()" :class="[feedActiveSiteTab===s.id ? 'bg-[#146c2e] text-on-primary' : 'bg-surface-container text-on-surface-variant', 'px-2 py-1 rounded text-xs transition']">{{ s.site_name }}</button>
+                        </div>
                         <!-- Site selector -->
                         <select v-model="feedSyncSiteId" class="border rounded-lg px-3 py-2 text-sm bg-surface-container-lowest focus:ring-2 focus:ring-green-300">
                             <option :value="null">-- 选择站点 --</option>
