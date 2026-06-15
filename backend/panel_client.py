@@ -505,11 +505,23 @@ class OnePanelClient:
         return self._request("POST", "/files/del", {"path": path})
 
     def read_file(self, path, page=1, page_size=5000):
-        """Read file content via 1Panel file API."""
-        return self._request("POST", "/files/read", {
-            "path": path, "page": page, "pageSize": page_size,
-            "type": "content",
-        })
+        """Read file content via 1Panel file API.
+        Tries /files/search first (confirmed working), falls back to /files/read."""
+        import os as _os
+        fname = _os.path.basename(path)
+        parent = _os.path.dirname(path)
+        try:
+            resp = self._request("POST", "/files/search", {"path": parent, "page": 1, "pageSize": 200})
+            if resp.get("code") == 200 and isinstance(resp.get("data"), list):
+                for item in resp["data"]:
+                    if item.get("name") == fname:
+                        content = item.get("content", "")
+                        if content and len(content) > 0:
+                            return {"code": 200, "data": {"content": content}}
+        except Exception:
+            pass
+        resp = self._request("POST", "/files/read", {"path": path, "page": page, "pageSize": page_size, "type": "read"})
+        return resp
 
     def create_static_website(self, domain, alias, website_group_id=1):
         """Create a static website in 1Panel (no app deployment, just directory + nginx).
