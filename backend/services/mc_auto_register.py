@@ -534,7 +534,7 @@ async def _dismiss_overlays(page):
 
 
 async def _click_button(page, texts: list[str], log_callback=None, step: str = "") -> bool:
-    """Try to find and click a button matching any of the given texts. Uses JS click for reliability."""
+    """Find and click a button matching given texts. Skips help/support/FAQ links."""
     search_texts = []
     for t in texts:
         search_texts.extend([t, t.lower(), t.upper()])
@@ -542,10 +542,27 @@ async def _click_button(page, texts: list[str], log_callback=None, step: str = "
         result = await page.evaluate(f"""
             (() => {{
                 const texts = {json.dumps(search_texts)};
-                for (const a of document.querySelectorAll('a, button, [role="button"], [role="link"], span[role="button"]')) {{
-                    const t = a.textContent.trim();
+                const blocked = ['help', 'support', 'faq', 'learn more', 'documentation',
+                                 'guide', 'tutorial', 'community', 'forum', 'blog'];
+                for (const el of document.querySelectorAll(
+                        'button:not([aria-label*="help"]):not([aria-label*="support"]), ' +
+                        '[role="button"]:not([aria-label*="help"]):not([aria-label*="support"])')) {{
+                    const t = el.textContent.trim().toLowerCase();
+                    if (t.length < 5 || t.length > 50) continue; // skip too-short or too-long text
+                    if (blocked.some(b => t.includes(b))) continue; // skip help/support links
                     for (const txt of texts) {{
-                        if (t === txt || t.includes(txt)) {{ a.click(); return t; }}
+                        if (t === txt.toLowerCase()) {{ el.click(); return t; }}
+                    }}
+                }}
+                // Fallback: scan <a> tags but also filter
+                for (const a of document.querySelectorAll('a')) {{
+                    if (a.offsetParent === null) continue;
+                    const t = a.textContent.trim().toLowerCase();
+                    if (t.length < 5 || t.length > 50) continue;
+                    const href = (a.getAttribute('href') || '').toLowerCase();
+                    if (blocked.some(b => href.includes(b) || t.includes(b))) continue;
+                    for (const txt of texts) {{
+                        if (t === txt.toLowerCase()) {{ a.click(); return t; }}
                     }}
                 }}
                 return null;
@@ -556,10 +573,18 @@ async def _click_button(page, texts: list[str], log_callback=None, step: str = "
             return True
     except Exception:
         pass
-    # Fallback: Playwright click
+    # Fallback: Playwright role-based click (more precise than text match)
     for text in texts:
         try:
-            btn = page.get_by_text(text, exact=False).first
+            btn = page.get_by_role("button", name=text).first
+            if await btn.count() > 0 and await btn.is_visible():
+                await btn.click(timeout=5000)
+                await asyncio.sleep(3)
+                return True
+        except Exception:
+            pass
+        try:
+            btn = page.get_by_text(text, exact=True).first
             if await btn.count() > 0 and await btn.is_visible():
                 await btn.click(timeout=5000)
                 await asyncio.sleep(3)
@@ -855,107 +880,126 @@ async def _exec_gmc_dashboard(page, ctx, log_callback=None):
     return "done"
 
 async def _exec_gmc_landing(page, ctx, log_callback=None):
-    """Click 'Sign in' or 'Get started' on GMC landing page.
+    """Click GMC landing page button to enter registration.
 
-    GMC landing page flow:
-      - 'Get started' button → directly enters registration wizard
-      - 'Sign in' button → opens a panel with TWO options:
-          1. 'Create account' / 'Get started' → opens registration (new tab)
-          2. 'Sign in to existing account' → login to existing GMC
-
-    We always want option 1. After clicking the panel option, it opens a new tab.
-    We detect and switch to the new tab.
+    GMC flow: 'Sign in' (top-right) → panel with 2 options:
+      1. 'Create account' → registration (new tab)
+      2. 'Sign in to existing' → login
+    We click option 1. 'Get started' button (if visible) → direct entry.
     """
     await asyncio.sleep(3)
 
-    # ── Step 1: Click the main button (Get started or Sign in) ──
-    clicked_label = None
-    for label in ["Get started", "Create account", "Sign up", "Start now", "Begin",
-                  "Create a Merchant Center account", "Get Started", "Sign in", "Sign In"]:
-        try:
-            btn = page.get_by_role("button", name=label).first
-            if await btn.count() > 0 and await btn.is_visible():
-                await btn.click(timeout=5000)
-                clicked_label = label
-                _emit(log_callback, "info", f"点击 {label}", "gmc")
-                break
-        except Exception:
-            pass
+    # Guard: if we left GMC domain, navigate back
+    current_url = page.url
+    if "merchants.google.com" not in current_url:
+        _emit(log_callback, "warning", f"已离开GMC({current_url[:80]}) → 返回", "gmc")
+        await page.goto("https://merchants.google.com/?hl=en-US&gl=US", wait_until="domcontentloaded", timeout=30000)
+        await _human_delay(2000, 3000)
+        await _dismiss_overlays(page)
 
-    if not clicked_label:
+    # ── Step 1: Click the main entry button ──
+    # GMC-specific selectors: the 'Get started' or 'Sign in' button is in the header area
+    # We target ONLY elements in the header/toolbar, NOT FAQ/support links in the page body.
+    clicked = False
+    try:
+        clicked = await page.evaluate("""
+            (() => {
+                // ONLY target buttons/links in GMC's header/navigation area
+                const containers = document.querySelectorAll(
+                    'header, nav, [class*="header"], [class*="toolbar"], [class*="top-bar"], ' +
+                    '[class*="nav"], #header, [id*="header"]'
+                );
+                const targets = [];
+                for (const c of containers) {
+                    targets.push(...c.querySelectorAll('a, button, [role="button"]'));
+                }
+                // If no header found (unusual), fall back to direct button selectors
+                if (targets.length === 0) {
+                    targets.push(...document.querySelectorAll(
+                        'a[href*="SignIn"], a[href*="signin"], a[href*="accounts.google.com"], ' +
+                        'button:not([aria-label*="help"]):not([aria-label*="support"])'
+                    ));
+                }
+                for (const el of targets) {
+                    if (el.offsetParent === null) continue;
+                    const t = el.textContent.trim();
+                    if (t === 'Sign in' || t === 'Sign In' || t === 'Get started' ||
+                        t === 'Create account' || t === 'Start now' || t === 'Sign up' ||
+                        t === 'Anmelden' || t === 'Los geht\\'s' || t === 'Registrieren') {
+                        el.click();
+                        return t;
+                    }
+                }
+                return null;
+            })()
+        """)
+        if clicked:
+            _emit(log_callback, "info", f"点击 GMC 按钮: {clicked}", "gmc")
+    except Exception as e:
+        _emit(log_callback, "warning", f"GMC按钮点击异常: {e}", "gmc")
+
+    if not clicked:
         _emit(log_callback, "warning", "GMC首页无可点击入口", "gmc")
         return "fail"
 
     await _human_delay(1500, 2500)
 
-    # ── Step 2: Detect the panel/dropdown with two options ──
-    # After clicking 'Sign in', GMC shows a panel with:
-    #   "Create account" / "Get started" (first option → registration)
-    #   "Sign in" (second option → existing account)
-    # We click the FIRST registration link in the panel.
-    panel_clicked = False
+    # ── Step 2: Click the FIRST registration option in the panel ──
     try:
-        # Find any link/button inside the panel that indicates registration
         result = await page.evaluate("""
             (() => {
-                // Look for registration links in modal/panel/dropdown
-                const els = document.querySelectorAll(
-                    'a[href*="signup"], a[href*="setup"], a[href*="create"], ' +
-                    'a[href*="register"], [role="menuitem"], [role="option"], ' +
-                    '.panel a, .dropdown a, [class*="overlay"] a, [class*="modal"] a, ' +
-                    '[class*="dialog"] a, [class*="popup"] a'
+                // Target links inside any recently appeared panel/dialog
+                const panels = document.querySelectorAll(
+                    '[role="dialog"], [role="menu"], [class*="panel"], [class*="dropdown"], ' +
+                    '[class*="popup"], [class*="overlay"], [class*="modal"], [class*="drawer"]'
                 );
-                for (const el of els) {
-                    if (el.offsetParent === null) continue;
-                    const t = el.textContent.trim().toLowerCase();
-                    if (t && (t.includes('create') || t.includes('get started') ||
-                              t.includes('sign up') || t.includes('start now') ||
-                              t.includes('new account') || t.includes('register'))) {
-                        const href = el.getAttribute('href') || '';
-                        el.click();
-                        return {text: t, href: href};
+                for (const panel of panels) {
+                    if (panel.offsetParent === null) continue;
+                    const links = panel.querySelectorAll('a, [role="menuitem"], [role="option"]');
+                    for (const link of links) {
+                        if (link.offsetParent === null) continue;
+                        const t = link.textContent.trim().toLowerCase();
+                        // Click the FIRST option that's about creating/starting (NOT 'Sign in')
+                        if (t && (t.includes('create') || t.includes('get started') ||
+                                  t.includes('start now') || t.includes('sign up') ||
+                                  t.includes('new account') || t.includes('register') ||
+                                  t.includes('konto erstellen') || t.includes('los geht') ||
+                                  t.includes('registrieren'))) {
+                            link.click();
+                            return {text: t, href: link.getAttribute('href') || ''};
+                        }
                     }
                 }
-                // Fallback: any link that's not 'Sign in'
-                for (const el of els) {
-                    if (el.offsetParent === null) continue;
-                    const t = el.textContent.trim().toLowerCase();
-                    if (t && !t.includes('sign in')) {
-                        const href = el.getAttribute('href') || '';
-                        el.click();
-                        return {text: t, href: href};
+                // Fallback: any link in a visible popup/panel
+                for (const panel of panels) {
+                    if (panel.offsetParent === null) continue;
+                    const links = panel.querySelectorAll('a');
+                    if (links.length > 0 && links[0].offsetParent !== null) {
+                        links[0].click();
+                        return {text: links[0].textContent.trim(), href: links[0].getAttribute('href') || ''};
                     }
                 }
                 return null;
             })()
         """)
         if result:
-            _emit(log_callback, "info", f"选择面板选项: {result['text']}", "gmc")
-            panel_clicked = True
+            _emit(log_callback, "info", f"选择注册选项: {result['text']}", "gmc")
     except Exception as e:
-        _emit(log_callback, "warning", f"面板点击异常: {e}", "gmc")
+        _emit(log_callback, "warning", f"面板选项异常: {e}", "gmc")
 
     await _human_delay(2000, 3000)
 
-    # ── Step 3: Check for new tab and switch to it ──
+    # ── Step 3: Switch to new registration tab ──
     try:
-        # Access browser context from page
         context = page.context
         pages = context.pages
         if len(pages) > 1:
-            # GMC opens registration in a new tab — switch to the latest one
             new_page = pages[-1]
             await new_page.wait_for_load_state("domcontentloaded")
             await new_page.bring_to_front()
-            _emit(log_callback, "info", f"切换到新标签页: {new_page.url[:100]}", "gmc")
-            # Transfer page reference back via ctx
+            _emit(log_callback, "info", f"切换到注册标签页: {new_page.url[:100]}", "gmc")
             ctx["_new_page"] = new_page
             return "switch_page"
-        elif panel_clicked:
-            # Panel clicked but no new tab — might have navigated in-place
-            await page.wait_for_load_state("domcontentloaded")
-            _emit(log_callback, "info", "注册流程已启动", "gmc")
-            return "continue"
     except Exception as e:
         _emit(log_callback, "warning", f"标签页切换异常: {e}", "gmc")
 
