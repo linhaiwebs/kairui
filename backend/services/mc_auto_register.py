@@ -897,134 +897,18 @@ async def _exec_gmc_dashboard(page, ctx, log_callback=None):
     return "done"
 
 async def _exec_gmc_landing(page, ctx, log_callback=None):
-    """Click GMC landing page button to enter registration.
+    """Enter GMC registration by navigating directly to the setup URL.
 
-    GMC flow: 'Sign in' (top-right) → panel with 2 PRODUCT options:
-      1. 'Merchant Center' → registration wizard (click this)
-      2. 'Manufacturer Center' → ignore
-
-    'Get started' button (if visible) → direct entry to registration."""
-    await asyncio.sleep(3)
-
-    # Guard: if we left ALL GMC domains, navigate back
-    # Google may redirect merchants.google.com → business.google.com/XX/merchant-center/
-    current_url = page.url
-    gmc_domains = ["merchants.google.com", "business.google.com", "ads.google.com"]
-    if not any(d in current_url for d in gmc_domains):
-        _emit(log_callback, "warning", f"已离开GMC({current_url[:80]}) → 返回", "gmc")
-        await page.goto("https://merchants.google.com/?hl=en-US&gl=US", wait_until="domcontentloaded", timeout=30000)
-        await _human_delay(2000, 3000)
-        await _dismiss_overlays(page)
-
-    # ── Step 1: Click the main entry button ──
-    # JS scans header area ONLY (read-only) → returns CSS selector → Playwright clicks (real mouse events)
-    clicked = None
-    try:
-        clicked = await page.evaluate("""
-            (() => {
-                const containers = document.querySelectorAll(
-                    'header, nav, [class*="header"], [class*="toolbar"], [class*="top-bar"], ' +
-                    '[class*="nav"], #header, [id*="header"]'
-                );
-                const targets = [];
-                for (const c of containers) {
-                    targets.push(...c.querySelectorAll('a, button, [role="button"]'));
-                }
-                if (targets.length === 0) {
-                    targets.push(...document.querySelectorAll(
-                        'a[href*="SignIn"], a[href*="signin"], button:not([aria-label*="help"])'
-                    ));
-                }
-                for (const el of targets) {
-                    if (el.offsetParent === null) continue;
-                    const t = el.textContent.trim();
-                    const texts = ['Sign in','Sign In','Get started','Create account','Start now',
-                                   'Sign up','Anmelden','Los geht','Registrieren',
-                                   'Voiti','Sozdat akkaunt','Nachat','Войти','Создать аккаунт','Начать',
-                                   'Iniciar sesion','Crear cuenta','Acceder','Commencer','Accedi'];
-                    if (texts.includes(t)) {
-                        if (el.id) return '#' + CSS.escape(el.id);
-                        const cls = Array.from(el.classList).filter(c => c && !c.match(/^\\d/)).slice(0,2).join('.');
-                        if (cls) return el.tagName.toLowerCase() + '.' + cls;
-                        return el.tagName.toLowerCase() + ':has-text(\"' + t + '\")';
-                    }
-                }
-                return null;
-            })()
-        """)
-        if clicked:
-            el = page.locator(clicked).first
-            if await el.count() > 0:
-                await el.hover()
-                await _human_delay(200, 500)
-                await el.click(timeout=5000)
-                _emit(log_callback, "info", f"点击 GMC 按钮 → 进入注册流程", "gmc")
-    except Exception as e:
-        _emit(log_callback, "warning", f"GMC按钮点击异常: {e}", "gmc")
-
-    if not clicked:
-        _emit(log_callback, "warning", "GMC首页无可点击入口", "gmc")
-        return "fail"
-
-    await _human_delay(1500, 2500)
-
-    # ── Step 2: Click the FIRST option (Merchant Center) in the panel ──
-    # Panel shows: 1. Merchant Center　2. Manufacturer Center
-    # We always click the FIRST one: "Merchant Center"
-    # JS scans panel DOM (read-only) → returns selector → Playwright clicks (real mouse events)
-    try:
-        panel_selector = await page.evaluate("""
-            (() => {
-                // Target: ANY visible element containing "Merchant Center" but NOT "Manufacturer"
-                const keywords = ['merchant center', 'merchant', 'google merchant'];
-                const exclude = ['manufacturer'];
-                const all = document.querySelectorAll(
-                    'a, button, [role="button"], [role="menuitem"], [role="option"], ' +
-                    '[role="link"], li, div[role="listitem"], span[role="button"]'
-                );
-                for (const el of all) {
-                    if (el.offsetParent === null) continue;
-                    const t = el.textContent.trim().toLowerCase();
-                    if (t.length < 5 || t.length > 60) continue;
-                    if (exclude.some(e => t.includes(e))) continue;
-                    if (keywords.some(k => t.includes(k))) {
-                        if (el.id) return '#' + CSS.escape(el.id);
-                        if (el.classList.length > 0) {
-                            const cls = Array.from(el.classList).filter(c => c && !c.match(/^\\d/)).slice(0,2).join('.');
-                            if (cls) return el.tagName.toLowerCase() + '.' + CSS.escape(cls);
-                        }
-                        return el.tagName.toLowerCase() + ':has-text(\"' + el.textContent.trim().substring(0, 25) + '\")';
-                    }
-                }
-                return null;
-            })()
-        """)
-        if panel_selector:
-            el = page.locator(panel_selector).first
-            if await el.count() > 0 and await el.is_visible():
-                await el.hover()
-                await _human_delay(200, 500)
-                await el.click(timeout=5000)
-                _emit(log_callback, "info", "选择 Merchant Center", "gmc")
-    except Exception as e:
-        _emit(log_callback, "warning", f"面板选项异常: {e}", "gmc")
-
+    Why URL navigation instead of clicking buttons:
+      - Same as user typing URL or clicking bookmark → undetectable
+      - Skips Sign in → panel → Merchant Center → new tab flow entirely
+      - Works regardless of language (no button text matching needed)
+    """
+    _emit(log_callback, "info", "直接导航到 GMC 注册向导", "gmc")
+    await page.goto("https://merchants.google.com/mc/setup?hl=en-US&gl=US",
+                    wait_until="domcontentloaded", timeout=60000)
     await _human_delay(2000, 3000)
-
-    # ── Step 3: Switch to new registration tab ──
-    try:
-        context = page.context
-        pages = context.pages
-        if len(pages) > 1:
-            new_page = pages[-1]
-            await new_page.wait_for_load_state("domcontentloaded")
-            await new_page.bring_to_front()
-            _emit(log_callback, "info", f"切换到注册标签页: {new_page.url[:100]}", "gmc")
-            ctx["_new_page"] = new_page
-            return "switch_page"
-    except Exception as e:
-        _emit(log_callback, "warning", f"标签页切换异常: {e}", "gmc")
-
+    await _dismiss_overlays(page)
     return "continue"
 
 async def _exec_gmc_account_type(page, ctx, log_callback=None):
@@ -1568,13 +1452,6 @@ async def register_gmc(
             handler = _EXEC_DISPATCH.get(page_type, _exec_unknown)
             expected = _ACTION_DESCRIPTIONS.get(page_type, "advance to next page")
             result = await handler(page, ctx, log_callback)
-
-            if result == "switch_page":
-                new_page = ctx.pop("_new_page", None)
-                if new_page:
-                    page = new_page
-                    _emit(log_callback, "info", "已切换到新标签页", "gmc")
-                    continue
 
             if result == "done":
                 mc_id = ctx.get("mc_account_id", "registered")
