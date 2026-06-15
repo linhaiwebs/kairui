@@ -1589,6 +1589,11 @@ def render_homepage(products, design, brand_kit):
     bold = {"pentagram","vignelli-swiss-helvetica","stripe-press","apple-hig","dieter-rams-braun","bloomberg-businessweek-turley"}
     warm = {"mid-century-modern","mailchimp-freddie","headspace-meditation"}
     
+    # Try AI-generated unique template first
+    ai_html = _render_ai(products, design, brand_kit, brand_name, headline, subheadline)
+    if ai_html:
+        return ai_html
+
     if style_recipe in editorial:
         return _render_editorial(products, design, brand_kit, brand_name, headline, subheadline)
     elif style_recipe in dark:
