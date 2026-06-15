@@ -1477,6 +1477,10 @@ async def register_gmc(
                 await _dismiss_overlays(page)
                 continue
 
+            # Skip AI verification for single-page wizard transitional steps
+            if page_type == "gmc_account_type":
+                continue
+
             # === Step 3: AI verify ===
             await _human_delay(1500, 2500)
             verify = await _ai_verify_action(page, expected, log_callback)
