@@ -3565,6 +3565,7 @@ def register_routes(app):
                     "source_url": p.get("source_url", ""),
                     "images": images_str,
                     "stock_status": "instock",
+                    "site_id": site_id,
                     "extra_data": {"currency": p.get("currency", "USD")},
                 })
                 count += 1
