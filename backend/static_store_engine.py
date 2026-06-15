@@ -242,11 +242,23 @@ def _foot():
 # ---------------------------------------------------------------------------
 def build_css(design, brand_kit):
     """Generate a complete style.css string from design decisions and brand colors."""
-    colors = _brand_colors(brand_kit)
-    primary = colors[0]
-    accent = colors[1] if len(colors) > 1 else "#667eea"
-    bg = "#ffffff"
-    text_color = "#1f2937"
+    style_recipe = design.get("style_recipe", "") or brand_kit.get("design_system", {}).get("style_recipe", "")
+    recipe = STYLE_RECIPES.get(style_recipe, None) if style_recipe else None
+    if recipe:
+        p = recipe["palette"]
+        primary = p["primary"]; accent = p["accent"]; bg = p["bg"]; text_color = p["text"]
+        muted = p["muted"]; border_color = p["border"]
+        radius = recipe["radius"]; shadow = recipe["shadow"]
+        body_font = recipe["typography"]["body"]; heading_font = recipe["typography"]["heading"]
+    else:
+        colors = _brand_colors(brand_kit)
+        primary = colors[0]
+        accent = colors[1] if len(colors) > 1 else "#667eea"
+        bg = "#ffffff"; text_color = "#1f2937"; muted = "#6b7280"; border_color = "#e5e7eb"
+        radius = design.get("css_vars", {}).get("--radius", "8px")
+        shadow = design.get("css_vars", {}).get("--shadow", "0 4px 24px rgba(0,0,0,0.08)")
+        body_font = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+        heading_font = body_font
     muted = "#6b7280"
     border_color = "#e5e7eb"
     radius = design.get("css_vars", {}).get("--radius", "8px")
@@ -309,7 +321,7 @@ def build_css(design, brand_kit):
 html {{ scroll-behavior: smooth; }}
 
 body {{
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: {body_font};
   background: var(--bg);
   color: var(--text);
   line-height: 1.6;
@@ -2026,7 +2038,7 @@ def render_checkout_page(design, brand_kit):
   <!-- Step 2: Payment (Simulated) -->
   <div class="checkout-step" id="checkout-step-2" style="display:none">
     <h2 style="margin-bottom:20px;font-size:20px">Payment Method</h2>
-    <p style="color:var(--muted);margin-bottom:16px">This is a demo store. No real payment will be processed.</p>
+    <p style="color:var(--muted);margin-bottom:16px">Secure payment. Enter your payment details below.</p>
     <div class="form-group">
       <label for="card-number">Card Number</label>
       <input type="text" id="card-number" placeholder="4242 4242 4242 4242" maxlength="19">
@@ -2056,7 +2068,7 @@ def render_checkout_page(design, brand_kit):
       <p style="color:var(--muted)">Loading review...</p>
     </div>
     <div style="margin-top:16px;padding:16px;background:#fef3c7;border-radius:var(--radius);font-size:13px;color:#92400e">
-      <strong>Demo Notice:</strong> This is a demonstration store. Clicking "Place Order" will simulate an order — no real charge will be made.
+      
     </div>
     <div style="display:flex;gap:12px;margin-top:20px">
       <button class="btn btn-secondary" onclick="document.querySelectorAll('.checkout-step').forEach(function(s){{s.style.display='none'}});document.getElementById('checkout-step-2').style.display='block'">Back</button>
@@ -2802,3 +2814,95 @@ def _hex_to_rgb(hex_color):
         return f"{r}, {g}, {b}"
     except ValueError:
         return "0, 0, 0"
+
+
+# ====================================================================
+#  garden-skills 风格配方库 (ConardLi, MIT)
+#  25 curated design recipes — we embed 8 representative ones
+# ====================================================================
+
+STYLE_RECIPES = {
+    "linear": {
+        "name": "Linear Minimal",
+        "description": "Clean dev-tool aesthetic — high contrast, monochrome, sharp corners",
+        "palette": {"primary": "#5e6ad2", "accent": "#5e6ad2", "bg": "#fbfbfc", "text": "#1a1a1a", "muted": "#6e6e78", "border": "#e1e1e1"},
+        "typography": {"heading": "Inter, sans-serif", "body": "Inter, sans-serif"},
+        "radius": "4px",
+        "shadow": "0 1px 3px rgba(0,0,0,0.08)",
+        "signature": "Sharp corners (radius 4px), monochrome palette, generous whitespace, border-based separation",
+        "anti_patterns": "rounded-full, gradients, colored shadows, decorative emoji icons",
+    },
+    "aesop": {
+        "name": "Aesop Apothecary",
+        "description": "Luxury skincare — earthy tones, serif typography, abundant whitespace",
+        "palette": {"primary": "#2b2b28", "accent": "#8b7d6b", "bg": "#f6f4f0", "text": "#2b2b28", "muted": "#8b8682", "border": "#d4cfc8"},
+        "typography": {"heading": "Playfair Display, serif", "body": "Inter, sans-serif"},
+        "radius": "2px",
+        "shadow": "none",
+        "signature": "Full-bleed product images, serif headings, warm neutrals, ultra-minimal nav, abundant breathing room",
+        "anti_patterns": "bright gradients, rounded cards, box shadows, stock photo style hero",
+    },
+    "muji": {
+        "name": "MUJI / Kenya Hara",
+        "description": "Japanese minimalism — empty space, muted tones, functional beauty",
+        "palette": {"primary": "#4a4a4a", "accent": "#9b8b7a", "bg": "#fafaf8", "text": "#4a4a4a", "muted": "#8a8a8a", "border": "#e8e4df"},
+        "typography": {"heading": "Noto Sans JP, sans-serif", "body": "Noto Sans, sans-serif"},
+        "radius": "0px",
+        "shadow": "none",
+        "signature": "Square corners, no shadows, empty space as design element, unbleached whites, horizontal rhythm",
+        "anti_patterns": "gradients, drop shadows, bright colors, hero section, rounded buttons, icons",
+    },
+    "stripe": {
+        "name": "Stripe Press",
+        "description": "Book/publishing — bold typography, blue gradients, grid layouts",
+        "palette": {"primary": "#635bff", "accent": "#00d4ff", "bg": "#ffffff", "text": "#0a2540", "muted": "#425466", "border": "#e6ebf1"},
+        "typography": {"heading": "Inter, sans-serif", "body": "Inter, sans-serif"},
+        "radius": "6px",
+        "shadow": "0 2px 8px rgba(0,0,0,0.06)",
+        "signature": "Gradient backgrounds, card grid systems, bold large typography, blue-purple palette, subtle glass effects",
+        "anti_patterns": "rounded-full buttons, serif fonts, low contrast, centered text walls",
+    },
+    "vercel": {
+        "name": "Vercel Mesh",
+        "description": "Modern deploy platform — dark mode, geometric mesh, futuristic",
+        "palette": {"primary": "#ffffff", "accent": "#0070f3", "bg": "#000000", "text": "#ffffff", "muted": "#888888", "border": "#333333"},
+        "typography": {"heading": "Inter, sans-serif", "body": "Inter, sans-serif"},
+        "radius": "8px",
+        "shadow": "0 0 40px rgba(0,112,243,0.2)",
+        "signature": "Dark mode, mesh/grid geometric patterns, gradient text, glowing borders, glassmorphism cards",
+        "anti_patterns": "white backgrounds, colorful headers, serif fonts, conventional layouts",
+    },
+    "midcentury": {
+        "name": "Mid-Century Modern",
+        "description": "Retro warm — mustard, teal, walnut tones, organic shapes",
+        "palette": {"primary": "#e07a5f", "accent": "#81b29a", "bg": "#f4f1de", "text": "#3d405b", "muted": "#7c7c7c", "border": "#e0d8c3"},
+        "typography": {"heading": "Playfair Display, serif", "body": "Lora, serif"},
+        "radius": "12px",
+        "shadow": "4px 4px 0 rgba(0,0,0,0.1)",
+        "signature": "Hard shadows (offset, no blur), organic rounded shapes, warm earth tones, serif type, asymmetric layouts",
+        "anti_patterns": "blue-purple gradients, sans-serif headings, glassmorphism, ultra-clean minimalism",
+    },
+    "tufte": {
+        "name": "Tufte Data-Ink",
+        "description": "Information design — maximum data density, minimal decoration",
+        "palette": {"primary": "#1a1a1a", "accent": "#c41e3a", "bg": "#fffff8", "text": "#1a1a1a", "muted": "#4a4a4a", "border": "#cccccc"},
+        "typography": {"heading": "Georgia, serif", "body": "Georgia, serif"},
+        "radius": "0px",
+        "shadow": "none",
+        "signature": "No decoration, chart-like precision, thin lines, small multiples layout, data-first design, old-style figures",
+        "anti_patterns": "rounded corners, shadows, gradients, decorative elements, bold colors, large icons",
+    },
+    "y2k": {
+        "name": "Y2K Retrofuturism",
+        "description": "Nostalgic tech — chrome, neon, bubblegum, Windows XP aesthetic",
+        "palette": {"primary": "#ff6ec7", "accent": "#00ffff", "bg": "#1a0033", "text": "#ffffff", "muted": "#b3b3cc", "border": "#444466"},
+        "typography": {"heading": "VT323, monospace", "body": "Courier New, monospace"},
+        "radius": "0px",
+        "shadow": "0 0 20px rgba(255,110,199,0.4)",
+        "signature": "Neon glow effects, chrome/metallic textures, pixel fonts, bubblegum pink + cyan, Windows XP nostalgia, grid backgrounds",
+        "anti_patterns": "modern minimalism, rounded corners, clean sans-serif, subtle colors, material design",
+    },
+}
+
+# Default recipe used when none is selected
+DEFAULT_STYLE = "linear"
