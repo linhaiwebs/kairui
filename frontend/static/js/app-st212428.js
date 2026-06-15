@@ -360,6 +360,7 @@ const app = createApp({
         const newCategoryName = ref('');
         // Settings Tabs
         const statsSubmenuOpen = ref(false);
+        function toggleStats() { statsSubmenuOpen.value = !statsSubmenuOpen.value; }
         const resourceOperators = ref([]);
         const resourceActiveTab = ref(0); // 0=总览, 1+=运营商
         const resourceStats = ref({});
@@ -2927,7 +2928,7 @@ async function loadProfileCategories() {
 
             activeFingerprintCategory, importingFingerprintText, importingFingerprints, importFingerprintResult,
             resourceActiveTab, resourceOperators, resourceStats, loadResourceOverview,
-            getProfilesByCategory, importFingerprintProfiles, removeProfileFromCategory,            statsSubmenuOpen, resourceActiveTab, resourceOperators, resourceStats, loadResourceOverview, settingsActiveTab, settingsTabs,
+            getProfilesByCategory, importFingerprintProfiles, removeProfileFromCategory,            toggleStats, statsSubmenuOpen, settingsActiveTab, settingsTabs,
 
             exportSystemData, importSystemData, handleImportFile, importFileInput,            panelEnvironments, showPanelEnvModal, panelEnvEditId, panelEnvForm, panelEnvFormError,
             loadPanelEnvironments, openPanelEnvModal, closePanelEnvModal, handleSavePanelEnv,
@@ -3040,7 +3041,7 @@ async function loadProfileCategories() {
                     <span class="material-symbols-outlined">group</span> 用户管理
                 </a>
                 <div v-if="currentUserRole === 'admin'" class="sidebar-group">
-                    <div @click="statsSubmenuOpen = !statsSubmenuOpen" :class="['sidebar-link', (currentPage === 'woo-stats' || currentPage === 'resource-overview') ? 'active' : '']" style="cursor:pointer">
+                    <div @click="toggleStats" :class="['sidebar-link', (currentPage === 'woo-stats' || currentPage === 'resource-overview') ? 'active' : '']" style="cursor:pointer">
                         <span class="material-symbols-outlined">analytics</span> 统计总览
                         <span class="material-symbols-outlined ml-auto" style="font-size:16px">{{ statsSubmenuOpen ? 'expand_less' : 'expand_more' }}</span>
                     </div>
