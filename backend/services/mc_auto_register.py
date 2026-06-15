@@ -848,9 +848,26 @@ Did the page change as expected? Return JSON:
 async def _exec_login_email(page, ctx, log_callback=None):
     email = ctx.get("google_email", "")
     if not email: return "fail"
-    for sel in ["input[type='email']", "input[name='identifier']", "input[aria-label*='Email']"]:
-        inp = page.locator(sel)
-        if await inp.count() > 0: await inp.first.fill(email); await _human_delay(500, 1000); break
+    # Check if email is already pre-filled (Google remembers from cookies)
+    prefill = await page.evaluate("""
+        (() => {
+            const inp = document.querySelector('input[type=\"email\"]');
+            if (inp && inp.value && inp.value.includes('@')) return inp.value;
+            return null;
+        })()
+    """)
+    if prefill:
+        _emit(log_callback, "info", f"邮箱已预填: {prefill} → 直接下一步", "login")
+    else:
+        # Fill only VISIBLE email fields (skip hidden input[name=identifier])
+        await page.evaluate(f"""
+            (() => {{
+                const inp = document.querySelector('input[type=\"email\"]:not([type=\"hidden\"]), ' +
+                    'input[aria-label*=\"Email\"]:not([type=\"hidden\"]), input[aria-label*=\"email\"]:not([type=\"hidden\"])');
+                if (inp) {{ inp.focus(); inp.value = {json.dumps(email)}; inp.dispatchEvent(new Event(\"input\", {{bubbles: true}})); }}
+            }})()
+        """)
+        await _human_delay(500, 1000)
     await _click_button(page, ["Next", "Continue"], log_callback, "login")
     await _human_delay(2000, 3000)
     return "continue"
@@ -858,9 +875,13 @@ async def _exec_login_email(page, ctx, log_callback=None):
 async def _exec_login_password(page, ctx, log_callback=None):
     password = ctx.get("google_password", "")
     if not password: return "fail"
-    for sel in ["input[type='password']", "input[name='password']", "input[name='Passwd']"]:
-        inp = page.locator(sel)
-        if await inp.count() > 0: await inp.first.fill(password); await _human_delay(500, 1000); break
+    await page.evaluate(f"""
+        (() => {{
+            const inp = document.querySelector('input[type=\"password\"]:not([type=\"hidden\"])');
+            if (inp) {{ inp.focus(); inp.value = {json.dumps(password)}; inp.dispatchEvent(new Event(\"input\", {{bubbles: true}})); }}
+        }})()
+    """)
+    await _human_delay(500, 1000)
     await _click_button(page, ["Next", "Sign in"], log_callback, "login")
     await _human_delay(2000, 3000)
     return "continue"
