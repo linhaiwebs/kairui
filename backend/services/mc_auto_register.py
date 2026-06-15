@@ -430,35 +430,85 @@ async def _google_login(
                 _emit(log_callback, "info", "已提交 2FA 验证码", "google_login")
                 break
 
-    # --- Phase 4: Dismiss extra prompts ---
-    await asyncio.sleep(2)
-    content = await page.content()
-    for dismiss_text in ["Confirm", "Skip", "Not now", "Later", "Cancel"]:
-        if dismiss_text.lower() in content.lower():
-            btn = page.locator(f"button:has-text('{dismiss_text}'), a:has-text('{dismiss_text}')")
-            if await btn.count() > 0:
-                await btn.first.click()
-                await asyncio.sleep(2)
-                break
-
-    # --- Wait for login completion ---
-    _emit(log_callback, "info", "等待登录完成...", "google_login")
-    for _ in range(15):
+    # --- Phase 4: Dismiss extra prompts (loop until none left or login completes) ---
+    # Google often shows MULTIPLE sequential prompts after password:
+    #   "Confirm your recovery email" → "Add phone number?" → "Verify it's you" →
+    #   "Protect your account" → "Stay signed in?" → "Welcome back"
+    # We loop and dismiss each one until we reach a real Google service page.
+    _emit(log_callback, "info", "处理登录后的额外提示...", "google_login")
+    for _ in range(10):
         await asyncio.sleep(2)
         current_url = page.url
+
+        # Already logged in — check if we're on a Google service page
         if "accounts.google.com" not in current_url or "/signin/" not in current_url:
-            # Check if we're on a Google service page
-            if any(d in current_url for d in ["merchants.google.com", "business.google.com", "myaccount.google.com", "google.com"]):
+            if any(d in current_url for d in [
+                "merchants.google.com", "business.google.com",
+                "myaccount.google.com", "google.com",
+            ]):
                 _emit(log_callback, "info", f"登录成功! URL: {current_url[:100]}", "google_login")
                 return True
-        if "Wrong password" in await page.content():
+
+        content = await page.content()
+        content_lower = content.lower()
+
+        # Check for password error
+        if "wrong password" in content_lower:
             _emit(log_callback, "error", "密码错误", "google_login")
             return False
+
+        # Collect ALL dismiss-able buttons on the current page
+        # Priority: skip/dismiss over confirm/accept (to avoid giving Google more data)
+        skip_buttons = ["Skip", "Not now", "Later", "No thanks", "Cancel"]
+        accept_buttons = ["Confirm", "Accept", "Yes", "I agree", "Continue", "Done"]
+
+        clicked = False
+        # Try skip buttons first (prefer to skip rather than confirm)
+        for btn_text in skip_buttons + accept_buttons:
+            try:
+                btn = page.locator(f"button:has-text('{btn_text}'), a:has-text('{btn_text}')").first
+                if await btn.count() > 0 and await btn.is_visible():
+                    await btn.click(timeout=3000)
+                    await asyncio.sleep(2)
+                    _emit(log_callback, "info", f"跳过提示: '{btn_text}'", "google_login")
+                    clicked = True
+                    break
+            except Exception:
+                continue
+
+        # Also handle "Stay signed in?" checkbox + button pattern
+        if not clicked:
+            try:
+                cb = page.locator("input[type='checkbox']").first
+                if await cb.count() > 0 and await cb.is_visible() and not await cb.is_checked():
+                    await cb.check()
+                    await asyncio.sleep(0.5)
+                next_btn = page.locator("button:has-text('Yes'), button:has-text('Next'), button:has-text('Continue')").first
+                if await next_btn.count() > 0 and await next_btn.is_visible():
+                    await next_btn.click(timeout=3000)
+                    await asyncio.sleep(2)
+                    _emit(log_callback, "info", "确认 '保持登录' 提示", "google_login")
+                    clicked = True
+            except Exception:
+                pass
+
+        if not clicked:
+            # No more prompts — check if login succeeded
+            current_url = page.url
+            if "accounts.google.com" not in current_url or "/signin/" not in current_url:
+                _emit(log_callback, "info", "无更多提示，登录完成", "google_login")
+                return True
+            # Still on accounts.google.com with no dismissable buttons — might be stuck
+            _emit(log_callback, "warning", f"无法跳过的提示，当前URL: {current_url[:100]}", "google_login")
+            # Try one more time then give up
+            await asyncio.sleep(3)
 
     current_url = page.url
     success = "accounts.google.com" not in current_url or "/signin/" not in current_url
     if not success:
-        success = any(d in current_url for d in ["merchants.google.com", "business.google.com", "myaccount.google.com"])
+        success = any(d in current_url for d in [
+            "merchants.google.com", "business.google.com", "myaccount.google.com",
+        ])
     _emit(log_callback, "info" if success else "warning",
           "Google 登录完成" if success else f"可能仍在登录页面: {current_url[:100]}", "google_login")
     return success
