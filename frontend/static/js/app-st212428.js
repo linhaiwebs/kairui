@@ -361,6 +361,7 @@ const app = createApp({
         // Settings Tabs
         const settingsActiveTab = ref('wordpress');
         const settingsTabs = [
+            { key: 'resource', label: '资源总览' },
             { key: 'wordpress', label: 'WordPress 默认' },
             { key: 'panel', label: '1Panel 环境' },
             { key: 'deepseek', label: 'DeepSeek API' },
@@ -369,6 +370,17 @@ const app = createApp({
             { key: 'google_account', label: '谷歌账户' },
             { key: 'fingerprint', label: '指纹环境' },
         ];
+        const resourceStats = ref({});
+        const resourceKits = ref([]);
+        async function loadResourceOverview() {
+            try {
+                const resp = await API.request('GET', '/api/admin/resources');
+                if (resp.code === 200) {
+                    resourceStats.value = resp.data.stats || {};
+                    resourceKits.value = resp.data.kits || [];
+                }
+            } catch (e) {}
+        }
         const panelEnvironments = ref([]);
         const showPanelEnvModal = ref(false);
         const panelEnvEditId = ref(null);
@@ -2913,6 +2925,7 @@ async function loadProfileCategories() {
             loadProfileCategories, handleSetProfileCategory,
 
             activeFingerprintCategory, importingFingerprintText, importingFingerprints, importFingerprintResult,
+            resourceKits, resourceStats, loadResourceOverview,
             getProfilesByCategory, importFingerprintProfiles, removeProfileFromCategory,            settingsActiveTab, settingsTabs,
 
             exportSystemData, importSystemData, handleImportFile, importFileInput,            panelEnvironments, showPanelEnvModal, panelEnvEditId, panelEnvForm, panelEnvFormError,
@@ -4250,6 +4263,21 @@ async function loadProfileCategories() {
                         </div>
                         <div class="p-6 space-y-4">
                             <!-- Tab: WordPress -->
+                            <!-- Tab: 资源总览 -->
+                            <div v-if="settingsActiveTab === 'resource'" @vue:mounted="loadResourceOverview()">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="font-semibold text-on-surface"><i class="fas fa-tasks mr-2 text-primary"></i>资源总览</h3>
+                                    <button @click="loadResourceOverview" class="text-xs text-primary hover:text-primary"><i class="fas fa-sync mr-1"></i>刷新</button>
+                                </div>
+                                <div class="grid grid-cols-4 gap-3 mb-6">
+                                    <div class="bg-surface-container-low rounded-lg p-3 text-center"><div class="text-2xl font-bold text-[#146c2e]">{{ resourceStats.complete || 0 }}</div><div class="text-xs text-on-surface-variant mt-1">完整</div></div>
+                                    <div class="bg-surface-container-low rounded-lg p-3 text-center"><div class="text-2xl font-bold text-yellow-600">{{ resourceStats.missing_google || 0 }}</div><div class="text-xs text-on-surface-variant mt-1">缺谷歌账户</div></div>
+                                    <div class="bg-surface-container-low rounded-lg p-3 text-center"><div class="text-2xl font-bold text-yellow-600">{{ resourceStats.missing_profile || 0 }}</div><div class="text-xs text-on-surface-variant mt-1">缺指纹环境</div></div>
+                                    <div class="bg-surface-container-low rounded-lg p-3 text-center"><div class="text-2xl font-bold text-blue-600">{{ resourceStats.free_google || 0 }}</div><div class="text-xs text-on-surface-variant mt-1">空闲谷歌账户</div></div>
+                                </div>
+                                <div class="overflow-x-auto" v-if="resourceKits.length"><table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">品牌套件</th><th class="px-3 py-2 text-left">操作员</th><th class="px-3 py-2 text-left">谷歌账户</th><th class="px-3 py-2 text-left">TOTP</th><th class="px-3 py-2 text-left">指纹环境</th><th class="px-3 py-2 text-left">代理</th><th class="px-3 py-2 text-center">站点数</th><th class="px-3 py-2 text-center">状态</th></tr></thead><tbody class="divide-y"><tr v-for="kit in resourceKits" :key="kit.kit_id" class="hover:bg-surface-container-low"><td class="px-3 py-2 font-medium text-xs">{{ kit.brand_name || kit.kit_name }}</td><td class="px-3 py-2 text-on-surface-variant text-xs">{{ kit.created_by_user || '-' }}</td><td class="px-3 py-2 text-xs"><span v-if="kit.google_email" class="text-[#146c2e]">{{ kit.google_email }}</span><span v-else class="text-red-500 text-xs">未分配</span></td><td class="px-3 py-2 text-center"><span v-if="kit.has_totp" class="text-[#146c2e]"><i class="fas fa-check"></i></span><span v-else class="text-yellow-600"><i class="fas fa-exclamation-triangle"></i></span></td><td class="px-3 py-2 text-xs font-mono"><span v-if="kit.cloakbrowser_profile_name" class="text-primary">{{ kit.cloakbrowser_profile_name }}</span><span v-else class="text-red-500 text-xs">未分配</span></td><td class="px-3 py-2 text-xs"><span v-if="kit.proxy" class="text-[#146c2e]"><i class="fas fa-check"></i></span><span v-else class="text-on-surface-variant">-</span></td><td class="px-3 py-2 text-center text-xs">{{ kit.site_count || 0 }}</td><td class="px-3 py-2 text-center"><span v-if="kit.google_email && kit.cloakbrowser_profile_name && kit.has_totp" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">完整</span><span v-else class="badge bg-yellow-100 text-yellow-700 text-xs">不完整</span></td></tr></tbody></table></div><div v-else class="text-center py-10 text-on-surface-variant text-sm">暂无品牌套件</div>
+                            </div>
+
                             <div v-if="settingsActiveTab === 'wordpress'">
                                 <div><label class="block text-sm font-medium text-on-surface mb-1">默认管理员用户名</label><input v-model="globalConfig.default_admin_name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary"></div>
                                 <div class="mt-4"><label class="block text-sm font-medium text-on-surface mb-1">默认管理员密码</label><input v-model="globalConfig.default_admin_password" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary"><p class="text-xs text-on-surface-variant mt-1">应用于所有新创建的WordPress站点</p></div>
