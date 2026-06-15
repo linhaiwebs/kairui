@@ -1873,12 +1873,17 @@ def save_generated_feed_product(data: dict) -> int:
         conn.close()
 
 
-def list_generated_feed() -> list[dict]:
+def list_generated_feed(site_id=None) -> list[dict]:
     conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT * FROM generated_feed ORDER BY id DESC"
-        ).fetchall()
+        if site_id:
+            rows = conn.execute(
+                "SELECT * FROM generated_feed WHERE site_id = ? OR site_id IS NULL ORDER BY id DESC", (site_id,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM generated_feed ORDER BY id DESC"
+            ).fetchall()
         results = []
         for r in rows:
             d = dict(r)
@@ -1913,10 +1918,13 @@ def delete_generated_feed_items(ids: list[int]) -> int:
         conn.close()
 
 
-def clear_generated_feed() -> int:
+def clear_generated_feed(site_id=None) -> int:
     conn = get_db()
     try:
-        conn.execute("DELETE FROM generated_feed")
+        if site_id:
+            conn.execute("DELETE FROM generated_feed WHERE site_id = ?", (site_id,))
+        else:
+            conn.execute("DELETE FROM generated_feed")
         conn.commit()
         return conn.total_changes
     finally:
@@ -1957,12 +1965,17 @@ def save_woocommerce_product(data: dict) -> int:
         conn.close()
 
 
-def list_woocommerce_products() -> list[dict]:
+def list_woocommerce_products(site_id=None) -> list[dict]:
     conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT * FROM woocommerce_products ORDER BY id DESC"
-        ).fetchall()
+        if site_id:
+            rows = conn.execute(
+                "SELECT * FROM woocommerce_products WHERE site_id = ? OR site_id IS NULL ORDER BY id DESC", (site_id,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM woocommerce_products ORDER BY id DESC"
+            ).fetchall()
         results = []
         for r in rows:
             d = dict(r)
@@ -1991,10 +2004,13 @@ def delete_woocommerce_products(ids: list[int]) -> int:
         conn.close()
 
 
-def clear_woocommerce_products() -> int:
+def clear_woocommerce_products(site_id=None) -> int:
     conn = get_db()
     try:
-        conn.execute("DELETE FROM woocommerce_products")
+        if site_id:
+            conn.execute("DELETE FROM woocommerce_products WHERE site_id = ?", (site_id,))
+        else:
+            conn.execute("DELETE FROM woocommerce_products")
         conn.commit()
         return conn.total_changes
     finally:
