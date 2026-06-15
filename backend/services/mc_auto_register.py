@@ -868,7 +868,7 @@ async def _exec_gmc_business_form(page, ctx, log_callback=None):
     address = bi.get("address", bi.get("street_address", ""))
     city = bi.get("city", "")
     state = bi.get("state", bi.get("state_code", ""))
-    postcode = str(bi.get("postcode", bi.get("zip", bi.get("zip_code", "")))
+    postcode = str(bi.get("postcode", bi.get("zip", bi.get("zip_code", ""))))
     country = bi.get("country", "US")
     phone = bi.get("phone", "")
     _emit(log_callback, "info", f"填写商家信息 -> {company}, {city}", "gmc")
