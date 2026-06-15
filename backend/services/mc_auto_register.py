@@ -534,60 +534,77 @@ async def _dismiss_overlays(page):
 
 
 async def _click_button(page, texts: list[str], log_callback=None, step: str = "") -> bool:
-    """Find and click a button matching given texts. Skips help/support/FAQ links."""
-    search_texts = []
-    for t in texts:
-        search_texts.extend([t, t.lower(), t.upper()])
+    """Find button by text using JS scanning (undetectable read), then click with Playwright (real mouse events).
+
+    JS only READS the DOM to find the right selector — never calls el.click().
+    Playwright's native click simulates: hover → mousedown → mouseup → click.
+    This is indistinguishable from a real user click.
+    """
+    blocked = ['help', 'support', 'faq', 'learn more', 'documentation',
+               'guide', 'tutorial', 'community', 'forum', 'blog']
+    # Step 1: JS scans DOM (read-only) to find a unique selector for the matching element
+    selector = None
     try:
-        result = await page.evaluate(f"""
+        selector = await page.evaluate(f"""
             (() => {{
-                const texts = {json.dumps(search_texts)};
-                const blocked = ['help', 'support', 'faq', 'learn more', 'documentation',
-                                 'guide', 'tutorial', 'community', 'forum', 'blog'];
-                for (const el of document.querySelectorAll(
-                        'button:not([aria-label*="help"]):not([aria-label*="support"]), ' +
-                        '[role="button"]:not([aria-label*="help"]):not([aria-label*="support"])')) {{
+                const texts = {json.dumps([t.lower() for t in texts])};
+                const blocked = {json.dumps(blocked)};
+                const candidates = [];
+                for (const el of document.querySelectorAll('button, [role="button"], a')) {{
+                    if (el.offsetParent === null) continue;
                     const t = el.textContent.trim().toLowerCase();
-                    if (t.length < 5 || t.length > 50) continue; // skip too-short or too-long text
-                    if (blocked.some(b => t.includes(b))) continue; // skip help/support links
-                    for (const txt of texts) {{
-                        if (t === txt.toLowerCase()) {{ el.click(); return t; }}
-                    }}
-                }}
-                // Fallback: scan <a> tags but also filter
-                for (const a of document.querySelectorAll('a')) {{
-                    if (a.offsetParent === null) continue;
-                    const t = a.textContent.trim().toLowerCase();
-                    if (t.length < 5 || t.length > 50) continue;
-                    const href = (a.getAttribute('href') || '').toLowerCase();
+                    if (t.length < 3 || t.length > 60) continue;
+                    const href = (el.getAttribute('href') || '').toLowerCase();
                     if (blocked.some(b => href.includes(b) || t.includes(b))) continue;
                     for (const txt of texts) {{
-                        if (t === txt.toLowerCase()) {{ a.click(); return t; }}
+                        if (t === txt) {{
+                            // Build a unique selector for this element
+                            if (el.id) return '#' + CSS.escape(el.id);
+                            const cls = Array.from(el.classList).filter(c => c && !c.match(/^\\d/)).slice(0, 2).join('.');
+                            if (cls) return el.tagName.toLowerCase() + '.' + CSS.escape(cls).replace(/\\\\s+/g, '.');
+                            const text = el.textContent.trim().substring(0, 30);
+                            return el.tagName.toLowerCase() + ':has-text("' + text + '")';
+                        }}
                     }}
                 }}
                 return null;
             }})()
         """)
-        if result:
-            await asyncio.sleep(3)
-            return True
     except Exception:
         pass
-    # Fallback: Playwright role-based click (more precise than text match)
+
+    # Step 2: Click with Playwright (real mouse events: hover → mousedown → mouseup → click)
+    if selector:
+        try:
+            el = page.locator(selector).first
+            if await el.count() > 0 and await el.is_visible():
+                await el.hover()
+                await _human_delay(200, 500)
+                await el.click(timeout=5000)
+                await asyncio.sleep(2)
+                return True
+        except Exception:
+            pass
+
+    # Fallback: Playwright role/text match (also real mouse events)
     for text in texts:
         try:
             btn = page.get_by_role("button", name=text).first
             if await btn.count() > 0 and await btn.is_visible():
+                await btn.hover()
+                await _human_delay(200, 500)
                 await btn.click(timeout=5000)
-                await asyncio.sleep(3)
+                await asyncio.sleep(2)
                 return True
         except Exception:
             pass
         try:
             btn = page.get_by_text(text, exact=True).first
             if await btn.count() > 0 and await btn.is_visible():
+                await btn.hover()
+                await _human_delay(200, 500)
                 await btn.click(timeout=5000)
-                await asyncio.sleep(3)
+                await asyncio.sleep(2)
                 return True
         except Exception:
             continue
@@ -898,13 +915,11 @@ async def _exec_gmc_landing(page, ctx, log_callback=None):
         await _dismiss_overlays(page)
 
     # ── Step 1: Click the main entry button ──
-    # GMC-specific selectors: the 'Get started' or 'Sign in' button is in the header area
-    # We target ONLY elements in the header/toolbar, NOT FAQ/support links in the page body.
-    clicked = False
+    # JS scans header area ONLY (read-only) → returns CSS selector → Playwright clicks (real mouse events)
+    clicked = None
     try:
         clicked = await page.evaluate("""
             (() => {
-                // ONLY target buttons/links in GMC's header/navigation area
                 const containers = document.querySelectorAll(
                     'header, nav, [class*="header"], [class*="toolbar"], [class*="top-bar"], ' +
                     '[class*="nav"], #header, [id*="header"]'
@@ -913,28 +928,33 @@ async def _exec_gmc_landing(page, ctx, log_callback=None):
                 for (const c of containers) {
                     targets.push(...c.querySelectorAll('a, button, [role="button"]'));
                 }
-                // If no header found (unusual), fall back to direct button selectors
                 if (targets.length === 0) {
                     targets.push(...document.querySelectorAll(
-                        'a[href*="SignIn"], a[href*="signin"], a[href*="accounts.google.com"], ' +
-                        'button:not([aria-label*="help"]):not([aria-label*="support"])'
+                        'a[href*="SignIn"], a[href*="signin"], button:not([aria-label*="help"])'
                     ));
                 }
                 for (const el of targets) {
                     if (el.offsetParent === null) continue;
                     const t = el.textContent.trim();
-                    if (t === 'Sign in' || t === 'Sign In' || t === 'Get started' ||
-                        t === 'Create account' || t === 'Start now' || t === 'Sign up' ||
-                        t === 'Anmelden' || t === 'Los geht\\'s' || t === 'Registrieren') {
-                        el.click();
-                        return t;
+                    const texts = ['Sign in','Sign In','Get started','Create account','Start now',
+                                   'Sign up','Anmelden','Los geht\\'s','Registrieren'];
+                    if (texts.includes(t)) {
+                        if (el.id) return '#' + CSS.escape(el.id);
+                        const cls = Array.from(el.classList).filter(c => c && !c.match(/^\\d/)).slice(0,2).join('.');
+                        if (cls) return el.tagName.toLowerCase() + '.' + cls;
+                        return el.tagName.toLowerCase() + ':has-text(\"' + t + '\")';
                     }
                 }
                 return null;
             })()
         """)
         if clicked:
-            _emit(log_callback, "info", f"点击 GMC 按钮: {clicked}", "gmc")
+            el = page.locator(clicked).first
+            if await el.count() > 0:
+                await el.hover()
+                await _human_delay(200, 500)
+                await el.click(timeout=5000)
+                _emit(log_callback, "info", f"点击 GMC 按钮 → 进入注册流程", "gmc")
     except Exception as e:
         _emit(log_callback, "warning", f"GMC按钮点击异常: {e}", "gmc")
 
@@ -945,45 +965,38 @@ async def _exec_gmc_landing(page, ctx, log_callback=None):
     await _human_delay(1500, 2500)
 
     # ── Step 2: Click the FIRST registration option in the panel ──
+    # JS scans panel DOM (read-only) → returns selector → Playwright clicks (real mouse events)
     try:
-        result = await page.evaluate("""
+        panel_selector = await page.evaluate("""
             (() => {
-                // Target links inside any recently appeared panel/dialog
                 const panels = document.querySelectorAll(
                     '[role="dialog"], [role="menu"], [class*="panel"], [class*="dropdown"], ' +
                     '[class*="popup"], [class*="overlay"], [class*="modal"], [class*="drawer"]'
                 );
+                const keywords = ['create', 'get started', 'start now', 'sign up',
+                                  'new account', 'register', 'konto erstellen', 'los geht', 'registrieren'];
                 for (const panel of panels) {
                     if (panel.offsetParent === null) continue;
                     const links = panel.querySelectorAll('a, [role="menuitem"], [role="option"]');
                     for (const link of links) {
                         if (link.offsetParent === null) continue;
                         const t = link.textContent.trim().toLowerCase();
-                        // Click the FIRST option that's about creating/starting (NOT 'Sign in')
-                        if (t && (t.includes('create') || t.includes('get started') ||
-                                  t.includes('start now') || t.includes('sign up') ||
-                                  t.includes('new account') || t.includes('register') ||
-                                  t.includes('konto erstellen') || t.includes('los geht') ||
-                                  t.includes('registrieren'))) {
-                            link.click();
-                            return {text: t, href: link.getAttribute('href') || ''};
+                        if (keywords.some(k => t.includes(k))) {
+                            if (link.id) return '#' + link.id;
+                            return 'a:has-text(\"' + link.textContent.trim().substring(0, 20) + '\")';
                         }
-                    }
-                }
-                // Fallback: any link in a visible popup/panel
-                for (const panel of panels) {
-                    if (panel.offsetParent === null) continue;
-                    const links = panel.querySelectorAll('a');
-                    if (links.length > 0 && links[0].offsetParent !== null) {
-                        links[0].click();
-                        return {text: links[0].textContent.trim(), href: links[0].getAttribute('href') || ''};
                     }
                 }
                 return null;
             })()
         """)
-        if result:
-            _emit(log_callback, "info", f"选择注册选项: {result['text']}", "gmc")
+        if panel_selector:
+            el = page.locator(panel_selector).first
+            if await el.count() > 0 and await el.is_visible():
+                await el.hover()
+                await _human_delay(200, 500)
+                await el.click(timeout=5000)
+                _emit(log_callback, "info", f"选择注册选项", "gmc")
     except Exception as e:
         _emit(log_callback, "warning", f"面板选项异常: {e}", "gmc")
 
