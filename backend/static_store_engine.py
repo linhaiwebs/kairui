@@ -83,7 +83,7 @@ function renderCartDrawer(){
     cart.forEach(function(i){
       html+='<li class="cart-drawer-item"><img src="'+(i.image||'')+'" alt="'+i.title+'" onerror="this.style.display=\'none\'"><div class="cart-drawer-info"><strong>'+i.title+'</strong><span>$'+(i.price||0).toFixed(2)+' x '+i.qty+'</span></div><button class="btn-remove" data-id="'+i.id+'" title="Remove">&times;</button></li>';
     });
-    html+='</ul><div class="cart-drawer-total"><strong>Total: $'+cartTotal().toFixed(2)+'</strong></div><a href="/cart.html" class="btn btn-primary btn-block">View Cart</a>';
+    html+='</ul><div class="cart-drawer-total"><strong>Total: $'+cartTotal().toFixed(2)+'</strong></div><a href="/cart/" class="btn btn-primary btn-block">View Cart</a>';
     body.innerHTML=html;
     body.querySelectorAll('.btn-remove').forEach(function(btn){btn.addEventListener('click',function(){removeFromCart(btn.getAttribute('data-id'));});});
   }
@@ -98,7 +98,7 @@ function renderCartPage(){
     html+='<tr><td><img src="'+(i.image||'')+'" alt="'+i.title+'" style="width:60px;height:60px;object-fit:cover;border-radius:4px" onerror="this.style.display=\'none\'"></td><td>'+i.title+'</td><td>$'+(i.price||0).toFixed(2)+'</td><td><input type="number" min="1" value="'+i.qty+'" data-id="'+i.id+'" class="qty-input" style="width:60px;padding:4px"></td><td>$'+((i.price||0)*i.qty).toFixed(2)+'</td><td><button class="btn-remove" data-id="'+i.id+'">&times;</button></td></tr>';
   });
   tbody.innerHTML=html;
-  if(summary){summary.innerHTML='<p>Subtotal: <strong>$'+cartTotal().toFixed(2)+'</strong></p><p>Items: '+cartCount()+'</p><a href="/checkout.html" class="btn btn-primary btn-block">Proceed to Checkout</a>';}
+  if(summary){summary.innerHTML='<p>Subtotal: <strong>$'+cartTotal().toFixed(2)+'</strong></p><p>Items: '+cartCount()+'</p><a href="/checkout/" class="btn btn-primary btn-block">Proceed to Checkout</a>';}
   tbody.querySelectorAll('.qty-input').forEach(function(inp){inp.addEventListener('change',function(){updateQty(inp.getAttribute('data-id'),inp.value);});});
   tbody.querySelectorAll('.btn-remove').forEach(function(btn){btn.addEventListener('click',function(){removeFromCart(btn.getAttribute('data-id'));});});
 }
@@ -123,7 +123,7 @@ function placeOrder(){
   var orderId='ORD-'+Date.now()+'-'+Math.random().toString(36).substr(2,6).toUpperCase();
   saveOrder({id:orderId,total:cartTotal().toFixed(2),items:cart.length,date:new Date().toISOString()});
   localStorage.removeItem('store_cart');
-  window.location.href='/order.html?order='+orderId;
+  window.location.href='/order/?order='+orderId;
 }
 document.addEventListener('DOMContentLoaded',function(){
   updateCartCount();
@@ -1403,7 +1403,7 @@ def render_homepage(products, design, brand_kit):
             rating_html = '<div class="product-card-rating"><span class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</span></div>'
 
         cards += f"""<div class="product-card">
-  <a href="/products/{pid}.html">
+  <a href="/products/{pid}/">
     <div class="product-card-img-wrap">{badge_html}{img_tag}</div>
     <div class="product-card-body">
       <h3>{title}</h3>
@@ -1425,8 +1425,8 @@ def render_homepage(products, design, brand_kit):
   <div class="logo"><a href="/">{_esc(brand_name)}</a></div>
   <nav class="nav">
     <a href="/">Home</a>
-    <a href="/about.html">About</a>
-    <a href="/contact.html">Contact</a>
+    <a href="/about/">About</a>
+    <a href="/contact/">Contact</a>
   </nav>
   <div class="header-right">
     <button class="cart-icon" id="cart-toggle" aria-label="Cart">
@@ -1465,23 +1465,23 @@ def render_homepage(products, design, brand_kit):
     <div class="footer-col">
       <h4>Shop</h4>
       <a href="/">All Products</a>
-      <a href="/about.html">About Us</a>
-      <a href="/contact.html">Contact</a>
+      <a href="/about/">About Us</a>
+      <a href="/contact/">Contact</a>
     </div>
     <div class="footer-col">
       <h4>Support</h4>
-      <a href="/shipping.html">Shipping</a>
-      <a href="/returns.html">Returns</a>
-      <a href="/faq.html">FAQ</a>
+      <a href="/shipping/">Shipping</a>
+      <a href="/returns/">Returns</a>
+      <a href="/faq/">FAQ</a>
     </div>
     <div class="footer-col">
       <h4>Legal</h4>
-      <a href="/privacy.html">Privacy Policy</a>
-      <a href="/terms.html">Terms of Service</a>
+      <a href="/privacy/">Privacy Policy</a>
+      <a href="/terms/">Terms of Service</a>
     </div>
     <div class="footer-col">
       <h4>Contact</h4>
-      <a href="/contact.html">Get in Touch</a>
+      <a href="/contact/">Get in Touch</a>
       <p style="color:rgba(255,255,255,0.5);font-size:13px;margin-top:8px">We're here to help</p>
     </div>
   </div>
@@ -1694,7 +1694,7 @@ def render_product_page(product, design, brand_kit, all_products):
                     r_price_str = "$0.00"
                 r_img_tag = f'<img src="{_esc(rimg)}" alt="{rtitle}" class="product-card-img" loading="lazy" onerror="this.style.display=\'none\'">' if rimg else '<div style="height:200px;background:#f3f4f6;display:flex;align-items:center;justify-content:center;color:#9ca3af">No Image</div>'
                 cards += f"""<div class="product-card">
-  <a href="/products/{rid}.html">
+  <a href="/products/{rid}/">
     <div class="product-card-img-wrap">{r_img_tag}</div>
     <div class="product-card-body">
       <h3>{rtitle}</h3>
@@ -1716,7 +1716,7 @@ def render_product_page(product, design, brand_kit, all_products):
   <h2>Frequently Asked Questions</h2>
   <details class="faq-item"><summary>What is your shipping policy?</summary><div class="faq-answer"><p>We offer worldwide shipping with delivery times varying by location. Free standard shipping on orders over $50.</p></div></details>
   <details class="faq-item"><summary>What is your return policy?</summary><div class="faq-answer"><p>You can return most items within 30 days of delivery. Items must be unused and in original packaging.</p></div></details>
-  <details class="faq-item"><summary>How can I contact support?</summary><div class="faq-answer"><p>Our support team is available 24/7. Visit our <a href="/contact.html">Contact page</a> for details.</p></div></details>
+  <details class="faq-item"><summary>How can I contact support?</summary><div class="faq-answer"><p>Our support team is available 24/7. Visit our <a href="/contact/">Contact page</a> for details.</p></div></details>
   <details class="faq-item"><summary>Are my payment details secure?</summary><div class="faq-answer"><p>Yes. All transactions are processed securely using industry-standard encryption.</p></div></details>
 </section>"""
 
@@ -1728,8 +1728,8 @@ def render_product_page(product, design, brand_kit, all_products):
   <div class="logo"><a href="/">{_esc(brand_name)}</a></div>
   <nav class="nav">
     <a href="/">Home</a>
-    <a href="/about.html">About</a>
-    <a href="/contact.html">Contact</a>
+    <a href="/about/">About</a>
+    <a href="/contact/">Contact</a>
   </nav>
   <div class="header-right">
     <button class="cart-icon" id="cart-toggle" aria-label="Cart">
@@ -1795,23 +1795,23 @@ def render_product_page(product, design, brand_kit, all_products):
     <div class="footer-col">
       <h4>Shop</h4>
       <a href="/">All Products</a>
-      <a href="/about.html">About Us</a>
-      <a href="/contact.html">Contact</a>
+      <a href="/about/">About Us</a>
+      <a href="/contact/">Contact</a>
     </div>
     <div class="footer-col">
       <h4>Support</h4>
-      <a href="/shipping.html">Shipping</a>
-      <a href="/returns.html">Returns</a>
-      <a href="/faq.html">FAQ</a>
+      <a href="/shipping/">Shipping</a>
+      <a href="/returns/">Returns</a>
+      <a href="/faq/">FAQ</a>
     </div>
     <div class="footer-col">
       <h4>Legal</h4>
-      <a href="/privacy.html">Privacy Policy</a>
-      <a href="/terms.html">Terms of Service</a>
+      <a href="/privacy/">Privacy Policy</a>
+      <a href="/terms/">Terms of Service</a>
     </div>
     <div class="footer-col">
       <h4>Contact</h4>
-      <a href="/contact.html">Get in Touch</a>
+      <a href="/contact/">Get in Touch</a>
       <p style="color:rgba(255,255,255,0.5);font-size:13px;margin-top:8px">We're here to help</p>
     </div>
   </div>
@@ -1837,8 +1837,8 @@ def render_cart_page(design, brand_kit):
   <div class="logo"><a href="/">{_esc(brand_name)}</a></div>
   <nav class="nav">
     <a href="/">Home</a>
-    <a href="/about.html">About</a>
-    <a href="/contact.html">Contact</a>
+    <a href="/about/">About</a>
+    <a href="/contact/">Contact</a>
   </nav>
   <div class="header-right">
     <button class="cart-icon" id="cart-toggle" aria-label="Cart">
@@ -1887,23 +1887,23 @@ def render_cart_page(design, brand_kit):
     <div class="footer-col">
       <h4>Shop</h4>
       <a href="/">All Products</a>
-      <a href="/about.html">About Us</a>
-      <a href="/contact.html">Contact</a>
+      <a href="/about/">About Us</a>
+      <a href="/contact/">Contact</a>
     </div>
     <div class="footer-col">
       <h4>Support</h4>
-      <a href="/shipping.html">Shipping</a>
-      <a href="/returns.html">Returns</a>
-      <a href="/faq.html">FAQ</a>
+      <a href="/shipping/">Shipping</a>
+      <a href="/returns/">Returns</a>
+      <a href="/faq/">FAQ</a>
     </div>
     <div class="footer-col">
       <h4>Legal</h4>
-      <a href="/privacy.html">Privacy Policy</a>
-      <a href="/terms.html">Terms of Service</a>
+      <a href="/privacy/">Privacy Policy</a>
+      <a href="/terms/">Terms of Service</a>
     </div>
     <div class="footer-col">
       <h4>Contact</h4>
-      <a href="/contact.html">Get in Touch</a>
+      <a href="/contact/">Get in Touch</a>
       <p style="color:rgba(255,255,255,0.5);font-size:13px;margin-top:8px">We're here to help</p>
     </div>
   </div>
@@ -1970,7 +1970,7 @@ def render_checkout_page(design, brand_kit):
   <div class="logo"><a href="/">{_esc(brand_name)}</a></div>
   <nav class="nav">
     <a href="/">Home</a>
-    <a href="/cart.html">Cart</a>
+    <a href="/cart/">Cart</a>
   </nav>
 </header>
 
@@ -2089,8 +2089,8 @@ def render_order_page(design, brand_kit):
   <div class="logo"><a href="/">{_esc(brand_name)}</a></div>
   <nav class="nav">
     <a href="/">Home</a>
-    <a href="/about.html">About</a>
-    <a href="/contact.html">Contact</a>
+    <a href="/about/">About</a>
+    <a href="/contact/">Contact</a>
   </nav>
 </header>
 
@@ -2142,8 +2142,8 @@ def render_policy_pages(design, brand_kit):
   <div class="logo"><a href="/">{_esc(brand_name)}</a></div>
   <nav class="nav">
     <a href="/">Home</a>
-    <a href="/about.html">About</a>
-    <a href="/contact.html">Contact</a>
+    <a href="/about/">About</a>
+    <a href="/contact/">Contact</a>
   </nav>
 </header>
 
@@ -2157,23 +2157,23 @@ def render_policy_pages(design, brand_kit):
     <div class="footer-col">
       <h4>Shop</h4>
       <a href="/">All Products</a>
-      <a href="/about.html">About Us</a>
-      <a href="/contact.html">Contact</a>
+      <a href="/about/">About Us</a>
+      <a href="/contact/">Contact</a>
     </div>
     <div class="footer-col">
       <h4>Support</h4>
-      <a href="/shipping.html">Shipping</a>
-      <a href="/returns.html">Returns</a>
-      <a href="/faq.html">FAQ</a>
+      <a href="/shipping/">Shipping</a>
+      <a href="/returns/">Returns</a>
+      <a href="/faq/">FAQ</a>
     </div>
     <div class="footer-col">
       <h4>Legal</h4>
-      <a href="/privacy.html">Privacy Policy</a>
-      <a href="/terms.html">Terms of Service</a>
+      <a href="/privacy/">Privacy Policy</a>
+      <a href="/terms/">Terms of Service</a>
     </div>
     <div class="footer-col">
       <h4>Contact</h4>
-      <a href="/contact.html">Get in Touch</a>
+      <a href="/contact/">Get in Touch</a>
       <p style="color:rgba(255,255,255,0.5);font-size:13px;margin-top:8px">We're here to help</p>
     </div>
   </div>
@@ -2288,7 +2288,7 @@ def render_policy_pages(design, brand_kit):
 """)
 
     files["faq.html"] = _page("FAQ", f"""
-<p>Find answers to the most common questions below. If you cannot find what you are looking for, visit our <a href="/contact.html">Contact page</a> to get in touch.</p>
+<p>Find answers to the most common questions below. If you cannot find what you are looking for, visit our <a href="/contact/">Contact page</a> to get in touch.</p>
 <details class="faq-item"><summary>What payment methods do you accept?</summary><div class="faq-answer"><p>We accept all major credit cards (Visa, Mastercard, American Express), PayPal, and Apple Pay. All payments are processed securely.</p></div></details>
 <details class="faq-item"><summary>How long does shipping take?</summary><div class="faq-answer"><p>Standard shipping takes 5-10 business days domestically and 10-20 business days internationally. Express shipping options are available at checkout.</p></div></details>
 <details class="faq-item"><summary>Can I change or cancel my order?</summary><div class="faq-answer"><p>You can change or cancel your order within 1 hour of placing it. After that, the order may have already been processed. Please contact us immediately for assistance.</p></div></details>
@@ -2517,11 +2517,11 @@ def _inject_products_into_homepage(html, products, design, brand_kit):
             # Replace price text
             card_html = re.sub(r'>\$[^<]*<', f'>\${_esc(str(price_val))}<', card_html, count=1)
             # Add link wrapper
-            card_html = f'<a href="/products/{pid}.html">{card_html}</a>'
+            card_html = f'<a href="/products/{pid}/">{card_html}</a>'
             cards_html += f'<!-- Product Card {pid} -->\n{card_html}\n'
         else:
             # Fallback simple card
-            cards_html += f'<div class="group cursor-pointer"><a href="/products/{pid}.html"><div><img src="{_esc(image)}" alt="{_esc(title)}"></div><h3>{_esc(title)}</h3><p>\${_esc(str(price_val))}</p></a></div>\n'
+            cards_html += f'<div class="group cursor-pointer"><a href="/products/{pid}/"><div><img src="{_esc(image)}" alt="{_esc(title)}"></div><h3>{_esc(title)}</h3><p>\${_esc(str(price_val))}</p></a></div>\n'
 
     # Replace grid content: from first Product Card marker to grid closing </div>
     # Find the first card marker position
@@ -2591,10 +2591,10 @@ def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
         result = {}
         # Map design pages to filenames
         page_map = {
-            "home": "index.html", "cart": "cart.html", "checkout": "checkout.html",
-            "order": "order.html", "about": "about.html", "contact": "contact.html",
-            "faq": "faq.html", "privacy": "privacy.html", "terms": "terms.html",
-            "shipping": "shipping.html", "returns": "returns.html",
+            "home": "index.html", "cart": "cart/index.html", "checkout": "checkout/index.html",
+            "order": "order/index.html", "about": "about/index.html", "contact": "contact/index.html",
+            "faq": "faq/index.html", "privacy": "privacy/index.html", "terms": "terms/index.html",
+            "shipping": "shipping/index.html", "returns": "returns/index.html",
         }
         for page_type, filename in page_map.items():
             if design_pages.get(page_type):
@@ -2648,10 +2648,10 @@ def render_site_to_dict(domain, brand_kit, products, progress_callback=None):
     _INLINE_JS = STORE_JS
     result = {}
     page_map = {
-        "home": "index.html", "cart": "cart.html", "checkout": "checkout.html",
-        "order": "order.html", "about": "about.html", "contact": "contact.html",
-        "faq": "faq.html", "privacy": "privacy.html", "terms": "terms.html",
-        "shipping": "shipping.html", "returns": "returns.html",
+        "home": "index.html", "cart": "cart/index.html", "checkout": "checkout/index.html",
+        "order": "order/index.html", "about": "about/index.html", "contact": "contact/index.html",
+        "faq": "faq/index.html", "privacy": "privacy/index.html", "terms": "terms/index.html",
+        "shipping": "shipping/index.html", "returns": "returns/index.html",
     }
     for page_type, filename in page_map.items():
         if saved_pages.get(page_type):
