@@ -4717,12 +4717,10 @@ async function loadProfileCategories() {
                                         <!-- Col 5: Actions -->
                                         <td class="px-4 py-3 text-right">
                                             <div class="flex items-center justify-end gap-1">
-                                                <button v-if="site.google_verification_done && !site.google_mc_account_id" @click="registerMCForSite(site)" :disabled="mcRegistering[site.id]" class="px-2 py-1 text-xs bg-primary-container text-on-primary rounded hover:bg-primary transition">
+                                                <button v-if="!site.google_mc_account_id" @click="registerMCForSite(site)" :disabled="mcRegistering[site.id]" class="px-2 py-1 text-xs bg-primary-container text-on-primary rounded hover:bg-primary transition">
                                                     {{ mcRegistering[site.id] === 'register' ? '注册中...' : '注册MC' }}
                                                 </button>
-                                                <button v-else-if="!site.google_verification_done" disabled class="px-2 py-1 text-xs bg-gray-100 text-gray-400 rounded cursor-not-allowed" title="请先注入验证标签">
-                                                    注册MC
-                                                </button>
+                                                <span v-if="site.google_mc_account_id" class="text-[#146c2e] text-xs"><i class="fas fa-check-circle mr-1"></i>已注册</span>
                                                 <span v-if="taskLogSilent && mcRegistering[site.id] && taskLogLines.length" class="text-xs text-on-surface-variant ml-2 truncate" style="max-width:200px">{{ taskLogLines[taskLogLines.length-1]?.msg || '' }}</span>
                                             </div>
                                         </td>
