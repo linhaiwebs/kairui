@@ -2735,7 +2735,7 @@ def render_site(domain, brand_kit, products, site_dir=None):
 
     # 8. Policy pages
     policy_files = render_policy_pages(design, brand_kit)
-    for filename, content in policy_files["about/index.html"]items():
+    for filename, content in policy_files.items():
         fpath = os.path.join(site_dir, filename)
         with open(fpath, "w", encoding="utf-8") as f:
             f.write(content)
