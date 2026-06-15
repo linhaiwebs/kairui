@@ -1504,6 +1504,16 @@ async def register_gmc(
             if page_type == "gmc_account_type":
                 continue
 
+            # After CAPTCHA, jump directly to GMC (avoid captcha_challenge loop)
+            if page_type == "captcha":
+                _emit(log_callback, "info", "CAPTCHA已处理 → 跳转 GMC", "gmc")
+                await page.goto(
+                    "https://merchants.google.com/mc/default?mcsubid=us-en-bgc-mc-web!o3&hl=en&fmp=2",
+                    wait_until="domcontentloaded", timeout=60000)
+                await _human_delay(2000, 3000)
+                await _dismiss_overlays(page)
+                continue
+
             # === Step 3: AI verify ===
             await _human_delay(1500, 2500)
             verify = await _ai_verify_action(page, expected, log_callback)
