@@ -707,6 +707,83 @@ def _keyword_classify(url: str, text: str) -> dict:
 
 
 # ====================================================================================
+#  AI 验证层 — 每步执行后确认页面是否如预期变化
+# ====================================================================================
+
+_ACTION_DESCRIPTIONS = {
+    "login_email": "filled email and clicked Next -> should show password page",
+    "login_password": "filled password and clicked Sign in -> should show 2FA or redirect to GMC",
+    "login_2fa": "filled TOTP code and submitted -> should complete login and show GMC",
+    "login_challenge": "dismissed recovery/phone prompt -> should advance or show GMC",
+    "gmc_landing": "clicked Get started or Sign in -> should show account type selection or wizard",
+    "gmc_account_type": "selected Merchant option and clicked Continue -> should show business form",
+    "gmc_business_form": "filled business info and clicked Continue -> should show website URL or next step",
+    "gmc_website": "filled website URL and clicked Continue -> should show feed/data source setup",
+    "gmc_feed": "configured feed and clicked Continue -> should show next wizard step",
+    "gmc_phone_verify": "clicked Other methods or Skip -> should move past phone verification",
+    "gmc_website_verify": "selected HTML tag method and extracted meta -> should advance past verification",
+    "gmc_shipping": "clicked Continue/Skip -> should advance past shipping settings",
+    "gmc_terms": "accepted terms and clicked submit -> should show success/complete page",
+    "gmc_complete": "registration should be done, looking for MC ID",
+    "captcha": "waiting for manual CAPTCHA completion via VNC",
+    "blocked": "navigating back from blocked/support page to GMC",
+    "unknown": "clicking Continue to advance past unknown page",
+}
+
+
+async def _ai_verify_action(page, expected: str, log_callback=None) -> dict:
+    """After executing a handler, ask AI: did the page change as expected?
+    Returns {"success": bool, "new_page_type": str, "reasoning": str}"""
+    url = page.url
+    try:
+        title = await page.title()
+        body = await page.evaluate("() => document.body ? document.body.innerText.substring(0, 2000) : ''")
+    except Exception as e:
+        return {"success": True, "new_page_type": "unknown", "reasoning": f"read error: {e}"}
+
+    try:
+        from services.api_key_rotator import get_deepseek_keys, rotate_deepseek
+        import requests as http_requests
+        keys = get_deepseek_keys()
+        if keys:
+            prompt = f"""Verify if the last GMC automation action succeeded.
+
+Expected outcome: {expected}
+
+Current URL: {url[:120]}
+Title: {title[:100]}
+Text: {body[:1500]}
+
+Did the page change as expected? Return JSON:
+{{"success": true/false, "new_page_type": "one of 18 types", "reasoning": "why"}}"""
+
+            def _call(key):
+                resp = http_requests.post(
+                    "https://api.deepseek.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    json={"model": "deepseek-chat", "messages": [
+                        {"role": "system", "content": "Action verifier. Return ONLY JSON."},
+                        {"role": "user", "content": prompt}],
+                        "temperature": 0.1, "max_tokens": 150}, timeout=12)
+                if resp.status_code == 200:
+                    return resp.json()["choices"][0]["message"]["content"].strip()
+                resp.raise_for_status()
+
+            loop = asyncio.get_event_loop()
+            raw = await loop.run_in_executor(None, lambda: rotate_deepseek(_call, keys))
+            raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+            result = json.loads(raw)
+            return result
+    except Exception:
+        pass
+
+    # Fallback: simple URL change check
+    if url != page.url:
+        return {"success": True, "new_page_type": "unknown", "reasoning": "URL changed"}
+    return {"success": True, "new_page_type": "unknown", "reasoning": "fallback ok"}
+
+
+# ====================================================================================
 #  执行层 — page_type -> handler 映射
 # ====================================================================================
 
@@ -993,7 +1070,11 @@ async def register_gmc(
 
             decision = await _ai_classify_page(page, log_callback)
             page_type = decision["page_type"]; last_page_type = page_type
+            _emit(log_callback, "info", f"步骤{step} -> AI判定: {page_type}", "step")
+
+            # Execute handler
             handler = _EXEC_DISPATCH.get(page_type, _exec_unknown)
+            expected = _ACTION_DESCRIPTIONS.get(page_type, "advance to next page")
             result = await handler(page, ctx, log_callback)
 
             if result == "done":
@@ -1004,6 +1085,24 @@ async def register_gmc(
             if result == "fail":
                 _emit(log_callback, "error", f"步骤{step}失败 -> {page_type}", "gmc")
                 return {"success": False, "message": f"Failed at step {step} ({page_type})", "steps": step, "meta_tag": ctx.get("extracted_meta_tag", "")}
+
+            # AI verification: did the action produce the expected result?
+            await _human_delay(1500, 2500)
+            verify = await _ai_verify_action(page, expected, log_callback)
+            if verify.get("success") == False:
+                _emit(log_callback, "warning",
+                      f"AI验证不通过: {verify.get('reasoning','?')} -> 重试 {page_type}", "verify")
+                # Retry with alternative approach
+                if page_type == "gmc_landing":
+                    await _click_button(page, ["Sign in", "Get started"], log_callback, "retry")
+                elif page_type in ("login_email", "login_password", "login_2fa", "login_challenge"):
+                    await _click_button(page, ["Next", "Continue", "Skip"], log_callback, "retry")
+                else:
+                    await _click_button(page, ["Continue", "Next", "Save", "Skip"], log_callback, "retry")
+                await _human_delay(1000, 2000)
+            else:
+                _emit(log_callback, "info",
+                      f"AI确认: {verify.get('reasoning','ok')[:80]}", "verify")
 
         _emit(log_callback, "warning", f"达到最大步骤({max_steps})", "gmc")
         return {"success": False, "message": f"Max steps ({max_steps})", "steps": max_steps, "meta_tag": ""}
