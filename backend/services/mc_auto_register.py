@@ -254,8 +254,19 @@ def list_profiles() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _build_launch_args(config: dict) -> list[str]:
-    """根据 config.json 构建 CloakBrowser 指纹启动参数列表。"""
-    args = ["--no-sandbox"]
+    """根据 config.json 构建 CloakBrowser 指纹启动参数列表。
+
+    CloakBrowser v14+ 核心反检测参数:
+      --fingerprint        固定指纹种子(Canvas/WebGL/Audio保持一致)
+      --fingerprint-platform  伪装操作系统平台
+      --fingerprint-canvas-noise   Canvas 指纹噪点
+      --fingerprint-webrtc-ip      WebRTC 公网IP伪装(需代理IP)
+      --disable-blink-features=AutomationControlled  隐藏 navigator.webdriver
+    """
+    args = [
+        "--no-sandbox",
+        "--disable-blink-features=AutomationControlled",
+    ]
     if config.get("fingerprint_seed"):
         args.append(f"--fingerprint={config['fingerprint_seed']}")
     platform = config.get("platform", "")
@@ -265,7 +276,15 @@ def _build_launch_args(config: dict) -> list[str]:
         args.append("--fingerprint-platform=windows")
     if config.get("webrtc_ip"):
         args.append(f"--fingerprint-webrtc-ip={config['webrtc_ip']}")
+    # Canvas noise — makes each session's canvas hash slightly different but consistent
+    args.append("--fingerprint-canvas-noise")
     return args
+
+
+async def _human_delay(min_ms: int = 300, max_ms: int = 1500):
+    """模拟人类操作间隔的随机延迟。"""
+    delay = random.randint(min_ms, max_ms) / 1000.0
+    await asyncio.sleep(delay)
 
 
 def _unlock_profile(profile_dir: str):
@@ -935,6 +954,16 @@ async def register_gmc(
         return {"success": False, "message": f"Browser launch failed: {e}", "steps": 0}
 
     try:
+        # ============ Step 0: Pre-warm profile (avoid fresh-profile detection) ============
+        try:
+            _emit(log_callback, "info", "预热浏览器 → 建立浏览历史", "prewarm")
+            await page.goto("https://www.google.com/", wait_until="domcontentloaded", timeout=30000)
+            await _human_delay(1000, 2000)
+            await page.goto("https://search.google.com/search-console", wait_until="domcontentloaded", timeout=30000)
+            await _human_delay(1000, 2000)
+        except Exception:
+            pass  # pre-warm is best-effort
+
         # ============ Step 1: Navigate to GMC ============
         phase = await _navigate_to_gmc(page, log_callback)
 
@@ -979,6 +1008,31 @@ async def register_gmc(
         for page_num in range(1, max_pages + 1):
             current_url = page.url
             content = await page.content()
+
+            # CAPTCHA / robot check detection
+            content_lower = content.lower()
+            captcha_indicators = [
+                "captcha", "robot", "verify you are human",
+                "verify you're human", "are you a robot",
+                "unusual traffic", "automated queries",
+                "sorry", "confirm you're not a robot",
+                "recaptcha", "security check",
+            ]
+            if any(kw in content_lower for kw in captcha_indicators):
+                _emit(log_callback, "warning", "检测到机器人验证(CAPTCHA) → 需要通过VNC手动完成验证", "captcha")
+                # Pause 60 seconds for manual intervention via VNC
+                await asyncio.sleep(60)
+                # Check if page moved past CAPTCHA
+                try:
+                    current_url = page.url
+                    if "merchants.google.com" in current_url:
+                        _emit(log_callback, "info", "CAPTCHA 已通过 → 继续注册", "captcha")
+                    else:
+                        _emit(log_callback, "warning", "CAPTCHA 未通过 → 需要人工操作，任务暂停", "captcha")
+                        return {"success": False, "message": "CAPTCHA detected — manual intervention required", "steps": page_num, "meta_tag": ""}
+                except Exception:
+                    pass
+                continue
 
             # Support page guard
             if any(p in current_url for p in _BLOCKED_URL_PATTERNS):
