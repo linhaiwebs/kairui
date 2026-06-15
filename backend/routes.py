@@ -9963,32 +9963,62 @@ Make UNIQUE decisions — different hero type, card style, layout from typical d
     @app.route("/api/admin/resources", methods=["GET"])
     @jwt_required()
     def admin_resource_overview():
-        """返回所有品牌套件的 Google 账户和指纹环境分配状态。"""
+        """按运营角色分组，显示谷歌账户和指纹环境使用情况及成本。
+
+        计费规则: 谷歌邮箱 1元/个, 指纹环境 2元/个
+        """
         db = get_db()
         rows = db.execute("""
             SELECT bk.id AS kit_id, bk.name AS kit_name, bk.brand_name,
                 bk.cloakbrowser_profile_name, bk.google_account_id, bk.proxy,
                 ga.email AS google_email, ga.country AS google_country,
                 CASE WHEN ga.totp_secret IS NOT NULL AND ga.totp_secret != '' THEN 1 ELSE 0 END AS has_totp,
-                u.username AS created_by_user,
+                u.id AS user_id, u.username AS operator_name,
                 (SELECT COUNT(*) FROM sites WHERE brand_kit_id = bk.id) AS site_count
             FROM brand_kits bk
             LEFT JOIN google_accounts ga ON bk.google_account_id = ga.id
             LEFT JOIN users u ON bk.created_by = u.id
-            ORDER BY bk.id
+            ORDER BY u.username, bk.id
         """).fetchall()
+
+        # Group by operator
+        operators = {}
+        for r in rows:
+            uid = r["user_id"] or 0
+            uname = r["operator_name"] or "未分配"
+            if uid not in operators:
+                operators[uid] = {
+                    "user_id": uid, "operator_name": uname,
+                    "kits": [], "google_count": 0, "profile_count": 0,
+                    "google_cost": 0, "profile_cost": 0, "total_cost": 0,
+                }
+            op = operators[uid]
+            op["kits"].append(dict(r))
+            if r["google_email"]:
+                op["google_count"] += 1
+            if r["cloakbrowser_profile_name"]:
+                op["profile_count"] += 1
+
+        PRICE_GOOGLE = 1  # RMB per Google account
+        PRICE_PROFILE = 2  # RMB per fingerprint profile
+
+        for op in operators.values():
+            op["google_cost"] = op["google_count"] * PRICE_GOOGLE
+            op["profile_cost"] = op["profile_count"] * PRICE_PROFILE
+            op["total_cost"] = op["google_cost"] + op["profile_cost"]
+
         free_ga = db.execute(
             "SELECT COUNT(*) FROM google_accounts WHERE occupied_kit_id IS NULL "
             "AND id NOT IN (SELECT google_account_id FROM brand_kits WHERE google_account_id IS NOT NULL)"
         ).fetchone()[0]
+
         return jsonify({"code": 200, "data": {
-            "kits": [dict(r) for r in rows],
+            "operators": list(operators.values()),
+            "pricing": {"google": PRICE_GOOGLE, "profile": PRICE_PROFILE},
             "stats": {
-                "total": len(rows),
-                "complete": sum(1 for r in rows if r["google_email"] and r["cloakbrowser_profile_name"] and r["has_totp"]),
-                "missing_google": sum(1 for r in rows if not r["google_email"]),
-                "missing_profile": sum(1 for r in rows if not r["cloakbrowser_profile_name"]),
-                "missing_totp": sum(1 for r in rows if r["google_email"] and not r["has_totp"]),
+                "total_google": sum(o["google_count"] for o in operators.values()),
+                "total_profile": sum(o["profile_count"] for o in operators.values()),
+                "total_cost": sum(o["total_cost"] for o in operators.values()),
                 "free_google": free_ga,
             },
         }})
