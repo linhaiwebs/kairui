@@ -268,7 +268,6 @@ def init_db():
             created_at TEXT
         )
     """)
-    # Migration: add site_id for per-site product/feed isolation
     try: cursor.execute("ALTER TABLE woocommerce_products ADD COLUMN site_id INTEGER REFERENCES sites(id)")
     except Exception: pass
     try: cursor.execute("ALTER TABLE generated_feed ADD COLUMN site_id INTEGER REFERENCES sites(id)")
@@ -276,7 +275,7 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_woo_products_site ON woocommerce_products(site_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_generated_feed_site ON generated_feed(site_id)")
 
-    # Users table -- admin + operator roles
+    # Users table — admin + operator roles
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -312,7 +311,7 @@ def init_db():
         )
     """)
 
-    # 1Panel environments -- multi-panel support
+    # 1Panel environments — multi-panel support
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS panel_environments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -341,7 +340,7 @@ def init_db():
         )
     """)
 
-    # Static site products -- product data for static e-commerce sites (replaces WooCommerce)
+    # Static site products — product data for static e-commerce sites (replaces WooCommerce)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS static_site_products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -371,7 +370,7 @@ def init_db():
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_static_site_products_sid ON static_site_products(site_id)")
 
-    # Brand kits -- AI-generated brand kits with logo + assets
+    # Brand kits — AI-generated brand kits with logo + assets
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS brand_kits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -572,7 +571,7 @@ def _migrate_add_columns(conn):
     except Exception as e:
         logger.error("google_accounts migration: %s", e)
 
-    # Cleanup orphaned occupancy -- google_accounts/proxies pointing to non-existent brand_kits
+    # Cleanup orphaned occupancy — google_accounts/proxies pointing to non-existent brand_kits
     try:
         # Google accounts: release occupancy where brand kit no longer exists
         orphan_ga = conn.execute(
@@ -944,7 +943,7 @@ def _migrate_text_ids_to_int(conn):
                     )
                 conn.commit()
         except Exception:
-            pass  # Non-critical -- CREATE TABLE IF NOT EXISTS will handle it
+            pass  # Non-critical — CREATE TABLE IF NOT EXISTS will handle it
 
 
 def _reset_sequence_if_empty(conn, table):
@@ -994,7 +993,7 @@ def _compact_ids(conn, table):
     temp_table = f"_{table}_tmp"
     conn.execute(f'DROP TABLE IF EXISTS "{temp_table}"')
 
-    # Recreate with same schema but temp name -- handle both quoted and unquoted table names
+    # Recreate with same schema but temp name — handle both quoted and unquoted table names
     if original_schema:
         import re
         temp_schema = re.sub(
@@ -1839,7 +1838,7 @@ def get_feed_stats():
 
 # ---- Generated Feed Products ----
 
-def save_generated_feed_product(data: dict, site_id=None) -> int:
+def save_generated_feed_product(data: dict) -> int:
     conn = get_db()
     try:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1865,7 +1864,6 @@ def save_generated_feed_product(data: dict, site_id=None) -> int:
                 data.get("source_url", ""),
                 data.get("category", ""),
                 json.dumps(data.get("extra_data", {}), ensure_ascii=False),
-                data.get("site_id"),
                 now,
             ),
         )
@@ -1875,17 +1873,12 @@ def save_generated_feed_product(data: dict, site_id=None) -> int:
         conn.close()
 
 
-def list_generated_feed(site_id=None) -> list[dict]:
+def list_generated_feed() -> list[dict]:
     conn = get_db()
     try:
-        if site_id:
-            rows = conn.execute(
-                "SELECT * FROM generated_feed WHERE site_id = ? OR site_id IS NULL ORDER BY id DESC", (site_id,)
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM generated_feed ORDER BY id DESC"
-            ).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM generated_feed ORDER BY id DESC"
+        ).fetchall()
         results = []
         for r in rows:
             d = dict(r)
@@ -1920,13 +1913,10 @@ def delete_generated_feed_items(ids: list[int]) -> int:
         conn.close()
 
 
-def clear_generated_feed(site_id=None) -> int:
+def clear_generated_feed() -> int:
     conn = get_db()
     try:
-        if site_id:
-            conn.execute("DELETE FROM generated_feed WHERE site_id = ?", (site_id,))
-        else:
-            conn.execute("DELETE FROM generated_feed")
+        conn.execute("DELETE FROM generated_feed")
         conn.commit()
         return conn.total_changes
     finally:
@@ -1942,8 +1932,7 @@ def save_woocommerce_product(data: dict) -> int:
         conn.execute(
             """INSERT INTO woocommerce_products
                (name, sku, regular_price, sale_price, description, short_description,
-                categories, tags, images, stock_status, brand, source_url, extra_data, site_id, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                categories, tags, images, stock_status, brand, source_url, extra_data, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("name", ""),
@@ -1959,7 +1948,6 @@ def save_woocommerce_product(data: dict) -> int:
                 data.get("brand", ""),
                 data.get("source_url", ""),
                 json.dumps(data.get("extra_data", {}), ensure_ascii=False),
-                data.get("site_id"),
                 now,
             ),
         )
@@ -1969,17 +1957,12 @@ def save_woocommerce_product(data: dict) -> int:
         conn.close()
 
 
-def list_woocommerce_products(site_id=None) -> list[dict]:
+def list_woocommerce_products() -> list[dict]:
     conn = get_db()
     try:
-        if site_id:
-            rows = conn.execute(
-                "SELECT * FROM woocommerce_products WHERE site_id = ? OR site_id IS NULL ORDER BY id DESC", (site_id,)
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM woocommerce_products ORDER BY id DESC"
-            ).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM woocommerce_products ORDER BY id DESC"
+        ).fetchall()
         results = []
         for r in rows:
             d = dict(r)
@@ -1993,7 +1976,7 @@ def list_woocommerce_products(site_id=None) -> list[dict]:
         conn.close()
 
 
-def delete_woocommerce_products(ids: list[int], site_id=None) -> int:
+def delete_woocommerce_products(ids: list[int]) -> int:
     if not ids:
         return 0
     conn = get_db()
@@ -2008,13 +1991,10 @@ def delete_woocommerce_products(ids: list[int], site_id=None) -> int:
         conn.close()
 
 
-def clear_woocommerce_products(site_id=None) -> int:
+def clear_woocommerce_products() -> int:
     conn = get_db()
     try:
-        if site_id:
-            conn.execute("DELETE FROM woocommerce_products WHERE site_id = ?", (site_id,))
-        else:
-            conn.execute("DELETE FROM woocommerce_products")
+        conn.execute("DELETE FROM woocommerce_products")
         conn.commit()
         return conn.total_changes
     finally:
@@ -2566,7 +2546,7 @@ def create_brand_kit(data: dict) -> dict:
             except Exception as e:
                 logger.error("create_brand_kit: google_accounts UPDATE failed: %s", e)
         else:
-            logger.info("create_brand_kit: google_account_id is falsy -- skipping occupancy update")
+            logger.info("create_brand_kit: google_account_id is falsy — skipping occupancy update")
 
         conn.commit()
         # Force WAL checkpoint so other connections see the write immediately
@@ -2918,7 +2898,7 @@ def import_proxies_from_text(text: str, proxy_type: str = "http") -> int:
 
 
 def list_proxies() -> list:
-    """List all proxies with occupancy info -- bidirectional check."""
+    """List all proxies with occupancy info — bidirectional check."""
     conn = get_db()
     try:
         rows = conn.execute(
@@ -2941,7 +2921,7 @@ def list_proxies() -> list:
 
 
 def get_available_proxies() -> list:
-    """List all proxies with occupancy info -- bidirectional check."""
+    """List all proxies with occupancy info — bidirectional check."""
     conn = get_db()
     try:
         rows = conn.execute(
@@ -2988,7 +2968,7 @@ def get_proxy(proxy_id: int) -> dict | None:
 # ---------------------------------------------------------------------------
 
 def list_google_accounts() -> list:
-    """List all Google accounts with occupancy info -- bidirectional check.
+    """List all Google accounts with occupancy info — bidirectional check.
 
     Uses occupied_kit_id if valid, otherwise falls back to checking which brand_kit
     references this account. This handles cases where create_brand_kit's occupancy
@@ -3017,7 +2997,7 @@ def list_google_accounts() -> list:
 
 
 def get_available_google_accounts() -> list:
-    """List all Google accounts with occupancy info -- bidirectional check."""
+    """List all Google accounts with occupancy info — bidirectional check."""
     conn = get_db()
     try:
         rows = conn.execute(
@@ -3128,7 +3108,7 @@ def release_google_account(kit_id: int) -> None:
 
 
 # ============================================================
-# Static Site Products -- CRUD (replaces WooCommerce products)
+# Static Site Products — CRUD (replaces WooCommerce products)
 # ============================================================
 
 def create_static_site_product(data: dict) -> dict:
