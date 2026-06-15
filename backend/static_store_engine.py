@@ -182,7 +182,14 @@ def _load_design(brand_kit):
         except (json.JSONDecodeError, TypeError):
             ds = {}
     if not ds or not ds.get("layout"):
-        ds = DEFAULT_DESIGN
+        ds = dict(DEFAULT_DESIGN)
+        sr = brand_kit.get("design_system", {})
+        if isinstance(sr, str):
+            try: sr = json.loads(sr)
+            except: sr = {}
+        if sr.get("style_recipe"):
+            ds["style_recipe"] = sr["style_recipe"]
+    return ds
     return ds
 
 
