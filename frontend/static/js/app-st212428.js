@@ -349,10 +349,8 @@ const app = createApp({
         const userForm = reactive({ username: '', password: '', role: 'operator', panel_environment_id: null });
         const userFormError = ref('');
         // Fingerprint Categories & Profile Mapping
-        const fingerprintCategories = ref([]);
         const importFileInput = ref(null);
 
-        const profileCategories = ref([]);  // profile_name → category_id mapping
         // Settings Tabs
         const statsSubmenuOpen = ref(false);
         function toggleStats() { statsSubmenuOpen.value = !statsSubmenuOpen.value; }
@@ -2702,13 +2700,7 @@ pipelineStatuses[siteId].demo_importing = false;
         // Remove profile from current category (set to uncategorized)
         
 
-        async function handleSetProfileCategory(profileName, categoryId) {
-            try {
-                const resp = await API.setProfileCategory(profileName, categoryId);
-                if (resp.code === 200) { showToast('分类已更新'); loadProfileCategories(); }
-                else { showToast(resp.message || '更新失败', 'error'); }
-            } catch (e) { showToast('更新失败', 'error'); }
-        }
+        
 
         onMounted(async () => {
             if (API.token) { try { const resp = await API.checkAuth(); if (resp.code === 200) { isLoggedIn.value = true; currentUser.value = resp.data.username; currentUserRole.value = resp.data.role || ''; currentUserId.value = resp.data.user_id || null; currentPanelEnv.value = resp.data.panel_environment || null; await loadInitialData(); } } catch (e) { API.logout(); } }
@@ -2803,7 +2795,6 @@ pipelineStatuses[siteId].demo_importing = false;
             handleDownloadBrandKitFile, loadBrandKitConfigForms, saveBrandKitConfig,
             users, showUserModal, userEditId, userForm, userFormError,
             loadUsers, openUserModal, closeUserModal, handleSaveUser, handleDeleteUser,
-            loadProfileCategories, handleSetProfileCategory,
 
             resourceActiveTab, resourceOperators, resourceStats, loadResourceOverview,
             toggleStats, statsSubmenuOpen, settingsActiveTab, settingsTabs,
