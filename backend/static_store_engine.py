@@ -3,6 +3,7 @@ import json
 import os
 import logging
 
+import hashlib
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -1467,6 +1468,113 @@ def _render_warm(products, design, brand_kit, brand_name, headline, subheadline)
 <footer style="border-top:2px solid var(--border);padding:40px 24px;text-align:center;border-radius:32px 32px 0 0"><p style="font-size:13px;color:var(--muted)">{_esc(footer_text)}</p></footer>
 {_foot()}"""
 
+
+# ====================================================================
+# AI-generated unique templates per recipe (cached)
+# ====================================================================
+
+import requests as _http_req
+
+def _render_ai(products, design, brand_kit, brand_name, headline, subheadline):
+    """Generate a unique HTML template for the current recipe via DeepSeek.
+    Cached to backend/recipe_templates/ for subsequent use."""
+    style_recipe = design.get("style_recipe", "") or brand_kit.get("design_system", {}).get("style_recipe", "")
+    recipe = STYLE_RECIPES.get(style_recipe, {})
+    if not style_recipe or not recipe:
+        return None  # fall back to archetype dispatch
+    
+    # Cache directory
+    
+    # Try AI-generated unique template first
+    ai_html = _render_ai(products, design, brand_kit, brand_name, headline, subheadline)
+    if ai_html:
+        return ai_html
+    
+    import os as _os
+    cache_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "recipe_templates")
+    _os.makedirs(cache_dir, exist_ok=True)
+    cache_path = _os.path.join(cache_dir, f"{style_recipe}.html")
+    
+    # Check cache
+    template = None
+    if _os.path.exists(cache_path):
+        with open(cache_path, "r", encoding="utf-8") as f:
+            template = f.read()
+    
+    if not template:
+        # Build DeepSeek prompt with recipe data
+        p = recipe.get("palette", {})
+        recipe_info = f"""Palette: primary={p.get("primary")} accent={p.get("accent")} bg={p.get("bg")} text={p.get("text")} muted={p.get("muted")} border={p.get("border")}
+Typography: {recipe.get("typography", "Inter, sans-serif")}
+Radius: {recipe.get("radius", "8px")} Shadow: {recipe.get("shadow", "none")}
+Signature: {recipe.get("signature", "")}
+Avoid: {recipe.get("anti_patterns", "")}"""
+        prompt = f"""Generate a COMPLETE e-commerce homepage HTML for: {recipe.get("name", style_recipe)}
+
+RECIPE: {recipe_info}
+
+REQUIREMENTS:
+- Brand: {brand_name}, Headline: {headline}
+- Must be valid HTML5 with inline CSS (no external deps)
+- Include: header nav, hero section, product grid placeholder, footer
+- Use ONLY the recipe palette colors. No AI-cliche gradients.
+- Fonts: use the recipe typography if specified, else system fonts
+- Radius and shadow must match recipe values
+- Mobile responsive with viewport meta
+- Products placeholder: {{PRODUCTS}}
+- Footer text placeholder: {{FOOTER}}
+- Headline placeholder: {{HEADLINE}}
+- Subheadline placeholder: {{SUBHEADLINE}}
+- Brand name placeholder: {{BRAND}}
+
+Output ONLY the HTML. No markdown, no explanation."""
+        try:
+            from services.api_key_rotator import get_deepseek_keys, rotate_deepseek
+            keys = get_deepseek_keys()
+            if keys:
+                def _call(key):
+                    resp = _http_req.post(
+                        "https://api.deepseek.com/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                        json={"model": "deepseek-chat", "messages": [
+                            {"role": "system", "content": "You are a senior web designer. Generate only valid HTML. No markdown."},
+                            {"role": "user", "content": prompt}
+                        ], "temperature": 0.7, "max_tokens": 4000}, timeout=60)
+                    if resp.status_code == 200:
+                        return resp.json()["choices"][0]["message"]["content"].strip()
+                    return None
+                template = rotate_deepseek(_call, keys)
+                if template:
+                    template = template.lstrip("```html").lstrip("```").rstrip("```").strip()
+                    if template.startswith("<!DOCTYPE") or template.startswith("<html"):
+                        with open(cache_path, "w", encoding="utf-8") as f:
+                            f.write(template)
+                        logger.info(f"AI template cached: {style_recipe}")
+        except Exception as e:
+            logger.warning(f"AI template generation failed for {style_recipe}: {e}")
+    
+    if not template:
+        return None
+    
+    # Build product cards
+    cards = ""
+    for p in products:
+        pid = p.get("id", ""); title = _esc(p.get("title") or "Product")
+        price = p.get("price"); image = p.get("image_url", "") or p.get("images", "")
+        if image and isinstance(image, str) and "|" in image: image = image.split("|")[0]
+        img = f"<img src=\"{_esc(image)}\" alt=\"{title}\">" if image else f"<div>No Image</div>"
+        cards += f"<a href=\"/products/{pid}/\" class=\"product-card\">{img}<h3>{title}</h3><span>${float(price or 0):.2f}</span></a>"
+
+    if not cards: cards = "<p>Products coming soon</p>"
+    footer_text = _get_footer_text(brand_kit)
+    
+    # Fill placeholders
+    html = template.replace("{{BRAND}}", _esc(brand_name))
+    html = html.replace("{{HEADLINE}}", _esc(headline))
+    html = html.replace("{{SUBHEADLINE}}", _esc(subheadline))
+    html = html.replace("{{PRODUCTS}}", cards)
+    html = html.replace("{{FOOTER}}", _esc(footer_text))
+    return html
 
 def render_homepage(products, design, brand_kit):
     """Dispatch to layout archetype based on style_recipe."""
