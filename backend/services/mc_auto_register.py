@@ -806,10 +806,10 @@ async def _extract_mc_id(page) -> str:
             (() => {
                 const body = document.body.innerText;
                 // Match MC ID patterns like "MC ID: 123456789" or just a large numeric ID
-                const m = body.match(/MC\\s*ID[:\s]*(\\d{6,})/i);
+                const m = body.match(/MC\\s*ID[:\\s]*(\\d{6,})/i);
                 if (m) return m[1];
                 // Look for account ID in the page
-                const m2 = body.match(/(?:account|merchant)\\s*(?:ID|number)[:\s]*(\\d{6,})/i);
+                const m2 = body.match(/(?:account|merchant)\\s*(?:ID|number)[:\\s]*(\\d{6,})/i);
                 if (m2) return m2[1];
                 // Try URL pattern: /a/123456789/
                 const m3 = location.href.match(/\\/a\\/(\\d{6,})/);
