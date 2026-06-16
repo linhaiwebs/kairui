@@ -1940,8 +1940,8 @@ def save_woocommerce_product(data: dict) -> int:
         conn.execute(
             """INSERT INTO woocommerce_products
                (name, sku, regular_price, sale_price, description, short_description,
-                categories, tags, images, stock_status, brand, source_url, extra_data, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                categories, tags, images, stock_status, brand, source_url, extra_data, site_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("name", ""),
                 data.get("sku", ""),
@@ -1956,6 +1956,7 @@ def save_woocommerce_product(data: dict) -> int:
                 data.get("brand", ""),
                 data.get("source_url", ""),
                 json.dumps(data.get("extra_data", {}), ensure_ascii=False),
+                data.get("site_id"),
                 now,
             ),
         )
