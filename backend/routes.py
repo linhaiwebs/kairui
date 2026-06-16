@@ -2758,6 +2758,27 @@ def register_routes(app):
             env = get_panel_environment(env_id)
             if not env:
                 return jsonify({"code": 404, "message": "环境不存在"}), 404
+
+            # Check if any operators are bound to this environment
+            from models import get_db
+            db = get_db()
+            bound_users = db.execute(
+                "SELECT id, username FROM users WHERE panel_environment_id = ?", (env_id,)
+            ).fetchall()
+            if bound_users:
+                names = ", ".join(u["username"] for u in bound_users)
+                return jsonify({"code": 400, "message": f"无法删除：以下运营人员绑定了此环境：{names}。请先解除绑定。"}), 400
+
+            # Check if any sites use this environment (via creator's binding)
+            user_ids = [u["id"] for u in bound_users] if bound_users else []
+            if user_ids:
+                bound_sites = db.execute(
+                    "SELECT COUNT(*) FROM sites WHERE created_by IN ({})".format(",".join("?"*len(user_ids))),
+                    user_ids
+                ).fetchone()[0]
+                if bound_sites:
+                    return jsonify({"code": 400, "message": f"无法删除：有 {bound_sites} 个站点关联此环境。请先删除站点或更换运营的环境。"}), 400
+
             delete_panel_environment(env_id)
             return jsonify({"code": 200, "message": "已删除"})
         except Exception as e:
@@ -5531,7 +5552,7 @@ def register_routes(app):
         - Orphaned WordPress apps (installed but no website in 1Panel)
         - Sites where the 1Panel website was deleted externally
         """
-        results = {"updated": 0, "cleared": 0, "imported": 0, "errors": [], "sites": []}
+        results = {"updated": 0, "cleared": 0, "warnings": 0, "imported": 0, "errors": [], "sites": []}
         try:
             def _fetch_panel_data(pc):
                 """Fetch all websites + apps from one 1Panel environment."""
@@ -5602,19 +5623,11 @@ def register_routes(app):
 
                     if pwid:
                         if pwid not in websites:
-                            updates["panel_website_id"] = None
-                            updates["panel_app_install_id"] = None
-                            results["cleared"] += 1
-                            site_status = "cleared"
-                            logger.info(f"Sync: cleared stale panel IDs for site {sid} ({site_name})")
+                            logger.warning(f"Sync: site {sid} ({site_name}) panel_website_id={pwid} not found in env {env_key} — KEPT (may be wrong env, check operator binding)")
+                            results["warnings"] = results.get("warnings", 0) + 1
 
-                    if paid and paid not in apps and "panel_app_install_id" not in updates:
-                        updates["panel_app_install_id"] = None
-                        if "panel_website_id" not in updates:
-                            updates["panel_website_id"] = None
-                        results["cleared"] += 1
-                        site_status = "cleared"
-                        logger.info(f"Sync: cleared stale panel app ID for site {sid}")
+                    if paid and paid not in apps:
+                        logger.warning(f"Sync: site {sid} ({site_name}) panel_app_install_id={paid} not found in env {env_key} — KEPT")
 
                     if pwid and not paid and pwid in websites:
                         pw = websites[pwid]
