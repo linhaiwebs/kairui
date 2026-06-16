@@ -2482,7 +2482,20 @@ def register_routes(app):
                     else:
                         msg = f"1Panel未删除(id={pid}): {del_resp.get('message', str(del_resp))[:100]}"
                         logger.warning(msg)
-                        cleanup_errors.append(msg)
+                        # Fallback: try to find by domain
+                        if domain:
+                            try:
+                                ws = pc.search_websites(name=domain)
+                                if ws.get("code") == 200:
+                                    for w in (ws.get("data") or {}).get("items", []) or []:
+                                        if w.get("primaryDomain") == domain and w.get("id") != pid:
+                                            logger.info(f"Fallback: found website id={w['id']} for {domain}, deleting...")
+                                            del_resp2 = pc.delete_website(w["id"], delete_app=False, delete_backup=True, force_delete=True, delete_db=False)
+                                            if del_resp2.get("code") == 200:
+                                                logger.info(f"Fallback: deleted 1Panel website {w['id']}")
+                                            break
+                            except Exception as fe:
+                                logger.warning(f"Fallback search failed: {fe}")
                 except Exception as e:
                     msg = f"网站删除失败: {str(e)[:80]}"
                     logger.warning(msg)
