@@ -904,6 +904,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 walmartEnrichProgress.value = '';
             }
         }
+        function onFeedSiteChange() { loadGeneratedFeed(); }
         async function loadGeneratedFeed() {
             try {
                 const resp = await API.listGeneratedFeed(feedSyncSiteId.value || null);
@@ -1294,6 +1295,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 wooConverting.value = false;
             }
         }
+        function onWooSiteChange() { wooActiveSiteTab.value = wooSyncSiteId.value; loadWooProducts(wooSyncSiteId.value); }
         async function loadWooProducts(siteId) {
             try {
                 const sid = siteId || wooActiveSiteTab.value;
@@ -2733,7 +2735,7 @@ pipelineStatuses[siteId].demo_importing = false;
             handleAmazonFileUpload, toggleAmazonSelect, selectAllAmazon,
             closeConvertLogModal, toggleFeedSelect, selectAllFeed, deleteSelectedFeedItems, showFeedDescription, buildFeedDetailText,
             wooProducts, wooSelectedIndices, wooConverting, wooConvertProgress,
-            feedSyncSiteId, wooSyncSiteId, wooActiveSiteTab, syncingFeed, syncingWoo,
+            feedSyncSiteId, wooSyncSiteId, wooActiveSiteTab, onWooSiteChange, onFeedSiteChange, syncingFeed, syncingWoo,
             convertToWooCommerce, loadWooProducts, toggleWooSelect, selectAllWoo, deleteSelectedWooProducts,
             createFeedForSite, cleanFeedFromSite, syncWooToSite, cleanWooFromSite, generateFeedFromWoo, wooGeneratingFeed, feedUrl,
             csvUploading, csvFileInput, handleCsvUpload,
@@ -3868,7 +3870,7 @@ pipelineStatuses[siteId].demo_importing = false;
                         </a>
                     </h3>
                         <!-- Site selector -->
-                        <select v-model="feedSyncSiteId" @change="loadGeneratedFeed()" class="border rounded-lg px-3 py-2 text-sm bg-surface-container-lowest focus:ring-2 focus:ring-green-300">
+                        <select v-model="feedSyncSiteId" @change="onFeedSiteChange()" class="border rounded-lg px-3 py-2 text-sm bg-surface-container-lowest focus:ring-2 focus:ring-green-300">
                             <option :value="null">-- 选择站点 --</option>
                             <option v-for="site in sites" :key="site.id" :value="site.id">{{ site.site_name }} ({{ site.url }})</option>
                         </select>
@@ -4094,8 +4096,10 @@ pipelineStatuses[siteId].demo_importing = false;
                         <span v-if="wooProducts.length" class="text-sm text-on-surface-variant ml-2">({{ wooProducts.length }} 件商品)</span>
                     </h3>
                     <div class="flex items-center gap-3">
+                        <!-- Site tabs -->
+                        <div class="flex gap-1"><button @click="wooActiveSiteTab=null;wooSyncSiteId=null;loadWooProducts(null)" :class="[!wooActiveSiteTab ? 'bg-primary text-on-primary' : 'bg-surface-container text-on-surface-variant', 'px-2 py-1 rounded text-xs']">全部</button><button v-for="s in sites" :key="'tab'+s.id" @click="wooActiveSiteTab=s.id;wooSyncSiteId=s.id;loadWooProducts(s.id)" :class="[wooActiveSiteTab===s.id ? 'bg-primary text-on-primary' : 'bg-surface-container text-on-surface-variant', 'px-2 py-1 rounded text-xs']">{{ s.site_name }}</button></div>
                         <!-- Site selector -->
-                        <select v-model="wooSyncSiteId" @change="wooActiveSiteTab=wooSyncSiteId;loadWooProducts()" class="border rounded-lg px-3 py-2 text-sm bg-surface-container-lowest focus:ring-2 focus:ring-blue-300">
+                        <select v-model="wooSyncSiteId" @change="onWooSiteChange()" class="border rounded-lg px-3 py-2 text-sm bg-surface-container-lowest focus:ring-2 focus:ring-blue-300">
                             <option :value="null">-- 选择站点 --</option>
                             <option v-for="site in sites" :key="site.id" :value="site.id">{{ site.site_name }} ({{ site.url }})</option>
                         </select>
