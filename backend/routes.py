@@ -8570,7 +8570,7 @@ Respond with strict JSON only (no markdown code blocks):
         if not site:
             return jsonify({"code": 404, "message": "站点不存在"}), 404
 
-        products = list_woocommerce_products()
+        products = list_woocommerce_products(site_id)
         if not products:
             return jsonify({"code": 400, "message": "没有产品可同步"}), 400
 
