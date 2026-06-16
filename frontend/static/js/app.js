@@ -903,7 +903,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 walmartEnrichProgress.value = '';
             }
         }
-        function onFeedSiteChange() { loadGeneratedFeed(); }
+        watch(feedSyncSiteId, (newVal) => { if (currentPage.value === 'shai-pin-feed') loadGeneratedFeed(); });
         async function loadGeneratedFeed() {
             try {
                 const resp = await API.listGeneratedFeed(feedSyncSiteId.value || null);
@@ -1663,6 +1663,9 @@ pipelineStatuses[siteId].demo_importing = false;
             }
             if (page === 'woocommerce-products') {
                 loadWooProducts(wooSyncSiteId.value);
+            }
+            if (page === 'shai-pin-feed') {
+                loadGeneratedFeed();
             }
             if (page === 'sites') {
                 pipelinePollTimer = setInterval(() => {
@@ -2735,7 +2738,7 @@ pipelineStatuses[siteId].demo_importing = false;
             handleAmazonFileUpload, toggleAmazonSelect, selectAllAmazon,
             closeConvertLogModal, toggleFeedSelect, selectAllFeed, deleteSelectedFeedItems, showFeedDescription, buildFeedDetailText,
             wooProducts, wooSelectedIndices, wooConverting, wooConvertProgress,
-            feedSyncSiteId, wooSyncSiteId, onFeedSiteChange, syncingFeed, syncingWoo,
+            feedSyncSiteId, wooSyncSiteId, syncingFeed, syncingWoo,
             convertToWooCommerce, loadWooProducts, toggleWooSelect, selectAllWoo, deleteSelectedWooProducts,
             createFeedForSite, cleanFeedFromSite, syncWooToSite, cleanWooFromSite, generateFeedFromWoo, wooGeneratingFeed, feedUrl,
             csvUploading, csvFileInput, handleCsvUpload,
@@ -3842,7 +3845,7 @@ pipelineStatuses[siteId].demo_importing = false;
                         </a>
                     </h3>
                         <!-- Site selector -->
-                        <select v-model="feedSyncSiteId" @change="onFeedSiteChange()" class="border rounded-lg px-3 py-2 text-sm bg-surface-container-lowest focus:ring-2 focus:ring-green-300">
+                        <select v-model="feedSyncSiteId" class="border rounded-lg px-3 py-2 text-sm bg-surface-container-lowest focus:ring-2 focus:ring-green-300">
                             <option :value="null">-- 选择站点 --</option>
                             <option v-for="site in sites" :key="site.id" :value="site.id">{{ site.site_name }} ({{ site.url }})</option>
                         </select>

@@ -1846,8 +1846,8 @@ def save_generated_feed_product(data: dict) -> int:
             """INSERT INTO generated_feed
                (title, price, currency, brand, item_id, ratings, reviews_count,
                 description, images, features, breadcrumbs, thumbnail,
-                source_url, category, extra_data, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                source_url, category, extra_data, site_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("title", ""),
                 data.get("price", ""),
@@ -1864,6 +1864,7 @@ def save_generated_feed_product(data: dict) -> int:
                 data.get("source_url", ""),
                 data.get("category", ""),
                 json.dumps(data.get("extra_data", {}), ensure_ascii=False),
+                data.get("site_id"),
                 now,
             ),
         )
