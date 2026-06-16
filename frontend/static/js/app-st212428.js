@@ -3119,11 +3119,6 @@ pipelineStatuses[siteId].demo_importing = false;
                         </table>
                     </div>
                 </div>
-                <div v-else class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center text-on-surface-variant">
-                    <i class="fas fa-chart-bar text-5xl mb-4"></i>
-                    <p class="text-lg font-medium text-on-surface-variant mb-2">暂无销售数据</p>
-                    <p>请先创建站点并安装 网站产品</p>
-                </div>
             </div>
 
             <!-- Sites List -->
@@ -3132,8 +3127,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     <div class="relative"><i class="fas fa-search absolute left-3 top-3 text-on-surface-variant"></i><input v-model="searchQuery" type="text" placeholder="搜索站点..." class="pl-10 pr-4 py-2 border rounded-lg focus:border-primary w-64"></div>
                     <div class="flex gap-3"><button @click="openWizard('single')" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><span class="material-symbols-outlined text-[18px]">add_circle</span>创建站点</button><button @click="exportCSV" class="btn btn-secondary text-sm"><i class="fas fa-download mr-2"></i>导出CSV</button></div>
                 </div>
-                <div v-if="!filteredSites.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center text-on-surface-variant"><i class="fas fa-inbox text-4xl mb-4"></i><p>暂无站点，点击"创建站点"开始</p></div>
-                <div v-else class="space-y-3">
+                <div class="space-y-3">
                     <div v-for="site in filteredSites" :key="site.id" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4">
                         <!-- Main row: site info + timeline + actions -->
                         <div class="flex items-center gap-3">
@@ -3460,11 +3454,6 @@ pipelineStatuses[siteId].demo_importing = false;
                     </div>
                 </div>
 
-                <div v-else class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center text-on-surface-variant">
-                    <i class="fas fa-chart-bar text-5xl mb-4"></i>
-                    <p class="text-lg font-medium text-on-surface-variant mb-2">暂无筛品数据</p>
-                    <p>请先在站点中添加 Feed 商品数据</p>
-                </div>
             </div>
 
             <!-- 筛品 - 商品来源 -->
@@ -3624,22 +3613,6 @@ pipelineStatuses[siteId].demo_importing = false;
                             </div>
                         </div>
                     </div>
-                </div>
-
-                <div v-if="sourceTab === 'amazon'" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center">
-                    <div class="w-20 h-20 bg-orange-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                        <i class="fab fa-amazon text-tertiary text-3xl"></i>
-                    </div>
-                    <h3 class="text-lg font-semibold text-on-surface mb-2">亚马逊网品商品来源</h3>
-                    <p class="text-on-surface-variant">此功能正在开发中，敬请期待...</p>
-                </div>
-
-                <div v-if="sourceTab === 'tiktok'" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center">
-                    <div class="w-20 h-20 bg-gray-800 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                        <i class="fab fa-tiktok text-on-primary text-3xl"></i>
-                    </div>
-                    <h3 class="text-lg font-semibold text-on-surface mb-2">tiktok爆款商品来源</h3>
-                    <p class="text-on-surface-variant">此功能正在开发中，敬请期待...</p>
                 </div>
 
                 <!-- 爆品导入 Tab Content -->
@@ -3892,18 +3865,8 @@ pipelineStatuses[siteId].demo_importing = false;
                     </div>
                 </div>
 
-                <!-- Empty state -->
-                <div v-if="!generatedFeed.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center">
-                    <div class="w-20 h-20 bg-[#146c2e]/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                        <i class="fas fa-file-export text-[#146c2e] text-3xl"></i>
-                    </div>
-                    <h3 class="text-lg font-semibold text-on-surface mb-2">Feed 生成</h3>
-                    <p class="text-on-surface-variant mb-1">暂无生成数据</p>
-                    <p class="text-xs text-on-surface-variant">从 网站产品页面点击「生成 Feed」或在商品来源导入产品后在此创建</p>
-                </div>
-
                 <!-- Feed product table -->
-                <div v-else class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
+                <div v-if="generatedFeed.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                     <!-- Toolbar -->
                     <div class="px-6 py-3 bg-surface-container-low border-b flex items-center justify-between text-xs text-on-surface-variant">
                         <span>共 {{ generatedFeed.length }} 件产品</span>
@@ -4124,24 +4087,8 @@ pipelineStatuses[siteId].demo_importing = false;
                     </div>
                 </div>
 
-                <div v-if="!wooProducts.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center">
-                    <div class="w-20 h-20 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                        <i class="fas fa-shopping-cart text-primary text-3xl"></i>
-                    </div>
-                    <h3 class="text-lg font-semibold text-on-surface mb-2">网站产品 产品</h3>
-                    <p class="text-on-surface-variant mb-1">暂无 网站产品 产品</p>
-                    <p class="text-xs text-on-surface-variant">上传 CSV 文件批量导入，或在商品来源页面使用「爆品导入」</p>
-                    <div class="mt-4 flex items-center justify-center gap-3">
-                        <label class="px-4 py-2 bg-primary-container text-on-primary rounded-lg text-sm cursor-pointer hover:bg-primary transition">
-                            <i class="fas fa-upload mr-1"></i>上传 CSV
-                            <input type="file" accept=".csv" @change="handleCsvUpload" class="hidden" ref="csvFileInput">
-                        </label>
-                        <span v-if="csvUploading" class="text-xs text-on-surface-variant"><i class="fas fa-spinner fa-spin mr-1"></i>解析中...</span>
-                    </div>
-                </div>
-
                 <!-- 网站产品 product table -->
-                <div v-else class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
+                <div v-if="wooProducts.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                     <div class="px-6 py-3 bg-surface-container-low border-b flex items-center justify-between text-xs text-on-surface-variant">
                         <span>共 {{ wooProducts.length }} 件产品</span>
                         <div class="flex items-center gap-3">
@@ -4518,15 +4465,6 @@ pipelineStatuses[siteId].demo_importing = false;
                 </div>
 
                 <div v-if="brandKitsLoading" class="text-center py-20"><span class="spinner w-4 h-4 inline-block"></span></div>
-
-                <div v-else-if="!brandKits.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-12 text-center">
-                    <div class="w-20 h-20 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                        <i class="fas fa-paint-brush text-primary text-3xl"></i>
-                    </div>
-                    <h3 class="text-lg font-semibold text-on-surface mb-2">暂无品牌套件</h3>
-                    <p class="text-on-surface-variant mb-4">创建品牌套件，使用AI生成专属Logo和品牌资源</p>
-                    <button @click="openBrandKitModal(null)" class="btn-primary text-on-primary px-6 py-2 rounded-lg"><i class="fas fa-plus mr-2"></i>创建第一个套件</button>
-                </div>
 
                 <div v-else class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                     <table class="w-full">
