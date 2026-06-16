@@ -3,6 +3,7 @@
 const app = createApp({
     setup() {
         const isLoggedIn = ref(false);
+        const authChecked = ref(false);
         const currentUser = ref('');
         const currentUserRole = ref('');
         const currentUserId = ref(null);
@@ -2721,11 +2722,24 @@ pipelineStatuses[siteId].demo_importing = false;
         
 
         onMounted(async () => {
-            if (API.token) { try { const resp = await API.checkAuth(); if (resp.code === 200) { isLoggedIn.value = true; currentUser.value = resp.data.username; currentUserRole.value = resp.data.role || ''; currentUserId.value = resp.data.user_id || null; currentPanelEnv.value = resp.data.panel_environment || null; await loadInitialData(); } } catch (e) { API.logout(); } }
+            if (API.token) {
+                try {
+                    const resp = await API.checkAuth();
+                    if (resp.code === 200) {
+                        isLoggedIn.value = true;
+                        currentUser.value = resp.data.username;
+                        currentUserRole.value = resp.data.role || '';
+                        currentUserId.value = resp.data.user_id || null;
+                        currentPanelEnv.value = resp.data.panel_environment || null;
+                        await loadInitialData();
+                    }
+                } catch (e) { API.logout(); }
+            }
+            authChecked.value = true;
         });
 
         return {
-            isLoggedIn, currentUser, currentUserRole, currentUserId, currentPanelEnv, currentPage, loading, toast, modal,
+            isLoggedIn, authChecked, currentUser, currentUserRole, currentUserId, currentPanelEnv, currentPage, loading, toast, modal,
             loginForm, loginError, sites, searchQuery, filteredSites, pagedSites, sitePage, sitePerPage, siteTotalPages, siteGoPage,
             panelConnected, panelWebsites, panelInstalledApps, panelGroups,
             wizardStep, wizardOpen, wizardMode, wizardSiteId,
@@ -2825,8 +2839,12 @@ pipelineStatuses[siteId].demo_importing = false;
     },
 
     template: `
+    <!-- Auth check loading -->
+    <div v-if="!authChecked" class="min-h-screen bg-background flex items-center justify-center">
+        <span class="spinner w-8 h-8 inline-block"></span>
+    </div>
     <!-- Login -->
-    <div v-if="!isLoggedIn" class="min-h-screen bg-background flex items-center justify-center p-md">
+    <div v-else-if="!isLoggedIn" class="min-h-screen bg-background flex items-center justify-center p-md">
         <div class="w-full max-w-5xl bg-surface-container-lowest rounded-xl elevation-3 overflow-hidden flex flex-col md:flex-row min-h-[600px]">
             <div class="hidden md:flex flex-col justify-between w-1/2 bg-primary-container text-on-primary p-xl relative overflow-hidden"
                  style="background-image: url('/images/login-bg.jpg'); background-size: cover; background-position: center;">
@@ -2893,7 +2911,7 @@ pipelineStatuses[siteId].demo_importing = false;
     </div>
 
 <!-- Main App -->
-    <div v-else class="min-h-screen bg-background">
+    <div v-else-if="authChecked" class="min-h-screen bg-background">
         <!-- Sidebar -->
         <nav class="sidebar">
             <div class="sidebar-brand">
