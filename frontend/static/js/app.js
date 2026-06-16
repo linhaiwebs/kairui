@@ -4413,6 +4413,41 @@ pipelineStatuses[siteId].demo_importing = false;
                                                        fingerprintEnabled ? 'translate-x-5' : 'translate-x-0.5']"></span>
                                     </button>
                                 </div>
+                                <!-- Create Profile -->
+                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 mb-4">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <p class="font-medium text-on-surface text-sm"><i class="fas fa-fingerprint mr-2 text-primary"></i>创建 Profile</p>
+                                        <button v-if="!showCreateProfile" @click="showCreateProfile = true" class="btn-primary text-on-primary px-3 py-1 rounded text-xs"><i class="fas fa-plus mr-1"></i>新建</button>
+                                        <button v-else @click="showCreateProfile = false" class="text-xs text-on-surface-variant hover:text-on-surface">取消</button>
+                                    </div>
+                                    <div v-if="showCreateProfile" class="space-y-3">
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label class="block text-xs text-on-surface-variant mb-1">Profile 名称 *</label>
+                                                <input v-model="mcNewProfileName" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary" placeholder="例如：kairui-us-01">
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs text-on-surface-variant mb-1">国家</label>
+                                                <select v-model="mcNewCountry" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary">
+                                                    <option value="US">US</option><option value="CN">CN</option><option value="UK">UK</option>
+                                                    <option value="DE">DE</option><option value="JP">JP</option><option value="CA">CA</option>
+                                                    <option value="AU">AU</option><option value="FR">FR</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs text-on-surface-variant mb-1">代理地址</label>
+                                                <input v-model="mcNewProxy" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary" placeholder="socks5://ip:port">
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs text-on-surface-variant mb-1">Google 邮箱</label>
+                                                <input v-model="mcNewGoogleEmail" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary" placeholder="xxx@gmail.com">
+                                            </div>
+                                        </div>
+                                        <button @click="createNewProfile" :disabled="!mcNewProfileName.trim()" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+                                            <i class="fas fa-plus mr-1"></i>创建 Profile
+                                        </button>
+                                    </div>
+                                </div>
                                 <div class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                                     <div v-if="cloakbrowserProfiles.length" class="overflow-x-auto">
                                         <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">名称</th><th class="px-3 py-2 text-left">平台</th><th class="px-3 py-2 text-left">国家</th><th class="px-3 py-2 text-left">代理</th><th class="px-3 py-2 text-left">状态</th><th class="px-3 py-2 text-right">操作</th></tr></thead><tbody class="divide-y"><tr v-for="p in cloakbrowserProfiles" :key="p.name" class="hover:bg-surface-container-low"><td class="px-3 py-2 font-mono text-xs">{{ p.name }}</td><td class="px-3 py-2 text-xs">{{ p.platform || p.config?.platform || '-' }}</td><td class="px-3 py-2 text-xs">{{ p.country || p.config?.country || '-' }}</td><td class="px-3 py-2 text-xs max-w-[120px] truncate" :title="p.proxy">{{ p.proxy || '-' }}</td><td class="px-3 py-2"><span v-if="p.bound" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">使用中</span><span v-if="p.bound_kit_name" class="text-[10px] text-on-surface-variant ml-1">({{ p.bound_kit_name }})</span><span v-else class="badge bg-surface-container-high text-on-surface-variant text-xs">可用</span></td><td class="px-3 py-2 text-right"><button @click="deleteProfile(p.name)" class="text-xs text-error hover:text-error"><span class="material-symbols-outlined text-sm">delete</span></button></td></tr></tbody></table>
