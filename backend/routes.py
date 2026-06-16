@@ -8396,7 +8396,7 @@ Respond with strict JSON only (no markdown code blocks):
         if not site:
             return jsonify({"code": 404, "message": "站点不存在"}), 404
 
-        products = list_generated_feed()
+        products = list_generated_feed(site_id)
         if not products:
             return jsonify({"code": 400, "message": "没有 Feed 产品可同步"}), 400
 
@@ -8533,15 +8533,18 @@ Respond with strict JSON only (no markdown code blocks):
             return jsonify({"code": 404, "message": "站点不存在"}), 404
 
         cleaned = False
-        try:
-            wp = WordPressAdminSession(site["url"], site["admin_name"], site["admin_password"])
-            if wp.delete_feed_file():
-                logger.info(f"[FeedSync] Removed feed from site {site_id}")
-                cleaned = True
-        except Exception as e:
-            logger.warning(f"[FeedSync] WP clean error (continuing): {e}")
+        is_static = site.get("site_type") == "static"
 
-        # Also clean local feed file
+        if not is_static:
+            try:
+                wp = WordPressAdminSession(site["url"], site["admin_name"], site["admin_password"])
+                if wp.delete_feed_file():
+                    logger.info(f"[FeedSync] Removed feed from site {site_id}")
+                    cleaned = True
+            except Exception as e:
+                logger.warning(f"[FeedSync] WP clean error (continuing): {e}")
+
+        # Clean local feed file (all site types)
         data_dir = os.environ.get("WP_DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
         feed_file = os.path.join(data_dir, "feeds", f"{site_id}.xml")
         if os.path.isfile(feed_file):
@@ -8552,10 +8555,7 @@ Respond with strict JSON only (no markdown code blocks):
             except OSError as e:
                 logger.warning(f"[FeedSync] Local clean error: {e}")
 
-        if cleaned:
-            return jsonify({"code": 200, "data": {"cleaned": True}})
-        else:
-            return jsonify({"code": 500, "message": "清理失败"}), 500
+        return jsonify({"code": 200, "data": {"cleaned": cleaned, "message": "已清理" if cleaned else "没有需要清理的Feed文件"}})
 
     @app.route("/api/shai-pin/woocommerce/sync-to-site", methods=["POST"])
     @jwt_required()
