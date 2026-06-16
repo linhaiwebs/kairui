@@ -365,19 +365,19 @@ class LogoLoomService:
         import requests as http_requests
 
         prompt = (
-            f'你是一个专业的品牌设计师。请为以下品牌设计一个极简现代的 SVG logo：\n'
-            f'- 品牌名称：{brand_name}\n'
-            f'- 品牌描述：{description or "无"}\n'
-            f'- 行业：{industry or "通用"}\n\n'
-            f'要求：\n'
-            f'1. SVG viewBox="0 0 512 512"，纯矢量，透明背景（严禁添加背景矩形或背景色）\n'
-            f'2. 极简现代风格，适合电商品牌\n'
-            f'3. 品牌名称文字必须使用 <path> 路径绘制，严禁使用 <text> 标签\n'
-            f'4. 2-3个品牌主色调\n'
-            f'5. 【重要】图形和文字必须填满viewBox的70%-85%，四周留白控制在10%-15%以内，严禁大面积空白\n\n'
-            f'请严格返回以下 JSON 格式（不要markdown代码块）：\n'
-            f'{{"svg": "完整的SVG代码", "colors": ["#主色1", "#主色2", "#主色3"], '
-            f'"typography": {{"heading": "推荐的标题字体名称", "body": "推荐的正文字体名称"}}}}'
+            f'Design a minimalist modern SVG logo for the following brand. All output must be in English:\n'
+            f'- Brand name: {brand_name}\n'
+            f'- Description: {description or "None"}\n'
+            f'- Industry: {industry or "General"}\n\n'
+            f'Requirements:\n'
+            f'1. SVG viewBox="0 0 512 512", pure vector, transparent background (no background rect)\n'
+            f'2. Minimalist modern style suitable for e-commerce\n'
+            f'3. Brand name must be drawn with <path> elements, NEVER use <text> tags\n'
+            f'4. 2-3 brand primary colors\n'
+            f'5. [IMPORTANT] Graphics and text must fill 70%-85% of viewBox, margins 10%-15% only\n\n'
+            f'Return strictly valid JSON (no markdown code blocks):\n'
+            f'{{"svg": "full SVG code", "colors": ["#color1", "#color2", "#color3"], '
+            f'"typography": {{"heading": "recommended heading font", "body": "recommended body font"}}}}'
         )
 
         try:
@@ -390,7 +390,7 @@ class LogoLoomService:
                 json={
                     "model": "deepseek-chat",
                     "messages": [
-                        {"role": "system", "content": "你是一个专业品牌设计师，只会返回严格的JSON。"},
+                        {"role": "system", "content": "You are a professional brand designer. Return only strict JSON. All text in English."},
                         {"role": "user", "content": prompt},
                     ],
                     "temperature": 0.8,
