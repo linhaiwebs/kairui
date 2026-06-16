@@ -4993,7 +4993,6 @@ pipelineStatuses[siteId].demo_importing = false;
                 </div>
             </div>
             </div>
-            </div>
 
         </main>
 
