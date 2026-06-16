@@ -24,6 +24,16 @@ const app = createApp({
                 (s.tag || '').toLowerCase().includes(q)
             );
         });
+        const sitePage = ref(1);
+        const sitePerPage = ref(10);
+        const pagedSites = computed(() => {
+            const src = filteredSites.value;
+            const start = (sitePage.value - 1) * sitePerPage.value;
+            return src.slice(start, start + sitePerPage.value);
+        });
+        const siteTotalPages = computed(() => Math.max(1, Math.ceil(filteredSites.value.length / sitePerPage.value)));
+        function siteGoPage(n) { sitePage.value = Math.max(1, Math.min(n, siteTotalPages.value)); }
+        watch(searchQuery, () => { sitePage.value = 1; });
         const panelConnected = ref(false);
         const panelWebsites = ref([]);
         const panelInstalledApps = ref([]);
@@ -2716,7 +2726,7 @@ pipelineStatuses[siteId].demo_importing = false;
 
         return {
             isLoggedIn, currentUser, currentUserRole, currentUserId, currentPanelEnv, currentPage, loading, toast, modal,
-            loginForm, loginError, sites, searchQuery, filteredSites,
+            loginForm, loginError, sites, searchQuery, filteredSites, pagedSites, sitePage, sitePerPage, siteTotalPages, siteGoPage,
             panelConnected, panelWebsites, panelInstalledApps, panelGroups,
             wizardStep, wizardOpen, wizardMode, wizardSiteId,
             createForm, createProgress, wpInstallStatuses,
@@ -3129,7 +3139,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     <div class="flex gap-3"><button @click="openWizard('single')" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><span class="material-symbols-outlined text-[18px]">add_circle</span>创建站点</button><button @click="exportCSV" class="btn btn-secondary text-sm"><i class="fas fa-download mr-2"></i>导出CSV</button></div>
                 </div>
                 <div class="space-y-3">
-                    <div v-for="site in filteredSites" :key="site.id" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4">
+                    <div v-for="site in pagedSites" :key="site.id" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4">
                         <!-- Main row: site info + status columns + timeline + actions -->
                         <div class="flex items-center gap-3">
                             <!-- Site name -->
@@ -3226,6 +3236,16 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <button @click="confirmDelete(site)" class="text-red-500 hover:text-red-600 p-1.5" title="删除"><i class="fas fa-trash"></i></button>
                             </div>
                         </div>
+                    </div>
+                </div>
+                <!-- Pagination -->
+                <div v-if="filteredSites.length > sitePerPage" class="flex items-center justify-between text-xs text-on-surface-variant mt-3">
+                    <span>第 {{ sitePage || 1 }} / {{ siteTotalPages }} 页，每页 {{ sitePerPage }} 条，共 {{ filteredSites.length }} 个站点</span>
+                    <div class="flex items-center gap-1">
+                        <button @click="siteGoPage((sitePage || 1) - 1)" :disabled="(sitePage || 1) <= 1"
+                            class="px-3 py-1 rounded hover:bg-surface-container-high disabled:opacity-30 transition">上一页</button>
+                        <button @click="siteGoPage((sitePage || 1) + 1)" :disabled="(sitePage || 1) >= siteTotalPages"
+                            class="px-3 py-1 rounded hover:bg-surface-container-high disabled:opacity-30 transition">下一页</button>
                     </div>
                 </div>
             </div>
