@@ -3,6 +3,7 @@
 # to list operators and import brand kits as browser profiles.
 # Auth: X-API-Key header (from KAIURI_BRIDGE_API_KEY env var, default "kairui-bridge-default-key")
 
+import json
 import os as _os
 from flask import request, jsonify
 
@@ -16,6 +17,20 @@ def _bridge_auth():
     if api_key != _bridge_api_key():
         return False, jsonify({"code": 401, "message": "unauthorized: invalid API key"}), 401
     return True, None
+
+
+def _read_cloakbrowser_config(profile_name):
+    """Read a CloakBrowser profile's config.json. Returns dict or None."""
+    from services.mc_auto_register import get_profiles_root
+    import os
+    cfg_path = os.path.join(get_profiles_root(), profile_name, "config.json")
+    if not os.path.isfile(cfg_path):
+        return None
+    try:
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
 
 
 def register_bridge_routes(app):
@@ -33,7 +48,6 @@ def register_bridge_routes(app):
         ok, err = _bridge_auth()
         if not ok:
             return err
-        # Import here to avoid circular dependency
         from models import get_db
         db = get_db()
         rows = db.execute(
@@ -68,25 +82,45 @@ def register_bridge_routes(app):
         db = get_db()
         kits = db.execute(
             "SELECT bk.id, bk.name, bk.brand_name, bk.industry, bk.cloakbrowser_profile_name, "
-            "p.proxy_url, p.proxy_type, p.ip as proxy_ip "
+            "bk.proxy_id, p.proxy_url, p.proxy_type, p.ip as proxy_ip "
             "FROM brand_kits bk "
             "LEFT JOIN proxies p ON bk.proxy_id = p.id "
             "WHERE bk.created_by = ? ORDER BY bk.id",
             (operator_id,)
         ).fetchall()
-        return jsonify({
-            "code": 200,
-            "brand_kits": [
-                {
-                    "id": k["id"],
-                    "name": k["name"],
-                    "brand_name": k["brand_name"] or "",
-                    "industry": k["industry"] or "",
-                    "cloakbrowser_profile_name": k["cloakbrowser_profile_name"],
-                    "proxy_url": k["proxy_url"],
-                    "proxy_type": k["proxy_type"],
-                    "proxy_ip": k["proxy_ip"],
-                }
-                for k in kits
-            ]
-        })
+
+        results = []
+        for k in kits:
+            proxy_url = k["proxy_url"]
+            proxy_type = k["proxy_type"]
+            proxy_ip = k["proxy_ip"]
+            fingerprint = None
+
+            # Read CloakBrowser profile config for fingerprint info
+            profile_name = k["cloakbrowser_profile_name"]
+            if profile_name:
+                cb_config = _read_cloakbrowser_config(profile_name)
+                if cb_config:
+                    fingerprint = {
+                        "platform": cb_config.get("platform", ""),
+                        "country": cb_config.get("country", ""),
+                        "screen_width": cb_config.get("screen_width", 0) or cb_config.get("screenWidth", 0),
+                        "screen_height": cb_config.get("screen_height", 0) or cb_config.get("screenHeight", 0),
+                        "timezone": cb_config.get("timezone", ""),
+                        "gpu_renderer": cb_config.get("gpu_renderer", "") or cb_config.get("gpuRenderer", ""),
+                        "google_email": cb_config.get("google_email", "") or cb_config.get("googleEmail", ""),
+                    }
+
+            results.append({
+                "id": k["id"],
+                "name": k["name"],
+                "brand_name": k["brand_name"] or "",
+                "industry": k["industry"] or "",
+                "cloakbrowser_profile_name": profile_name,
+                "proxy_url": proxy_url,
+                "proxy_type": proxy_type,
+                "proxy_ip": proxy_ip,
+                "fingerprint": fingerprint,
+            })
+
+        return jsonify({"code": 200, "brand_kits": results})
