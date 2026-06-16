@@ -2253,18 +2253,28 @@ pipelineStatuses[siteId].demo_importing = false;
             } catch (e) {}
         }
         // Profile management
-        async function createNewProfile() {
-            const name = mcNewProfileName.value.trim();
-            if (!name) { showToast('请输入 Profile 名称', 'error'); return; }
-            try {
-                const resp = await API.createCloakbrowserProfile(name, mcNewGoogleEmail.value.trim(), mcNewProxy.value.trim(), mcNewCountry.value, mcNewPlatform.value || null);
-                if (resp.code === 200) {
-                    showToast('Profile 创建成功');
-                    mcNewProfileName.value = ''; mcNewGoogleEmail.value = ''; mcNewProxy.value = '';
-                    showCreateProfile.value = false;
-                    await loadCloakbrowserProfiles();
-                } else { showToast(resp.message || '创建失败', 'error'); }
-            } catch (e) { showToast('创建失败', 'error'); }
+        async function batchCreateProfiles() {
+            const text = mcBatchImportText.value.trim();
+            if (!text) return;
+            const lines = text.split('\n').filter(l => l.trim());
+            let ok = 0, fail = 0;
+            mcBatchImporting.value = true;
+            mcBatchResult.value = '';
+            for (const line of lines) {
+                const parts = line.split(',').map(s => s.trim());
+                const name = parts[0];
+                if (!name) { fail++; continue; }
+                const country = parts[1] || 'US';
+                const proxy = parts[2] || '';
+                const email = parts[3] || '';
+                try {
+                    const resp = await API.createCloakbrowserProfile(name, email, proxy, country, null);
+                    if (resp.code === 200) ok++; else fail++;
+                } catch (e) { fail++; }
+            }
+            mcBatchImporting.value = false;
+            mcBatchResult.value = `完成: ${ok} 成功, ${fail} 失败`;
+            if (ok > 0) { mcBatchImportText.value = ''; showCreateProfile.value = false; await loadCloakbrowserProfiles(); }
         }
         async function deleteProfile(name) {
             if (!confirm(`确定删除 Profile "${name}"？将删除所有 cookies 和配置。`)) return;
@@ -2274,11 +2284,9 @@ pipelineStatuses[siteId].demo_importing = false;
                 else { showToast(resp.message || '删除失败', 'error'); }
             } catch (e) { showToast('删除失败', 'error'); }
         }
-        const mcNewProfileName = ref('');
-        const mcNewGoogleEmail = ref('');
-        const mcNewProxy = ref('');
-        const mcNewCountry = ref('US');
-        const mcNewPlatform = ref('');
+        const mcBatchImportText = ref('');
+        const mcBatchImporting = ref(false);
+        const mcBatchResult = ref('');
         const showCreateProfile = ref(false);
         const showMcProfilePanel = ref(false);
 
@@ -2775,8 +2783,8 @@ pipelineStatuses[siteId].demo_importing = false;
             fingerprintEnabled, envTestBlocking,
             taskLogVisible, taskLogTitle, taskLogLines, taskLogStatus, taskLogResult, taskLogRef, taskLogSilent, muteTaskLog,
             closeTaskLog,
-            mcNewProfileName, mcNewGoogleEmail, mcNewProxy, mcNewCountry, mcNewPlatform,
-            showCreateProfile, showMcProfilePanel, createNewProfile, deleteProfile,
+            mcBatchImportText, mcBatchImporting, mcBatchResult,
+            showCreateProfile, showMcProfilePanel, batchCreateProfiles, deleteProfile,
             registerMCForSite, loadMCStatusForSite,
 
             showEditModal, editForm, editingSiteId, globalConfig, deployOverlay, closeDeployOverlay,
@@ -4413,39 +4421,26 @@ pipelineStatuses[siteId].demo_importing = false;
                                                        fingerprintEnabled ? 'translate-x-5' : 'translate-x-0.5']"></span>
                                     </button>
                                 </div>
-                                <!-- Create Profile -->
+                                <!-- Batch Import Profiles -->
                                 <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 mb-4">
                                     <div class="flex items-center justify-between mb-3">
-                                        <p class="font-medium text-on-surface text-sm"><i class="fas fa-fingerprint mr-2 text-primary"></i>创建 Profile</p>
-                                        <button v-if="!showCreateProfile" @click="showCreateProfile = true" class="btn-primary text-on-primary px-3 py-1 rounded text-xs"><i class="fas fa-plus mr-1"></i>新建</button>
-                                        <button v-else @click="showCreateProfile = false" class="text-xs text-on-surface-variant hover:text-on-surface">取消</button>
+                                        <p class="font-medium text-on-surface text-sm"><i class="fas fa-upload mr-2 text-primary"></i>批量导入 Profile</p>
+                                        <button v-if="!showCreateProfile" @click="showCreateProfile = true" class="btn-primary text-on-primary px-3 py-1 rounded text-xs"><i class="fas fa-plus mr-1"></i>展开</button>
+                                        <button v-else @click="showCreateProfile = false" class="text-xs text-on-surface-variant hover:text-on-surface">收起</button>
                                     </div>
                                     <div v-if="showCreateProfile" class="space-y-3">
-                                        <div class="grid grid-cols-2 gap-3">
-                                            <div>
-                                                <label class="block text-xs text-on-surface-variant mb-1">Profile 名称 *</label>
-                                                <input v-model="mcNewProfileName" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary" placeholder="例如：kairui-us-01">
-                                            </div>
-                                            <div>
-                                                <label class="block text-xs text-on-surface-variant mb-1">国家</label>
-                                                <select v-model="mcNewCountry" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary">
-                                                    <option value="US">US</option><option value="CN">CN</option><option value="UK">UK</option>
-                                                    <option value="DE">DE</option><option value="JP">JP</option><option value="CA">CA</option>
-                                                    <option value="AU">AU</option><option value="FR">FR</option>
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label class="block text-xs text-on-surface-variant mb-1">代理地址</label>
-                                                <input v-model="mcNewProxy" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary" placeholder="socks5://ip:port">
-                                            </div>
-                                            <div>
-                                                <label class="block text-xs text-on-surface-variant mb-1">Google 邮箱</label>
-                                                <input v-model="mcNewGoogleEmail" class="w-full px-3 py-2 border rounded-lg text-sm focus:border-primary" placeholder="xxx@gmail.com">
-                                            </div>
+                                        <p class="text-xs text-on-surface-variant">每行一个，格式：<code>名称,国家,代理,Google邮箱</code> 或 <code>名称,国家</code></p>
+                                        <textarea v-model="mcBatchImportText" rows="6"
+                                            class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:border-primary"
+                                            placeholder="kairui-us-01,US,socks5://1.2.3.4:1080,xxx@gmail.com&#10;kairui-uk-01,UK,,&#10;kairui-de-01,DE,socks5://5.6.7.8:1080,"></textarea>
+                                        <div class="flex items-center gap-3">
+                                            <button @click="batchCreateProfiles" :disabled="!mcBatchImportText.trim() || mcBatchImporting"
+                                                class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+                                                <i v-if="mcBatchImporting" class="fas fa-spinner fa-spin mr-1"></i>
+                                                {{ mcBatchImporting ? '导入中...' : '批量导入' }}
+                                            </button>
+                                            <span v-if="mcBatchResult" class="text-xs" :class="mcBatchResult.includes('失败') ? 'text-error' : 'text-[#146c2e]'">{{ mcBatchResult }}</span>
                                         </div>
-                                        <button @click="createNewProfile" :disabled="!mcNewProfileName.trim()" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm disabled:opacity-50">
-                                            <i class="fas fa-plus mr-1"></i>创建 Profile
-                                        </button>
                                     </div>
                                 </div>
                                 <div class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
