@@ -2253,22 +2253,56 @@ pipelineStatuses[siteId].demo_importing = false;
             } catch (e) {}
         }
         // Profile management
+        function parseProxyLine(line) {
+            // Format: ip:port:user:pass_country-XX_session-YY_lifetime-ZZ_streaming-1
+            // or CSV: name,country,proxy,email
+            const t = line.trim();
+            if (!t) return null;
+            // Detect proxy format: has 3+ colons and contains 'country-'
+            if (t.includes('country-') && (t.match(/:/g) || []).length >= 3) {
+                const idx = t.indexOf('_country-');
+                if (idx === -1) return null;
+                const proxyPart = t.substring(0, idx);
+                const paramPart = t.substring(idx);
+                const colonIdx = proxyPart.lastIndexOf(':');
+                if (colonIdx === -1) return null;
+                const hostPortUser = proxyPart.substring(0, colonIdx);
+                const pass = proxyPart.substring(colonIdx + 1);
+                const hpParts = hostPortUser.split(':');
+                if (hpParts.length < 3) return null;
+                const host = hpParts[0], port = hpParts[1], user = hpParts.slice(2).join(':');
+                // Extract country
+                const cm = paramPart.match(/country-([a-z]{2})/i);
+                const country = cm ? cm[1].toUpperCase() : 'US';
+                // Extract session for name
+                const sm = paramPart.match(/session-([a-zA-Z0-9]+)/);
+                const session = sm ? sm[1] : '';
+                const proxy = `socks5://${user}:${pass}@${host}:${port}`;
+                const name = session || `us-${host.replace(/\./g, '-')}`;
+                return { name, country, proxy, email: '' };
+            }
+            // CSV format
+            const parts = t.split(',').map(s => s.trim());
+            if (!parts[0]) return null;
+            return {
+                name: parts[0],
+                country: parts[1] || 'US',
+                proxy: parts[2] || '',
+                email: parts[3] || '',
+            };
+        }
         async function batchCreateProfiles() {
             const text = mcBatchImportText.value.trim();
             if (!text) return;
-            const lines = text.split('\n').filter(l => l.trim());
+            const lines = text.split('\n');
             let ok = 0, fail = 0;
             mcBatchImporting.value = true;
             mcBatchResult.value = '';
             for (const line of lines) {
-                const parts = line.split(',').map(s => s.trim());
-                const name = parts[0];
-                if (!name) { fail++; continue; }
-                const country = parts[1] || 'US';
-                const proxy = parts[2] || '';
-                const email = parts[3] || '';
+                const p = parseProxyLine(line);
+                if (!p) { fail++; continue; }
                 try {
-                    const resp = await API.createCloakbrowserProfile(name, email, proxy, country, null);
+                    const resp = await API.createCloakbrowserProfile(p.name, p.email, p.proxy, p.country, null);
                     if (resp.code === 200) ok++; else fail++;
                 } catch (e) { fail++; }
             }
