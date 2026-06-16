@@ -167,7 +167,6 @@ const app = createApp({
         const feedSyncSiteId = ref(null);
         const wooSyncSiteId = ref(null);
         const wooActiveSiteTab = ref(null);
-        const feedActiveSiteTab = ref(null);
         const feedSyncSiteId2 = ref(null); // for feed page
         const syncingFeed = ref(false);
         const syncingWoo = ref(false);
@@ -905,10 +904,9 @@ pipelineStatuses[siteId].demo_importing = false;
                 walmartEnrichProgress.value = '';
             }
         }
-        async function loadGeneratedFeed(siteId) {
+        async function loadGeneratedFeed() {
             try {
-                const sid = siteId || feedActiveSiteTab.value;
-                const resp = await API.listGeneratedFeed(sid);
+                const resp = await API.listGeneratedFeed(feedSyncSiteId.value || null);
                 if (resp.code === 200) generatedFeed.value = resp.data || [];
                 feedPage.value = 1;
             } catch (e) { /* silent */ }
@@ -1453,6 +1451,7 @@ pipelineStatuses[siteId].demo_importing = false;
 
         async function generateFeedFromWoo() {
             if (!wooProducts.value.length) { showToast('没有可生成的产品', 'error'); return; }
+            if (!wooSyncSiteId.value) { showToast('请先选择目标站点', 'error'); return; }
             wooGeneratingFeed.value = true;
             converting.value = true;
             convertLogLines.value = [];
@@ -1460,7 +1459,7 @@ pipelineStatuses[siteId].demo_importing = false;
             showConvertLogModal.value = true;
             try {
                 const token = API.token;
-                const resp = await fetch('/api/shai-pin/woocommerce/generate-feed', {
+                const resp = await fetch('/api/shai-pin/woocommerce/generate-feed?site_id=' + wooSyncSiteId.value, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 });
@@ -2734,7 +2733,7 @@ pipelineStatuses[siteId].demo_importing = false;
             handleAmazonFileUpload, toggleAmazonSelect, selectAllAmazon,
             closeConvertLogModal, toggleFeedSelect, selectAllFeed, deleteSelectedFeedItems, showFeedDescription, buildFeedDetailText,
             wooProducts, wooSelectedIndices, wooConverting, wooConvertProgress,
-            feedSyncSiteId, wooSyncSiteId, wooActiveSiteTab, feedActiveSiteTab, syncingFeed, syncingWoo,
+            feedSyncSiteId, wooSyncSiteId, wooActiveSiteTab, syncingFeed, syncingWoo,
             convertToWooCommerce, loadWooProducts, toggleWooSelect, selectAllWoo, deleteSelectedWooProducts,
             createFeedForSite, cleanFeedFromSite, syncWooToSite, cleanWooFromSite, generateFeedFromWoo, wooGeneratingFeed, feedUrl,
             csvUploading, csvFileInput, handleCsvUpload,
