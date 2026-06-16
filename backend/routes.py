@@ -21,6 +21,7 @@ from werkzeug.utils import secure_filename
 from config import config
 from services.mc_auto_register import get_profiles_root, resolve_profile_path
 from task_logs import add_log, complete_task, create_task, get_task_logs, get_diagnosis
+from bridge_routes import register_bridge_routes
 from models import (
     assign_cloakbrowser_profile_to_brand_kit,
     create_bg_task,
@@ -2036,6 +2037,7 @@ _check_docker_socket()
 
 
 def register_routes(app):
+    register_bridge_routes(app)
     # AI config status tracking (key=config_key, value={status,steps,message})
     ai_config_status = {}
     # Brand kit generation status tracking (key=kit_id, value={status,message,steps})
