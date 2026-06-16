@@ -524,6 +524,7 @@ class StitchClient:
             f"Professional {industry} brand aesthetic. "
             f"{description[:200] if description else 'Modern minimalist design with clean lines and generous whitespace.'} "
             f"Typography: elegant serif headings, clean sans-serif body. "
+            f"All text content must be in English only."
         )
 
         # --- Contact info string ---
