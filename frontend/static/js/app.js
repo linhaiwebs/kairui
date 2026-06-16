@@ -200,7 +200,6 @@ const app = createApp({
         const silentInstallSites = reactive({});  // { site_id: { step: 'ai-config'|'cf-ssl', status: 'running'|'done'|'failed', message: '' } }
         // Pipeline timeline status (per site_id)
         const pipelineStatuses = reactive({});  // { site_id: { wp_deployed, demo_imported, demo_name, brand_configured, gmc_registered } }
-        const tooltipSiteId = ref(null);
         // Meta tag injection modal
         const metaModal = reactive({
             show: false, site: null, siteId: null, metaTag: '', submitting: false,
@@ -2774,7 +2773,7 @@ pipelineStatuses[siteId].demo_importing = false;
             // Meta tag injection
             metaModal, openMetaModal, submitMetaTag,
             // Pipeline timeline
-            pipelineStatuses, tooltipSiteId, loadPipelineStatus, refreshPipelineStatus, pipelineLineState, siteStatusText, stitchProgressTitle,
+            pipelineStatuses, loadPipelineStatus, refreshPipelineStatus, pipelineLineState, siteStatusText, stitchProgressTitle,
             // Silent install
             silentInstallSites, startSilentInstall,
             brandKitApplyStatus, brandKitApplying, applyBrandKitForm, brandKitsForSelect,
@@ -3131,39 +3130,22 @@ pipelineStatuses[siteId].demo_importing = false;
                 </div>
                 <div class="space-y-3">
                     <div v-for="site in filteredSites" :key="site.id" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4">
-                        <!-- Main row: site info + timeline + actions -->
+                        <!-- Main row: site info + status columns + timeline + actions -->
                         <div class="flex items-center gap-3">
-                            <!-- Site name + tooltip trigger -->
-                            <div class="w-40 flex-shrink-0">
+                            <!-- Site name -->
+                            <div class="w-32 flex-shrink-0">
                                 <div class="font-medium text-on-surface text-sm truncate">{{ site.site_name }}</div>
-                                <div class="relative inline-block mt-0.5"
-                                     @mouseenter="tooltipSiteId = site.id"
-                                     @mouseleave="tooltipSiteId = null">
-                                    <span class="text-xs text-on-surface-variant hover:text-primary cursor-help"><i class="fas fa-info-circle mr-0.5"></i>详情</span>
-                                    <div v-if="tooltipSiteId === site.id" class="site-tooltip">
-                                        <div class="grid grid-cols-2 gap-x-3 gap-y-1">
-                                            <div class="col-span-2">
-                                                <span class="text-on-surface-variant">域名:</span>
-                                                <a :href="'https://' + site.url" target="_blank" class="text-blue-300 hover:text-blue-200">
-                                                    {{ site.url }} <i class="fas fa-external-link-alt text-[10px] ml-1"></i>
-                                                </a>
-                                            </div>
-                                            <div><span class="text-on-surface-variant">类型:</span> {{ site.site_type === 'static' ? '静态站点' : 'WordPress' }}</div>
-                                            <div><span class="text-on-surface-variant">标签:</span> {{ site.tag || '-' }}</div>
-                                            <template v-if="site.site_type === 'static'">
-                                                <div class="col-span-2"><span class="text-on-surface-variant">1Panel:</span> <span :class="site.panel_website_id || site.static_dir ? 'text-green-300' : 'text-on-surface-variant'">{{ site.panel_website_id || site.static_dir ? '已关联' : '未关联' }}</span></div>
-                                                <div class="col-span-2"><span class="text-on-surface-variant">DNS:</span> <span :class="site.cf_dns_record_id ? 'text-green-300' : 'text-on-surface-variant'">{{ site.cf_dns_record_id ? 'Cloudflare已配置' : '未配置' }}</span></div>
-                                            </template>
-                                            <template v-else>
-                                                <div><span class="text-on-surface-variant">端口:</span> {{ site.port || '-' }}</div>
-                                                <div><span class="text-on-surface-variant">管理员:</span> {{ site.admin_name || '-' }}</div>
-                                                <div class="col-span-2"><span class="text-on-surface-variant">1Panel:</span> <span v-if="site.panel_website_id" :class="site.panel_status === 'Running' ? 'text-green-300' : 'text-red-300'">{{ site.panel_status === 'Running' ? '正常' : site.panel_status || '未知' }}</span><span v-else class="text-on-surface-variant">未关联</span></div>
-                                                <div class="col-span-2"><span class="text-on-surface-variant">DNS:</span> {{ site.cf_dns_record_id ? 'Cloudflare已配置' : '未配置' }}</div>
-                                            </template>
-                                        </div>
-                                        <div class="absolute top-full left-3 w-0 h-0 border-l-6 border-r-6 border-t-6 border-l-transparent border-r-transparent" style="border-top-color:#1f2937;"></div>
-                                    </div>
-                                </div>
+                                <div class="text-xs text-on-surface-variant">{{ site.site_type === 'static' ? '静态站点' : 'WordPress' }}</div>
+                            </div>
+                            <!-- 1Panel Status -->
+                            <div class="w-16 flex-shrink-0 text-center">
+                                <span v-if="site.panel_website_id" class="inline-flex items-center gap-1 text-xs text-[#146c2e]"><span class="material-symbols-outlined text-[14px]">check_circle</span>已关联</span>
+                                <span v-else class="text-xs text-on-surface-variant">未关联</span>
+                            </div>
+                            <!-- DNS Status -->
+                            <div class="w-16 flex-shrink-0 text-center">
+                                <span v-if="site.cf_dns_record_id" class="inline-flex items-center gap-1 text-xs text-[#146c2e]"><span class="material-symbols-outlined text-[14px]">cloud_done</span>已配置</span>
+                                <span v-else class="text-xs text-on-surface-variant">未配置</span>
                             </div>
                             <!-- Timeline -->
                             <div class="flex items-center gap-0 flex-1 ml-2">
