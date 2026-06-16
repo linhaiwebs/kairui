@@ -371,8 +371,9 @@ const API = {
     async enrichWalmartProducts(urls, category) {
         return this.request('POST', '/api/shai-pin/walmart/enrich', { urls, category });
     },
-    async listGeneratedFeed() {
-        return this.request('GET', '/api/shai-pin/feed/list');
+    async listGeneratedFeed(siteId) {
+        const q = siteId ? "?site_id=" + siteId : "";
+        return this.request('GET', '/api/shai-pin/feed/list' + q);
     },
     async clearGeneratedFeed() {
         return this.request('DELETE', '/api/shai-pin/feed/clear');
@@ -400,8 +401,9 @@ const API = {
         return this.request('POST', '/api/shai-pin/woocommerce/convert', { products });
     },
 
-    async getWooCommerceProducts() {
-        return this.request('GET', '/api/shai-pin/woocommerce/products');
+    async getWooCommerceProducts(siteId) {
+        const q = siteId ? "?site_id=" + siteId : "";
+        return this.request('GET', '/api/shai-pin/woocommerce/products' + q);
     },
 
     async deleteWooCommerceProducts(ids) {
