@@ -2984,12 +2984,28 @@ def register_routes(app):
         ET.SubElement(channel, "link").text = f"https://{domain}"
         ET.SubElement(channel, "description").text = "Google Shopping Product Feed"
 
+        # Pre-load static site products to map local IDs for product page URLs
+        local_products = list_static_site_products(site["id"])
+        local_by_sku = {lp.get("sku"): lp for lp in local_products if lp.get("sku")}
+        local_by_title = {lp.get("title", "").strip().lower(): lp for lp in local_products if lp.get("title")}
+
         for p in products:
+            # Resolve correct product page URL on the static site
+            feed_sku = p.get("item_id") or p.get("sku", "")
+            feed_title = (p.get("title") or "").strip().lower()
+            local = local_by_sku.get(feed_sku) if feed_sku else None
+            if not local:
+                local = local_by_title.get(feed_title)
+            if local:
+                product_url = f"https://{domain}/products/{local['id']}/"
+            else:
+                product_url = p.get("source_url") or f"https://{domain}"
+
             item = ET.SubElement(channel, "item")
             ET.SubElement(item, "g:id").text = str(p.get("id", ""))
             ET.SubElement(item, "g:title").text = (p.get("title") or "")[:150]
             ET.SubElement(item, "g:description").text = (p.get("description") or "")[:5000]
-            ET.SubElement(item, "g:link").text = p.get("source_url") or f"https://{domain}"
+            ET.SubElement(item, "g:link").text = product_url
 
             images = p.get("images") or []
             if isinstance(images, str):
