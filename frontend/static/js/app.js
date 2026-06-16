@@ -3002,7 +3002,6 @@ pipelineStatuses[siteId].demo_importing = false;
                     <button v-if="currentPage === 'sites'" @click="syncWithPanel" class="flex items-center gap-sm px-md py-sm bg-primary-container text-on-primary rounded-lg hover:bg-primary transition-colors font-label-md text-label-md shadow-level-1" title="从1Panel同步数据"><span class="material-symbols-outlined text-[18px]">sync</span>同步1Panel</button>
                     <button v-if="currentPage === 'sites'" @click="refreshSites" class="flex items-center gap-sm px-md py-sm bg-surface-container-low border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container-high transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]" :class="loading ? 'animate-spin' : ''">refresh</span>刷新</button>
                 </div>
-            </div>
 
             <!-- Dashboard -->
             <div v-if="currentPage === 'dashboard'" class="fade-in">
@@ -4991,6 +4990,7 @@ pipelineStatuses[siteId].demo_importing = false;
                         </button>
                     </div>
                 </div>
+            </div>
             </div>
             </div>
 
