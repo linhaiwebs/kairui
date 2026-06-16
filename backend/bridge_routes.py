@@ -1,26 +1,29 @@
 # Kairui 凯瑞指纹 Bridge API
-# Imported by routes.py — provides endpoints for the 凯瑞指纹 desktop app
-# to list operators and import brand kits as browser profiles.
-# Auth: X-API-Key header (from KAIURI_BRIDGE_API_KEY env var, default "kairui-bridge-default-key")
+# Operator login → token → read brand kits with proxy + fingerprint
 
 import json
 import os as _os
+import secrets
 from flask import request, jsonify
+from werkzeug.security import check_password_hash
+
+# In-memory token store — tokens expire on server restart
+_tokens: dict[str, dict] = {}
 
 
-def _bridge_api_key():
-    return _os.environ.get("KAIURI_BRIDGE_API_KEY", "kairui-bridge-default-key")
-
-
-def _bridge_auth():
-    api_key = request.headers.get("X-API-Key", "")
-    if api_key != _bridge_api_key():
-        return False, jsonify({"code": 401, "message": "unauthorized: invalid API key"}), 401
-    return True, None
+def _require_token():
+    """Validate Bearer token. Returns (ok, operator_info_or_error)."""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return False, jsonify({"code": 401, "message": "需要登录"}), 401
+    token = auth[7:]
+    info = _tokens.get(token)
+    if not info:
+        return False, jsonify({"code": 401, "message": "登录已过期，请重新登录"}), 401
+    return True, info
 
 
 def _read_cloakbrowser_config(profile_name):
-    """Read a CloakBrowser profile's config.json. Returns dict or None."""
     from services.mc_auto_register import get_profiles_root
     import os
     cfg_path = os.path.join(get_profiles_root(), profile_name, "config.json")
@@ -38,46 +41,50 @@ def register_bridge_routes(app):
 
     @app.route("/api/bridge/ping", methods=["GET"])
     def bridge_ping():
-        ok, err = _bridge_auth()
-        if not ok:
-            return err
         return jsonify({"code": 200, "server": "kairui", "version": "1.0"})
 
-    @app.route("/api/bridge/operators", methods=["GET"])
-    def bridge_operators():
-        ok, err = _bridge_auth()
-        if not ok:
-            return err
+    @app.route("/api/bridge/login", methods=["POST"])
+    def bridge_login():
+        """Login with operator username + password. Returns token + operator info."""
+        data = request.get_json(silent=True) or {}
+        username = (data.get("username") or "").strip()
+        password = (data.get("password") or "")
+        if not username or not password:
+            return jsonify({"code": 400, "message": "用户名和密码不能为空"}), 400
+
         from models import get_db
         db = get_db()
-        rows = db.execute(
-            "SELECT u.id, u.username, u.role, pe.name as panel_name, pe.host as panel_host "
+        user = db.execute(
+            "SELECT u.id, u.username, u.password, u.role, "
+            "pe.name as panel_name, pe.host as panel_host "
             "FROM users u "
             "LEFT JOIN panel_environments pe ON u.panel_environment_id = pe.id "
-            "WHERE u.role = 'operator' ORDER BY u.id"
-        ).fetchall()
-        return jsonify({
-            "code": 200,
-            "operators": [
-                {
-                    "id": r["id"],
-                    "username": r["username"],
-                    "role": r["role"],
-                    "panel_name": r["panel_name"],
-                    "panel_host": r["panel_host"],
-                }
-                for r in rows
-            ]
-        })
+            "WHERE u.username = ? AND u.role = 'operator'",
+            (username,)
+        ).fetchone()
+
+        if not user or not check_password_hash(user["password"], password):
+            return jsonify({"code": 401, "message": "用户名或密码错误"}), 401
+
+        token = secrets.token_hex(32)
+        info = {
+            "id": user["id"],
+            "username": user["username"],
+            "role": user["role"],
+            "panel_name": user["panel_name"],
+            "panel_host": user["panel_host"],
+        }
+        _tokens[token] = info
+        return jsonify({"code": 200, "token": token, "operator": info})
 
     @app.route("/api/bridge/brand-kits", methods=["GET"])
     def bridge_brand_kits():
-        ok, err = _bridge_auth()
+        """List brand kits for the logged-in operator."""
+        ok, info = _require_token()
         if not ok:
-            return err
-        operator_id = request.args.get("operator_id", type=int)
-        if not operator_id:
-            return jsonify({"code": 400, "message": "operator_id is required"}), 400
+            return info
+        operator_id = info["id"]
+
         from models import get_db
         db = get_db()
         kits = db.execute(
@@ -95,7 +102,6 @@ def register_bridge_routes(app):
             proxy_type = None
             fingerprint = None
 
-            # 1. Primary: read from CloakBrowser profile config.json
             profile_name = k["cloakbrowser_profile_name"]
             if profile_name:
                 cb_config = _read_cloakbrowser_config(profile_name)
@@ -113,7 +119,6 @@ def register_bridge_routes(app):
                         "google_email": cb_config.get("google_email", "") or cb_config.get("googleEmail", ""),
                     }
 
-            # 2. Fallback: if config.json has no proxy, use database proxy
             if not proxy_url:
                 proxy_url = k["proxy_url"]
                 proxy_type = k["proxy_type"]
