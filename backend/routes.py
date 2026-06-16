@@ -3027,6 +3027,29 @@ def register_routes(app):
             "data": {"feed_url": feed_url, "products": len(products), "size_bytes": size_bytes},
         })
 
+    def _clean_feed_from_static_site(site):
+        """Remove feed.xml from 1Panel static site directory."""
+        import xml.etree.ElementTree as ET
+        domain = site["url"]
+        ns_g = "http://base.google.com/ns/1.0"
+        rss = ET.Element("rss", {"version": "2.0", "xmlns:g": ns_g})
+        channel = ET.SubElement(rss, "channel")
+        ET.SubElement(channel, "title").text = site.get("site_name") or domain
+        ET.SubElement(channel, "link").text = f"https://{domain}"
+        ET.SubElement(channel, "description").text = "Google Shopping Product Feed"
+        empty_xml = '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(rss, encoding="unicode")
+
+        nginx_alias = site.get("nginx_alias", "")
+        site_dir = site.get("static_dir", "")
+        env = get_user_panel_environment(site.get("created_by") or 1)
+        if env and nginx_alias:
+            pc = OnePanelClient(host=env["host"], port=env["port"], api_key=env["api_key"])
+            pc.upload_static_site_files(alias=nginx_alias, files={"feed.xml": empty_xml}, website_dir=site_dir)
+            pc.reload_openresty()
+            update_site(site["id"], {"google_feed_url": ""})
+            return True
+        return False
+
     def _regenerate_static_site_html(task_id_or_none, site_id):
         """Regenerate static site files and upload to 1Panel (used after product sync)."""
         site = get_site(site_id)
@@ -8532,10 +8555,15 @@ Respond with strict JSON only (no markdown code blocks):
         if not site:
             return jsonify({"code": 404, "message": "站点不存在"}), 404
 
-        cleaned = False
         is_static = site.get("site_type") == "static"
 
-        if not is_static:
+        if is_static:
+            cleaned = _clean_feed_from_static_site(site)
+            if cleaned:
+                logger.info(f"[FeedSync] Removed feed from static site {site_id}")
+                return jsonify({"code": 200, "data": {"cleaned": True, "message": "已清理"}})
+        else:
+            cleaned = False
             try:
                 wp = WordPressAdminSession(site["url"], site["admin_name"], site["admin_password"])
                 if wp.delete_feed_file():
