@@ -1879,7 +1879,7 @@ def list_generated_feed(site_id=None) -> list[dict]:
     try:
         if site_id:
             rows = conn.execute(
-                "SELECT * FROM generated_feed WHERE site_id = ? OR site_id IS NULL ORDER BY id DESC", (site_id,)
+                "SELECT * FROM generated_feed WHERE site_id = ? ORDER BY id DESC", (site_id,)
             ).fetchall()
         else:
             rows = conn.execute(
@@ -1972,7 +1972,7 @@ def list_woocommerce_products(site_id=None) -> list[dict]:
     try:
         if site_id:
             rows = conn.execute(
-                "SELECT * FROM woocommerce_products WHERE site_id = ? OR site_id IS NULL ORDER BY id DESC", (site_id,)
+                "SELECT * FROM woocommerce_products WHERE site_id = ? ORDER BY id DESC", (site_id,)
             ).fetchall()
         else:
             rows = conn.execute(
