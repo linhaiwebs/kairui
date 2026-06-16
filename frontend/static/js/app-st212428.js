@@ -3867,14 +3867,8 @@ pipelineStatuses[siteId].demo_importing = false;
                             <i class="fas fa-external-link-alt"></i>{{ feedUrl[feedSyncSiteId].split('/').pop() }}
                         </a>
                     </h3>
-                    <div class="flex items-center gap-3">
-                        <!-- Site tabs for Feed -->
-                        <div class="flex gap-1 flex-wrap mb-2">
-                            <button @click="feedActiveSiteTab=null;loadGeneratedFeed()" :class="[feedActiveSiteTab===null ? 'bg-[#146c2e] text-on-primary' : 'bg-surface-container text-on-surface-variant', 'px-2 py-1 rounded text-xs transition']">全部</button>
-                            <button v-for="s in sites" :key="s.id" @click="feedActiveSiteTab=s.id;loadGeneratedFeed()" :class="[feedActiveSiteTab===s.id ? 'bg-[#146c2e] text-on-primary' : 'bg-surface-container text-on-surface-variant', 'px-2 py-1 rounded text-xs transition']">{{ s.site_name }}</button>
-                        </div>
                         <!-- Site selector -->
-                        <select v-model="feedSyncSiteId" class="border rounded-lg px-3 py-2 text-sm bg-surface-container-lowest focus:ring-2 focus:ring-green-300">
+                        <select v-model="feedSyncSiteId" @change="loadGeneratedFeed()" class="border rounded-lg px-3 py-2 text-sm bg-surface-container-lowest focus:ring-2 focus:ring-green-300">
                             <option :value="null">-- 选择站点 --</option>
                             <option v-for="site in sites" :key="site.id" :value="site.id">{{ site.site_name }} ({{ site.url }})</option>
                         </select>
@@ -4101,7 +4095,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     </h3>
                     <div class="flex items-center gap-3">
                         <!-- Site selector -->
-                        <select v-model="wooSyncSiteId" class="border rounded-lg px-3 py-2 text-sm bg-surface-container-lowest focus:ring-2 focus:ring-blue-300">
+                        <select v-model="wooSyncSiteId" @change="wooActiveSiteTab=wooSyncSiteId;loadWooProducts()" class="border rounded-lg px-3 py-2 text-sm bg-surface-container-lowest focus:ring-2 focus:ring-blue-300">
                             <option :value="null">-- 选择站点 --</option>
                             <option v-for="site in sites" :key="site.id" :value="site.id">{{ site.site_name }} ({{ site.url }})</option>
                         </select>
