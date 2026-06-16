@@ -5533,77 +5533,97 @@ def register_routes(app):
         """
         results = {"updated": 0, "cleared": 0, "imported": 0, "errors": [], "sites": []}
         try:
-            # Fetch ALL 1Panel websites (paginate through all pages)
-            panel_websites = {}
-            page = 1
-            while True:
-                ws_resp = _get_panel_client().search_websites(page=page, page_size=100)
-                if ws_resp.get("code") != 200:
-                    break
-                items = (ws_resp.get("data") or {}).get("items") or []
-                if not items:
-                    break
-                for w in items:
-                    panel_websites[w.get("id")] = w
-                page += 1
-            logger.info("Sync: fetched %d 1Panel websites across %d pages", len(panel_websites), page - 1)
+            def _fetch_panel_data(pc):
+                """Fetch all websites + apps from one 1Panel environment."""
+                websites = {}
+                apps = {}
+                page = 1
+                while True:
+                    ws_resp = pc.search_websites(page=page, page_size=100)
+                    if ws_resp.get("code") != 200:
+                        break
+                    items = (ws_resp.get("data") or {}).get("items") or []
+                    if not items:
+                        break
+                    for w in items:
+                        websites[w.get("id")] = w
+                    page += 1
+                page = 1
+                while True:
+                    app_resp = pc.search_installed_apps(name="", page=page, page_size=100)
+                    if app_resp.get("code") != 200:
+                        break
+                    items = (app_resp.get("data") or {}).get("items") or []
+                    if not items:
+                        break
+                    for a in items:
+                        apps[a.get("id")] = a
+                    page += 1
+                return websites, apps
 
-            # Fetch ALL installed apps (paginate)
-            panel_apps = {}
-            wp_apps = []
-            page = 1
-            while True:
-                app_resp = _get_panel_client().search_installed_apps(name="", page=page, page_size=100)
-                if app_resp.get("code") != 200:
-                    break
-                items = (app_resp.get("data") or {}).get("items") or []
-                if not items:
-                    break
-                for a in items:
-                    panel_apps[a.get("id")] = a
-                    if a.get("appKey") == "wordpress":
-                        wp_apps.append(a)
-                page += 1
-            logger.info("Sync: fetched %d 1Panel apps (%d WordPress) across %d pages",
-                        len(panel_apps), len(wp_apps), page - 1)
-
-            # Check each local site
+            # Group sites by panel environment
             sites = list_sites()
-            for site in sites:
-                sid = site.get("id")
-                site_name = site.get("site_name", "")
-                pwid = site.get("panel_website_id")
-                paid = site.get("panel_app_install_id")
-                updates = {}
-                site_status = "ok"
+            env_sites = {}  # env_key -> {"pc": client, "sites": [...], "websites": {}, "apps": {}}
+            default_pc = _get_panel_client()
+            default_key = "default"
 
-                # Check if 1Panel website still exists
-                if pwid:
-                    if pwid not in panel_websites:
-                        updates["panel_website_id"] = None
+            for site in sites:
+                env = None
+                try:
+                    env = get_user_panel_environment(site.get("created_by") or 1)
+                except Exception:
+                    pass
+                if env:
+                    env_key = f"{env['host']}:{env['port']}"
+                else:
+                    env_key = default_key
+
+                if env_key not in env_sites:
+                    pc = OnePanelClient(host=env["host"], port=env["port"], api_key=env["api_key"]) if env else default_pc
+                    env_sites[env_key] = {"pc": pc, "sites": [], "websites": None, "apps": None}
+                env_sites[env_key]["sites"].append(site)
+
+            # Fetch panel data per environment and check sites
+            for env_key, ed in env_sites.items():
+                pc = ed["pc"]
+                websites, apps = _fetch_panel_data(pc)
+                ed["websites"] = websites
+                ed["apps"] = apps
+                logger.info("Sync: env %s: %d websites, %d apps for %d sites",
+                            env_key, len(websites), len(apps), len(ed["sites"]))
+
+                for site in ed["sites"]:
+                    sid = site.get("id")
+                    site_name = site.get("site_name", "")
+                    pwid = site.get("panel_website_id")
+                    paid = site.get("panel_app_install_id")
+                    updates = {}
+                    site_status = "ok"
+
+                    if pwid:
+                        if pwid not in websites:
+                            updates["panel_website_id"] = None
+                            updates["panel_app_install_id"] = None
+                            results["cleared"] += 1
+                            site_status = "cleared"
+                            logger.info(f"Sync: cleared stale panel IDs for site {sid} ({site_name})")
+
+                    if paid and paid not in apps and "panel_app_install_id" not in updates:
                         updates["panel_app_install_id"] = None
+                        if "panel_website_id" not in updates:
+                            updates["panel_website_id"] = None
                         results["cleared"] += 1
                         site_status = "cleared"
-                        logger.info(f"Sync: cleared stale panel IDs for site {sid} ({site_name})")
+                        logger.info(f"Sync: cleared stale panel app ID for site {sid}")
 
-                # Check if 1Panel app still exists
-                if paid and paid not in panel_apps and "panel_app_install_id" not in updates:
-                    updates["panel_app_install_id"] = None
-                    if "panel_website_id" not in updates:
-                        updates["panel_website_id"] = None
-                    results["cleared"] += 1
-                    site_status = "cleared"
-                    logger.info(f"Sync: cleared stale panel app ID for site {sid}")
-
-                # Fill in missing app_install_id from website data
-                if pwid and not paid and pwid in panel_websites:
-                    pw = panel_websites[pwid]
-                    pw_app_id = pw.get("appInstallId")
-                    if pw_app_id and pw_app_id in panel_apps:
-                        updates["panel_app_install_id"] = pw_app_id
-                        results["updated"] += 1
-                        site_status = "updated"
-                        logger.info(f"Sync: filled missing app_install_id={pw_app_id} for site {sid}")
+                    if pwid and not paid and pwid in websites:
+                        pw = websites[pwid]
+                        pw_app_id = pw.get("appInstallId")
+                        if pw_app_id and pw_app_id in apps:
+                            updates["panel_app_install_id"] = pw_app_id
+                            results["updated"] += 1
+                            site_status = "updated"
+                            logger.info(f"Sync: filled missing app_install_id={pw_app_id} for site {sid}")
 
                 # Forward-link: site has no panel IDs → find matching 1Panel website
                 current_pwid = updates.get("panel_website_id", pwid)
@@ -5618,7 +5638,7 @@ def register_routes(app):
                     seen_aliases = set()
                     candidate_aliases = [a for a in candidate_aliases if a and not (a in seen_aliases or seen_aliases.add(a))]
 
-                    for pw in panel_websites.values():
+                    for pw in websites.values():
                         if pw.get("alias") in candidate_aliases or pw.get("primaryDomain") == site_name:
                             updates["panel_website_id"] = pw.get("id")
                             updates["panel_app_install_id"] = pw.get("appInstallId")
@@ -5643,9 +5663,15 @@ def register_routes(app):
                 })
 
             # Check for WordPress apps in 1Panel that have NO website (orphaned)
-            # These are the apps that WOULD show up in 1Panel's "已安装应用" dropdown
-            linked_app_ids = set(w.get("appInstallId") for w in panel_websites.values() if w.get("appInstallId"))
-            orphaned_wp_apps = [a for a in wp_apps if a.get("id") not in linked_app_ids]
+            all_websites = {}
+            all_wp_apps = []
+            for ed in env_sites.values():
+                all_websites.update(ed.get("websites", {}))
+                for a in ed.get("apps", {}).values():
+                    if a.get("appKey") == "wordpress":
+                        all_wp_apps.append(a)
+            linked_app_ids = set(w.get("appInstallId") for w in all_websites.values() if w.get("appInstallId"))
+            orphaned_wp_apps = [a for a in all_wp_apps if a.get("id") not in linked_app_ids]
             results["orphaned_wp_apps"] = len(orphaned_wp_apps)
             results["orphaned_wp_app_details"] = [
                 {"id": a.get("id"), "name": a.get("name"), "status": a.get("status"), "httpPort": a.get("httpPort")}
@@ -5687,9 +5713,9 @@ def register_routes(app):
             # These are the normal case: 1Panel one-click deploy creates a website + WordPress app together
             local_panel_website_ids = set(s.get("panel_website_id") for s in sites if s.get("panel_website_id"))
             local_panel_app_ids = set(s.get("panel_app_install_id") for s in sites if s.get("panel_app_install_id"))
-            wp_app_ids = set(a.get("id") for a in wp_apps)
+            wp_app_ids = set(a.get("id") for a in all_wp_apps)
             untracked_wp_websites = [
-                w for w in panel_websites.values()
+                w for w in all_websites.values()
                 if w.get("id") not in local_panel_website_ids
                 and w.get("appInstallId") in wp_app_ids
                 and w.get("appInstallId") not in local_panel_app_ids
