@@ -3865,7 +3865,6 @@ pipelineStatuses[siteId].demo_importing = false;
                             <i class="fas fa-trash mr-1"></i>清除
                         </button>
                     </div>
-                </div>
 
                 <!-- Feed product table -->
                 <div v-if="generatedFeed.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
@@ -3984,6 +3983,7 @@ pipelineStatuses[siteId].demo_importing = false;
                         <div class="overflow-y-auto flex-1 text-sm text-on-surface whitespace-pre-wrap">{{ feedDescContent }}</div>
                     </div>
                 </div>
+            </div>
             </div>
 
             <!-- 资源总览 -->
