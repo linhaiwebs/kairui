@@ -2989,6 +2989,9 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
             <div class="flex items-center gap-lg">
                 <div class="flex items-center gap-md">
+                    <a href="/downloads/kairui.exe" download class="header-icon-btn inline-flex items-center justify-center gap-1 no-underline" title="下载 kairui.exe">
+                        <span class="material-symbols-outlined">download</span>
+                    </a>
                     <button class="header-icon-btn inline-flex items-center justify-center">
                         <span class="material-symbols-outlined">notifications</span>
                     </button>
