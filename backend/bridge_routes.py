@@ -82,7 +82,7 @@ def register_bridge_routes(app):
         db = get_db()
         kits = db.execute(
             "SELECT bk.id, bk.name, bk.brand_name, bk.industry, bk.cloakbrowser_profile_name, "
-            "bk.proxy_id, p.proxy_url, p.proxy_type, p.ip as proxy_ip "
+            "p.proxy_url, p.proxy_type "
             "FROM brand_kits bk "
             "LEFT JOIN proxies p ON bk.proxy_id = p.id "
             "WHERE bk.created_by = ? ORDER BY bk.id",
@@ -91,16 +91,18 @@ def register_bridge_routes(app):
 
         results = []
         for k in kits:
-            proxy_url = k["proxy_url"]
-            proxy_type = k["proxy_type"]
-            proxy_ip = k["proxy_ip"]
+            proxy_url = None
+            proxy_type = None
             fingerprint = None
 
-            # Read CloakBrowser profile config for fingerprint info
+            # 1. Primary: read from CloakBrowser profile config.json
             profile_name = k["cloakbrowser_profile_name"]
             if profile_name:
                 cb_config = _read_cloakbrowser_config(profile_name)
                 if cb_config:
+                    proxy_url = cb_config.get("proxy", "") or None
+                    if proxy_url:
+                        proxy_type = "socks5" if proxy_url.startswith("socks5") else "http"
                     fingerprint = {
                         "platform": cb_config.get("platform", ""),
                         "country": cb_config.get("country", ""),
@@ -111,6 +113,11 @@ def register_bridge_routes(app):
                         "google_email": cb_config.get("google_email", "") or cb_config.get("googleEmail", ""),
                     }
 
+            # 2. Fallback: if config.json has no proxy, use database proxy
+            if not proxy_url:
+                proxy_url = k["proxy_url"]
+                proxy_type = k["proxy_type"]
+
             results.append({
                 "id": k["id"],
                 "name": k["name"],
@@ -119,7 +126,6 @@ def register_bridge_routes(app):
                 "cloakbrowser_profile_name": profile_name,
                 "proxy_url": proxy_url,
                 "proxy_type": proxy_type,
-                "proxy_ip": proxy_ip,
                 "fingerprint": fingerprint,
             })
 
