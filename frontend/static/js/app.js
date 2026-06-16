@@ -1294,7 +1294,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 wooConverting.value = false;
             }
         }
-        function onWooSiteChange() { loadWooProducts(wooSyncSiteId.value); }
+        watch(wooSyncSiteId, (newVal) => { if (currentPage.value === 'woocommerce-products') loadWooProducts(newVal); });
         async function loadWooProducts(siteId) {
             try {
                 const sid = siteId || wooSyncSiteId.value;
@@ -1662,6 +1662,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 });
             }
             if (page === 'woocommerce-products') {
+                loadWooProducts(wooSyncSiteId.value);
             }
             if (page === 'sites') {
                 pipelinePollTimer = setInterval(() => {
@@ -2734,7 +2735,7 @@ pipelineStatuses[siteId].demo_importing = false;
             handleAmazonFileUpload, toggleAmazonSelect, selectAllAmazon,
             closeConvertLogModal, toggleFeedSelect, selectAllFeed, deleteSelectedFeedItems, showFeedDescription, buildFeedDetailText,
             wooProducts, wooSelectedIndices, wooConverting, wooConvertProgress,
-            feedSyncSiteId, wooSyncSiteId, onWooSiteChange, onFeedSiteChange, syncingFeed, syncingWoo,
+            feedSyncSiteId, wooSyncSiteId, onFeedSiteChange, syncingFeed, syncingWoo,
             convertToWooCommerce, loadWooProducts, toggleWooSelect, selectAllWoo, deleteSelectedWooProducts,
             createFeedForSite, cleanFeedFromSite, syncWooToSite, cleanWooFromSite, generateFeedFromWoo, wooGeneratingFeed, feedUrl,
             csvUploading, csvFileInput, handleCsvUpload,
@@ -4058,7 +4059,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     </h3>
                     <div class="flex items-center gap-3">
                         <!-- Site selector -->
-                        <select v-model="wooSyncSiteId" @change="onWooSiteChange()" class="border rounded-lg px-3 py-2 text-sm bg-surface-container-lowest focus:ring-2 focus:ring-blue-300">
+                        <select v-model="wooSyncSiteId" class="border rounded-lg px-3 py-2 text-sm bg-surface-container-lowest focus:ring-2 focus:ring-blue-300">
                             <option :value="null">-- 选择站点 --</option>
                             <option v-for="site in sites" :key="site.id" :value="site.id">{{ site.site_name }} ({{ site.url }})</option>
                         </select>
