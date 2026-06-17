@@ -2376,6 +2376,7 @@ pipelineStatuses[siteId].demo_importing = false;
         const mcBatchImporting = ref(false);
         const mcBatchResult = ref('');
         const deprecatedProxies = ref([]);
+        const showProxyPool = ref(false);
         const showDeprecatedProxies = ref(false);
         async function loadDeprecatedProxies() {
             try { const r = await API.request('GET', '/api/proxies/deprecated'); if (r.code === 200) deprecatedProxies.value = r.data || []; } catch (e) {}
@@ -2929,7 +2930,7 @@ pipelineStatuses[siteId].demo_importing = false;
             cfVerify, loadCfAccounts, handleDeleteCfAccount, handleSetDefaultCfAccount,
             brandKits, brandKitsLoading, showBrandKitModal, brandKitEditId, brandKitForm,
             brandKitGenerating, showBrandKitDetail, brandKitDetail, brandKitDetailTab,
-            proxies, availableProxies, importingProxies, importingProxyText, importingProxyType,
+            proxies, showProxyPool, availableProxies, importingProxies, importingProxyText, importingProxyType,
             loadProxies, handleImportProxies, handleImportProxyText,
             googleAccounts, availableGoogleAccounts, importingGoogleAccounts, googleAccountsText,
             loadGoogleAccounts, handleImportGoogleAccounts, handleDeleteGoogleAccount,
@@ -4517,7 +4518,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 </div>
                             </div>
                             <!-- Tab: 指纹环境 -->
-                            <div v-else-if="settingsActiveTab === 'fingerprint'" @vue:mounted="loadCloakbrowserProfiles(); loadDeprecatedProxies()">
+                            <div v-else-if="settingsActiveTab === 'fingerprint'" @vue:mounted="loadCloakbrowserProfiles(); loadProxies(); loadDeprecatedProxies()">
                                 <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 mb-4 flex items-center justify-between">
                                     <div>
                                         <p class="font-medium text-on-surface"><i class="fas fa-power-off mr-2 text-primary"></i>启用指纹环境</p>
@@ -4558,6 +4559,19 @@ pipelineStatuses[siteId].demo_importing = false;
                                         <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">名称</th><th class="px-3 py-2 text-left">平台</th><th class="px-3 py-2 text-left">国家</th><th class="px-3 py-2 text-left">代理</th><th class="px-3 py-2 text-left">状态</th><th class="px-3 py-2 text-right">操作</th></tr></thead><tbody class="divide-y"><tr v-for="p in cloakbrowserProfiles" :key="p.name" class="hover:bg-surface-container-low"><td class="px-3 py-2 font-mono text-xs">{{ p.name }}</td><td class="px-3 py-2 text-xs">{{ p.platform || p.config?.platform || '-' }}</td><td class="px-3 py-2 text-xs">{{ p.country || p.config?.country || '-' }}</td><td class="px-3 py-2 text-xs max-w-[120px] truncate" :title="p.proxy">{{ p.proxy || '-' }}</td><td class="px-3 py-2"><span v-if="p.bound" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">使用中</span><span v-if="p.bound_kit_name" class="text-[10px] text-on-surface-variant ml-1">({{ p.bound_kit_name }})</span><span v-else class="badge bg-surface-container-high text-on-surface-variant text-xs">可用</span></td><td class="px-3 py-2 text-right"><button @click="deleteProfile(p.name)" class="text-xs text-error hover:text-error"><span class="material-symbols-outlined text-sm">delete</span></button></td></tr></tbody></table>
                                     </div>
                                     <div v-else class="text-center py-8 text-sm text-on-surface-variant">暂无指纹环境</div>
+                                </div>
+                                <!-- Proxy Pool -->
+                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden mt-4">
+                                    <div class="flex items-center justify-between p-3 border-b cursor-pointer" @click="showProxyPool = !showProxyPool">
+                                        <p class="font-medium text-on-surface text-sm"><i class="fas fa-network-wired mr-2 text-primary"></i>代理池 <span class="text-xs text-on-surface-variant">({{ proxies.length }})</span></p>
+                                        <span class="material-symbols-outlined text-on-surface-variant">{{ showProxyPool ? 'expand_less' : 'expand_more' }}</span>
+                                    </div>
+                                    <div v-if="showProxyPool">
+                                        <div v-if="proxies.length" class="overflow-x-auto">
+                                            <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">ID</th><th class="px-3 py-2 text-left">IP</th><th class="px-3 py-2 text-left">端口</th><th class="px-3 py-2 text-left">类型</th><th class="px-3 py-2 text-left">状态</th><th class="px-3 py-2 text-left">占用</th></tr></thead><tbody class="divide-y"><tr v-for="p in proxies.filter(x => x.status !== 'deprecated')" :key="p.id" class="hover:bg-surface-container-low"><td class="px-3 py-2 text-xs font-mono">{{ p.id }}</td><td class="px-3 py-2 text-xs">{{ p.ip }}</td><td class="px-3 py-2 text-xs">{{ p.port }}</td><td class="px-3 py-2 text-xs">{{ p.proxy_type }}</td><td class="px-3 py-2"><span v-if="p.occupied_kit_name" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">使用中</span><span v-else class="badge bg-surface-container-high text-on-surface-variant text-xs">可用</span></td><td class="px-3 py-2 text-xs"><span v-if="p.occupied_kit_name">{{ p.occupied_by || '-' }} · {{ p.occupied_kit_name }}</span><span v-else class="text-on-surface-variant">-</span></td></tr></tbody></table>
+                                        </div>
+                                        <div v-else class="text-center py-6 text-sm text-on-surface-variant">暂无代理</div>
+                                    </div>
                                 </div>
                                 <!-- Deprecated Proxies -->
                                 <div class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden mt-4">
