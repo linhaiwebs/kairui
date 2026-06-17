@@ -2377,6 +2377,7 @@ pipelineStatuses[siteId].demo_importing = false;
         const mcBatchResult = ref('');
         const deprecatedProxies = ref([]);
         const fingerprintSubTab = ref('profiles');
+        const showGoogleImport = ref(false);
         const showProxyPool = ref(false);
         const showDeprecatedProxies = ref(false);
         async function loadDeprecatedProxies() {
@@ -2931,7 +2932,7 @@ pipelineStatuses[siteId].demo_importing = false;
             cfVerify, loadCfAccounts, handleDeleteCfAccount, handleSetDefaultCfAccount,
             brandKits, brandKitsLoading, showBrandKitModal, brandKitEditId, brandKitForm,
             brandKitGenerating, showBrandKitDetail, brandKitDetail, brandKitDetailTab,
-            fingerprintSubTab, proxies, showProxyPool, availableProxies, importingProxies, importingProxyText, importingProxyType,
+            fingerprintSubTab, showGoogleImport, proxies, showProxyPool, availableProxies, importingProxies, importingProxyText, importingProxyType,
             loadProxies, handleImportProxies, handleImportProxyText,
             googleAccounts, availableGoogleAccounts, importingGoogleAccounts, googleAccountsText,
             loadGoogleAccounts, handleImportGoogleAccounts, handleDeleteGoogleAccount,
@@ -4469,13 +4470,18 @@ pipelineStatuses[siteId].demo_importing = false;
                                 </div>
                                 <p class="text-xs text-on-surface-variant mb-2"><i class="fas fa-info-circle mr-1"></i>用于 GMC 自动化时自动登录 Google（支持 TOTP 2FA）。格式: email|password|recovery_email|base32_secret|year|country</p>
                                 <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 mb-4">
-                                    <label class="block text-xs font-medium text-on-surface-variant mb-2">从 TXT 导入账户</label>
-                                    <textarea v-model="googleAccountsText" rows="6" class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:border-primary" placeholder="粘贴 TXT 内容..."></textarea>
-                                    <div class="mt-2">
-                                        <button @click="handleImportGoogleAccounts" :disabled="importingGoogleAccounts" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm disabled:opacity-50">
-                                            <i v-if="importingGoogleAccounts" class="fas fa-spinner fa-spin mr-1"></i>
-                                            {{ importingGoogleAccounts ? '导入中...' : '导入' }}
-                                        </button>
+                                    <div class="flex items-center justify-between cursor-pointer" @click="showGoogleImport = !showGoogleImport">
+                                        <label class="text-xs font-medium text-on-surface-variant"><i class="fas fa-upload mr-1"></i>从 TXT 导入账户</label>
+                                        <span class="material-symbols-outlined text-on-surface-variant text-sm">{{ showGoogleImport ? 'expand_less' : 'expand_more' }}</span>
+                                    </div>
+                                    <div v-show="showGoogleImport" class="mt-3">
+                                        <textarea v-model="googleAccountsText" rows="6" class="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:border-primary" placeholder="粘贴 TXT 内容..."></textarea>
+                                        <div class="mt-2">
+                                            <button @click="handleImportGoogleAccounts" :disabled="importingGoogleAccounts" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+                                                <i v-if="importingGoogleAccounts" class="fas fa-spinner fa-spin mr-1"></i>
+                                                {{ importingGoogleAccounts ? '导入中...' : '导入' }}
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                                 <div v-if="!googleAccounts.length" class="text-center py-6 text-sm text-on-surface-variant">
@@ -4572,16 +4578,11 @@ pipelineStatuses[siteId].demo_importing = false;
                                 </div>
                                 <!-- Proxy Pool sub-tab -->
                                 <div v-show="fingerprintSubTab === 'proxies'" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
-                                    <div class="flex items-center justify-between p-3 border-b cursor-pointer" @click="showProxyPool = !showProxyPool">
-                                        <p class="font-medium text-on-surface text-sm"><i class="fas fa-network-wired mr-2 text-primary"></i>代理池 <span class="text-xs text-on-surface-variant">({{ proxies.length }})</span></p>
-                                        <span class="material-symbols-outlined text-on-surface-variant">{{ showProxyPool ? 'expand_less' : 'expand_more' }}</span>
-                                    </div>
-                                    <div v-if="showProxyPool">
-                                        <div v-if="proxies.length" class="overflow-x-auto">
+                                    <div v-if="proxies.length" class="overflow-x-auto">
                                             <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">ID</th><th class="px-3 py-2 text-left">IP</th><th class="px-3 py-2 text-left">端口</th><th class="px-3 py-2 text-left">类型</th><th class="px-3 py-2 text-left">状态</th><th class="px-3 py-2 text-left">占用</th></tr></thead><tbody class="divide-y"><tr v-for="p in proxies.filter(x => x.status !== 'deprecated')" :key="p.id" class="hover:bg-surface-container-low"><td class="px-3 py-2 text-xs font-mono">{{ p.id }}</td><td class="px-3 py-2 text-xs">{{ p.ip }}</td><td class="px-3 py-2 text-xs">{{ p.port }}</td><td class="px-3 py-2 text-xs">{{ p.proxy_type }}</td><td class="px-3 py-2"><span v-if="p.occupied_kit_name" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">使用中</span><span v-else class="badge bg-surface-container-high text-on-surface-variant text-xs">可用</span></td><td class="px-3 py-2 text-xs"><span v-if="p.occupied_kit_name">{{ p.occupied_by || '-' }} · {{ p.occupied_kit_name }}</span><span v-else class="text-on-surface-variant">-</span></td></tr></tbody></table>
                                         </div>
                                         <div v-else class="text-center py-6 text-sm text-on-surface-variant">暂无代理</div>
-                                    </div>
+                                </div>
                                 <!-- Deprecated sub-tab -->
                                 <div v-show="fingerprintSubTab === 'deprecated'" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                                     <div v-if="deprecatedProxies.length" class="overflow-x-auto">
