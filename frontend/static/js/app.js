@@ -2376,6 +2376,7 @@ pipelineStatuses[siteId].demo_importing = false;
         const mcBatchImporting = ref(false);
         const mcBatchResult = ref('');
         const deprecatedProxies = ref([]);
+        const fingerprintSubTab = ref('profiles');
         const showProxyPool = ref(false);
         const showDeprecatedProxies = ref(false);
         async function loadDeprecatedProxies() {
@@ -2930,7 +2931,7 @@ pipelineStatuses[siteId].demo_importing = false;
             cfVerify, loadCfAccounts, handleDeleteCfAccount, handleSetDefaultCfAccount,
             brandKits, brandKitsLoading, showBrandKitModal, brandKitEditId, brandKitForm,
             brandKitGenerating, showBrandKitDetail, brandKitDetail, brandKitDetailTab,
-            proxies, showProxyPool, availableProxies, importingProxies, importingProxyText, importingProxyType,
+            fingerprintSubTab, proxies, showProxyPool, availableProxies, importingProxies, importingProxyText, importingProxyType,
             loadProxies, handleImportProxies, handleImportProxyText,
             googleAccounts, availableGoogleAccounts, importingGoogleAccounts, googleAccountsText,
             loadGoogleAccounts, handleImportGoogleAccounts, handleDeleteGoogleAccount,
@@ -4519,6 +4520,14 @@ pipelineStatuses[siteId].demo_importing = false;
                             </div>
                             <!-- Tab: 指纹环境 -->
                             <div v-else-if="settingsActiveTab === 'fingerprint'" @vue:mounted="loadCloakbrowserProfiles(); loadProxies(); loadDeprecatedProxies()">
+                                <!-- Sub-tabs -->
+                                <div class="flex border-b mb-4 gap-0">
+                                    <button @click="fingerprintSubTab = 'profiles'" :class="['px-4 py-2 text-sm font-medium border-b-2 transition', fingerprintSubTab === 'profiles' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface']"><i class="fas fa-fingerprint mr-1"></i>指纹环境</button>
+                                    <button @click="fingerprintSubTab = 'proxies'" :class="['px-4 py-2 text-sm font-medium border-b-2 transition', fingerprintSubTab === 'proxies' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface']"><i class="fas fa-network-wired mr-1"></i>代理池</button>
+                                    <button @click="fingerprintSubTab = 'deprecated'" :class="['px-4 py-2 text-sm font-medium border-b-2 transition', fingerprintSubTab === 'deprecated' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface']"><i class="fas fa-archive mr-1"></i>弃用代理 <span v-if="deprecatedProxies.length" class="text-xs">({{ deprecatedProxies.length }})</span></button>
+                                </div>
+                                <!-- Profiles sub-tab -->
+                                <div v-show="fingerprintSubTab === 'profiles'">
                                 <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 mb-4 flex items-center justify-between">
                                     <div>
                                         <p class="font-medium text-on-surface"><i class="fas fa-power-off mr-2 text-primary"></i>启用指纹环境</p>
@@ -4560,8 +4569,9 @@ pipelineStatuses[siteId].demo_importing = false;
                                     </div>
                                     <div v-else class="text-center py-8 text-sm text-on-surface-variant">暂无指纹环境</div>
                                 </div>
-                                <!-- Proxy Pool -->
-                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden mt-4">
+                                </div>
+                                <!-- Proxy Pool sub-tab -->
+                                <div v-show="fingerprintSubTab === 'proxies'" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                                     <div class="flex items-center justify-between p-3 border-b cursor-pointer" @click="showProxyPool = !showProxyPool">
                                         <p class="font-medium text-on-surface text-sm"><i class="fas fa-network-wired mr-2 text-primary"></i>代理池 <span class="text-xs text-on-surface-variant">({{ proxies.length }})</span></p>
                                         <span class="material-symbols-outlined text-on-surface-variant">{{ showProxyPool ? 'expand_less' : 'expand_more' }}</span>
@@ -4572,19 +4582,12 @@ pipelineStatuses[siteId].demo_importing = false;
                                         </div>
                                         <div v-else class="text-center py-6 text-sm text-on-surface-variant">暂无代理</div>
                                     </div>
-                                </div>
-                                <!-- Deprecated Proxies -->
-                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden mt-4">
-                                    <div class="flex items-center justify-between p-3 border-b cursor-pointer" @click="showDeprecatedProxies = !showDeprecatedProxies">
-                                        <p class="font-medium text-on-surface text-sm"><i class="fas fa-archive mr-2 text-tertiary"></i>弃用代理 <span class="text-xs text-on-surface-variant">({{ deprecatedProxies.length }})</span></p>
-                                        <span class="material-symbols-outlined text-on-surface-variant">{{ showDeprecatedProxies ? 'expand_less' : 'expand_more' }}</span>
+                                <!-- Deprecated sub-tab -->
+                                <div v-show="fingerprintSubTab === 'deprecated'" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
+                                    <div v-if="deprecatedProxies.length" class="overflow-x-auto">
+                                        <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">ID</th><th class="px-3 py-2 text-left">IP</th><th class="px-3 py-2 text-left">端口</th><th class="px-3 py-2 text-left">类型</th></tr></thead><tbody class="divide-y"><tr v-for="p in deprecatedProxies" :key="p.id" class="hover:bg-surface-container-low"><td class="px-3 py-2 text-xs font-mono">{{ p.id }}</td><td class="px-3 py-2 text-xs">{{ p.ip }}</td><td class="px-3 py-2 text-xs">{{ p.port }}</td><td class="px-3 py-2 text-xs">{{ p.proxy_type }}</td></tr></tbody></table>
                                     </div>
-                                    <div v-if="showDeprecatedProxies">
-                                        <div v-if="deprecatedProxies.length" class="overflow-x-auto">
-                                            <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">ID</th><th class="px-3 py-2 text-left">IP</th><th class="px-3 py-2 text-left">端口</th><th class="px-3 py-2 text-left">类型</th></tr></thead><tbody class="divide-y"><tr v-for="p in deprecatedProxies" :key="p.id" class="hover:bg-surface-container-low"><td class="px-3 py-2 text-xs font-mono">{{ p.id }}</td><td class="px-3 py-2 text-xs">{{ p.ip }}</td><td class="px-3 py-2 text-xs">{{ p.port }}</td><td class="px-3 py-2 text-xs">{{ p.proxy_type }}</td></tr></tbody></table>
-                                        </div>
-                                        <div v-else class="text-center py-6 text-sm text-on-surface-variant">暂无弃用代理</div>
-                                    </div>
+                                    <div v-else class="text-center py-6 text-sm text-on-surface-variant">暂无弃用代理</div>
                                 </div>
                             </div>
                         </div>
