@@ -281,8 +281,8 @@ const API = {
     },
 
     // Cloudflare
-    async cfVerifyToken(apiToken) {
-        return this.request('POST', '/api/cloudflare/verify', { api_token: apiToken });
+    async cfVerifyToken(apiToken, notes = '') {
+        return this.request('POST', '/api/cloudflare/verify', { api_token: apiToken, notes });
     },
 
 

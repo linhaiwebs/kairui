@@ -751,6 +751,7 @@ def _migrate_add_columns(conn):
                 api_key TEXT DEFAULT '',
                 auth_type TEXT DEFAULT 'token',
                 is_default INTEGER DEFAULT 0,
+                notes TEXT DEFAULT '',
                 created_at TEXT,
                 updated_at TEXT
             )
@@ -763,6 +764,8 @@ def _migrate_add_columns(conn):
         acct_cols = [row[1] for row in conn.execute("PRAGMA table_info(cloudflare_accounts)").fetchall()]
         if "is_default" not in acct_cols:
             conn.execute("ALTER TABLE cloudflare_accounts ADD COLUMN is_default INTEGER DEFAULT 0")
+        if "notes" not in acct_cols:
+            conn.execute("ALTER TABLE cloudflare_accounts ADD COLUMN notes TEXT DEFAULT ''")
     except Exception:
         pass
 
@@ -1776,8 +1779,8 @@ def create_cf_account(data):
 
         conn.execute(
             """INSERT INTO cloudflare_accounts
-               (name, api_token, api_email, api_key, auth_type, is_default, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (name, api_token, api_email, api_key, auth_type, is_default, notes, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("name", ""),
                 data.get("api_token", ""),
@@ -1785,6 +1788,7 @@ def create_cf_account(data):
                 data.get("api_key", ""),
                 data.get("auth_type", "token"),
                 1 if (data.get("is_default") or is_first) else 0,
+                data.get("notes", ""),
                 now, now,
             ),
         )

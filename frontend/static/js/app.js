@@ -58,6 +58,7 @@ const app = createApp({
         // Step 1 - Cloudflare DNS + Brand Kit
         const cfConnected = ref(false);
         const cfToken = ref('');
+        const cfNote = ref('');
         const cfAccounts = ref([]);
         const cfSelectedAccountId = ref('');
         const wizardBrandKitId = ref(null);
@@ -1529,8 +1530,8 @@ pipelineStatuses[siteId].demo_importing = false;
             loading.value = true;
             try {
                 if (!cfToken.value.trim()) { showToast('请输入Cloudflare API Token', 'error'); loading.value = false; return; }
-                const resp = await API.cfVerifyToken(cfToken.value.trim());
-                if (resp.code === 200) { cfConnected.value = true; showToast('Cloudflare授权成功'); await loadCfAccounts(); }
+                const resp = await API.cfVerifyToken(cfToken.value.trim(), cfNote.value.trim());
+                if (resp.code === 200) { cfNote.value = ''; cfConnected.value = true; showToast('Cloudflare授权成功'); await loadCfAccounts(); }
                 else { showToast(resp.message || '验证失败', 'error'); }
             } catch (e) { showToast('验证失败', 'error'); } finally { loading.value = false; }
         }
@@ -2809,7 +2810,7 @@ pipelineStatuses[siteId].demo_importing = false;
             csvUploading, csvFileInput, handleCsvUpload,
             wooPage, wooPerPage, wooPagedProducts, wooTotalPages, wooGoPage,
             feedPage, feedPerPage, feedPagedProducts, feedTotalPages, feedGoPage,
-            cfConnected, cfToken, cfAccounts, cfSelectedAccountId,
+            cfConnected, cfToken, cfNote, cfAccounts, cfSelectedAccountId,
             deepseekApiKeys, deepseekVisibleKeys, deepseekKeyErrors, deepseekConnected, deepseekVerify,
             crawlbaseApiKeys, crawlbaseVisibleKeys, crawlbaseKeyErrors, crawlbaseConnected, crawlbaseVerify,
             cloakbrowserProfiles, loadCloakbrowserProfiles,
@@ -4285,7 +4286,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                                 <span v-if="env.is_default" class="text-xs bg-blue-100 text-primary px-2 py-0.5 rounded-full">默认</span>
                                             </div>
                                             <p class="text-xs text-on-surface-variant mt-1">{{ env.host }}:{{ env.port }}</p>
-                                            <p v-if="env.cf_account_id" class="text-xs text-primary mt-0.5">CF: {{ (cfAccounts.find(a => a.id === env.cf_account_id) || {}).name || env.cf_account_id }}</p>
+                                            <p v-if="env.cf_account_id" class="text-xs text-primary mt-0.5">CF: {{ (cfAccounts.find(a => a.id === env.cf_account_id) || {}).name || env.cf_account_id }}<span v-if="(cfAccounts.find(a => a.id === env.cf_account_id) || {}).notes" class="text-on-surface-variant"> — {{ (cfAccounts.find(a => a.id === env.cf_account_id) || {}).notes }}</span></p>
                                         </div>
                                         <div class="flex gap-1">
                                             <button v-if="!env.is_default" @click="handleSetDefaultPanelEnv(env)" class="text-xs text-on-surface-variant hover:text-primary px-2 py-1" title="设为默认"><i class="fas fa-star"></i></button>
@@ -4373,6 +4374,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                             <i class="fas fa-cloud text-tertiary"></i>
                                             <span class="text-sm font-medium">{{ acc.name }}</span>
                                             <span v-if="acc.is_default" class="text-xs bg-orange-100 text-tertiary px-2 py-0.5 rounded-full">默认</span>
+                                            <span v-if="acc.notes" class="text-xs text-on-surface-variant">{{ acc.notes }}</span>
                                         </div>
                                         <div class="flex gap-1">
                                             <button v-if="!acc.is_default" @click="handleSetDefaultCfAccount(acc.id)" class="text-xs text-on-surface-variant hover:text-tertiary px-2 py-1" title="设为默认"><i class="fas fa-star"></i></button>
@@ -4382,6 +4384,8 @@ pipelineStatuses[siteId].demo_importing = false;
                                 </div>
                                 <label class="block text-sm font-medium text-on-surface mb-1">API Token</label>
                                 <div class="flex gap-2"><input v-model="cfToken" type="password" placeholder="输入Cloudflare API Token" class="flex-1 px-4 py-2 border rounded-lg focus:border-primary"><button @click="cfVerify" :disabled="loading" class="btn-primary text-on-primary px-4 py-2 rounded-lg"><i class="fas fa-check mr-2"></i>验证并保存</button></div>
+                                <label class="block text-sm font-medium text-on-surface mb-1 mt-3">备注</label>
+                                <input v-model="cfNote" placeholder="例如：kairui-yuan 专用" class="w-full px-4 py-2 border rounded-lg focus:border-primary text-sm">
                             </div>
                             <!-- Tab: 谷歌账户 -->
                             <div v-else-if="settingsActiveTab === 'google_account'" @vue:mounted="loadGoogleAccounts()">
@@ -5101,7 +5105,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     </div>
                     <div v-else class="space-y-4">
                         <div class="bg-[#146c2e]/5 border border-[#146c2e]/20 rounded-lg p-4"><p class="text-[#146c2e] text-sm"><i class="fab fa-cloudflare mr-2"></i>Cloudflare已连接 — DNS将在创建站点时自动配置</p></div>
-                        <div v-if="cfAccounts.length"><label class="block text-sm font-medium text-on-surface mb-1">选择Cloudflare账号</label><select v-model="cfSelectedAccountId" class="w-full px-4 py-3 border rounded-lg focus:border-primary"><option value="">默认账号</option><option v-for="acc in cfAccounts" :key="acc.id" :value="acc.id">{{ acc.name }} <span v-if="acc.is_default" class="text-xs text-tertiary">（默认）</span></option></select><p class="text-xs text-on-surface-variant mt-1">DNS解析将使用所选账号自动创建</p></div>
+                        <div v-if="cfAccounts.length"><label class="block text-sm font-medium text-on-surface mb-1">选择Cloudflare账号</label><select v-model="cfSelectedAccountId" class="w-full px-4 py-3 border rounded-lg focus:border-primary"><option value="">默认账号</option><option v-for="acc in cfAccounts" :key="acc.id" :value="acc.id">{{ acc.name }}<span v-if="acc.is_default" class="text-xs text-tertiary">（默认）</span><span v-if="acc.notes" class="text-xs text-on-surface-variant"> — {{ acc.notes }}</span></option></select><p class="text-xs text-on-surface-variant mt-1">DNS解析将使用所选账号自动创建</p></div>
                         <div v-else class="bg-surface-container-low rounded-lg p-4 text-center text-on-surface-variant"><p>暂无已保存的Cloudflare账号</p></div>
                     </div>
 

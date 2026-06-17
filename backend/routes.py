@@ -6122,6 +6122,7 @@ def register_routes(app):
                 "name": name,
                 "api_token": api_token,
                 "auth_type": "token",
+                "notes": (data.get("notes") or "").strip(),
             })
 
             return jsonify({"code": 200, "data": acct, "message": "账号已保存"})
@@ -6177,6 +6178,7 @@ def register_routes(app):
                     "name": name,
                     "api_token": api_token,
                     "auth_type": "token",
+                    "notes": (data.get("notes") or "").strip(),
                 })
                 sys.stderr.write(f"[CF-VERIFY] saved: id={acct.get('id')} name={acct.get('name')}\n")
                 sys.stderr.flush()
