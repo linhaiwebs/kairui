@@ -2958,10 +2958,12 @@ def list_proxies(status_filter=None) -> list:
             "       THEN p.occupied_kit_name ELSE NULL END,"
             "  (SELECT bk.name FROM brand_kits bk WHERE bk.proxy_id = p.id LIMIT 1)"
             ") AS occupied_kit_name, "
-            "u.username AS occupied_by "
+            "COALESCE(ca.notes, u.username) AS occupied_by "
             "FROM proxies p "
             "LEFT JOIN brand_kits bk ON bk.id = COALESCE(p.occupied_kit_id, (SELECT bk2.id FROM brand_kits bk2 WHERE bk2.proxy_id = p.id LIMIT 1)) "
-            "LEFT JOIN users u ON u.id = bk.created_by"
+            "LEFT JOIN users u ON u.id = bk.created_by "
+            "LEFT JOIN panel_environments pe ON u.panel_environment_id = pe.id "
+            "LEFT JOIN cloudflare_accounts ca ON pe.cf_account_id = ca.id"
         )
         params = []
         if status_filter:
@@ -3075,10 +3077,12 @@ def list_google_accounts() -> list:
             "       THEN ga.occupied_kit_name ELSE NULL END,"
             "  (SELECT bk.name FROM brand_kits bk WHERE bk.google_account_id = ga.id LIMIT 1)"
             ") AS occupied_kit_name, "
-            "u.username AS occupied_by, "
+            "COALESCE(ca.notes, u.username) AS occupied_by, "
             "ga.created_at, ga.updated_at FROM google_accounts ga "
             "LEFT JOIN brand_kits bk ON bk.id = COALESCE(ga.occupied_kit_id, (SELECT bk2.id FROM brand_kits bk2 WHERE bk2.google_account_id = ga.id LIMIT 1)) "
             "LEFT JOIN users u ON u.id = bk.created_by "
+            "LEFT JOIN panel_environments pe ON u.panel_environment_id = pe.id "
+            "LEFT JOIN cloudflare_accounts ca ON pe.cf_account_id = ca.id "
             "ORDER BY ga.id"
         ).fetchall()
         return [dict(r) for r in rows]
