@@ -2376,6 +2376,21 @@ pipelineStatuses[siteId].demo_importing = false;
         const mcBatchImporting = ref(false);
         const mcBatchResult = ref('');
         const deprecatedProxies = ref([]);
+        const operatorResourceTab = ref('google');
+        const operatorGoogleAccounts = ref([]);
+        const operatorProxies = ref([]);
+        const myGoogleAccounts = computed(() => operatorGoogleAccounts.value.filter(g => g.occupied_created_by === currentUserId.value));
+        const myProxies = computed(() => operatorProxies.value.filter(p => p.occupied_created_by === currentUserId.value && p.status !== 'deprecated'));
+        async function loadOperatorResources() {
+            try {
+                const [ga, px] = await Promise.all([
+                    API.request('GET', '/api/google-accounts'),
+                    API.request('GET', '/api/proxies'),
+                ]);
+                if (ga.code === 200) operatorGoogleAccounts.value = ga.data || [];
+                if (px.code === 200) operatorProxies.value = px.data || [];
+            } catch (e) {}
+        }
         const fingerprintSubTab = ref('profiles');
         const showGoogleImport = ref(false);
         const showProxyPool = ref(false);
@@ -2932,6 +2947,7 @@ pipelineStatuses[siteId].demo_importing = false;
             cfVerify, loadCfAccounts, handleDeleteCfAccount, handleSetDefaultCfAccount,
             brandKits, brandKitsLoading, showBrandKitModal, brandKitEditId, brandKitForm,
             brandKitGenerating, showBrandKitDetail, brandKitDetail, brandKitDetailTab,
+            operatorResourceTab, myGoogleAccounts, myProxies, loadOperatorResources,
             fingerprintSubTab, showGoogleImport, proxies, showProxyPool, availableProxies, importingProxies, importingProxyText, importingProxyType,
             loadProxies, handleImportProxies, handleImportProxyText,
             googleAccounts, availableGoogleAccounts, importingGoogleAccounts, googleAccountsText,
@@ -3058,6 +3074,9 @@ pipelineStatuses[siteId].demo_importing = false;
                     <span class="material-symbols-outlined">branding_watermark</span> 品牌套件
                 </a>
                 <div class="sidebar-divider" v-if="currentUserRole === 'admin'"></div>
+                <a v-if="currentUserRole === 'operator'" @click="currentPage = 'operator-resources'; loadOperatorResources()" :class="['sidebar-link', currentPage === 'operator-resources' ? 'active' : '']">
+                    <span class="material-symbols-outlined">settings_ethernet</span> 环境配置
+                </a>
                 <a v-if="currentUserRole === 'admin'" @click="currentPage = 'users'; loadUsers()" :class="['sidebar-link', currentPage === 'users' ? 'active' : '']">
                     <span class="material-symbols-outlined">group</span> 用户管理
                 </a>
@@ -4594,6 +4613,29 @@ pipelineStatuses[siteId].demo_importing = false;
                         </div>
                     </div>
                     <button @click="saveGlobalConfig" :disabled="loading" class="w-full btn-primary text-on-primary py-3 rounded-lg font-semibold mt-4"><i class="fas fa-save mr-2"></i>保存设置</button>
+                </div>
+            </div>
+
+            <!-- Operator Resources -->
+            <div v-if="currentPage === 'operator-resources'" class="fade-in">
+                <h3 class="font-semibold text-on-surface mb-4"><i class="fas fa-server mr-2 text-primary"></i>环境配置</h3>
+                <div class="flex border-b mb-4 gap-0">
+                    <button @click="operatorResourceTab = 'google'" :class="['px-4 py-2 text-sm font-medium border-b-2 transition', operatorResourceTab === 'google' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface']"><i class="fab fa-google mr-1"></i>谷歌账户 <span class="text-xs">({{ myGoogleAccounts.length }})</span></button>
+                    <button @click="operatorResourceTab = 'proxy'" :class="['px-4 py-2 text-sm font-medium border-b-2 transition', operatorResourceTab === 'proxy' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface']"><i class="fas fa-network-wired mr-1"></i>代理池 <span class="text-xs">({{ myProxies.length }})</span></button>
+                </div>
+                <!-- Google tab -->
+                <div v-show="operatorResourceTab === 'google'" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
+                    <div v-if="myGoogleAccounts.length" class="overflow-x-auto">
+                        <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">Email</th><th class="px-3 py-2 text-left">国家</th><th class="px-3 py-2 text-left">注册年</th><th class="px-3 py-2 text-left">套件</th></tr></thead><tbody class="divide-y"><tr v-for="ga in myGoogleAccounts" :key="ga.id" class="hover:bg-surface-container-low"><td class="px-3 py-2 text-xs">{{ ga.email }}</td><td class="px-3 py-2 text-xs">{{ ga.country || '-' }}</td><td class="px-3 py-2 text-xs">{{ ga.registration_year || '-' }}</td><td class="px-3 py-2 text-xs">{{ ga.occupied_kit_name || '-' }}</td></tr></tbody></table>
+                    </div>
+                    <div v-else class="text-center py-6 text-sm text-on-surface-variant">暂无分配的谷歌账户</div>
+                </div>
+                <!-- Proxy tab -->
+                <div v-show="operatorResourceTab === 'proxy'" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
+                    <div v-if="myProxies.length" class="overflow-x-auto">
+                        <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">ID</th><th class="px-3 py-2 text-left">IP</th><th class="px-3 py-2 text-left">端口</th><th class="px-3 py-2 text-left">类型</th><th class="px-3 py-2 text-left">套件</th></tr></thead><tbody class="divide-y"><tr v-for="p in myProxies" :key="p.id" class="hover:bg-surface-container-low"><td class="px-3 py-2 text-xs font-mono">{{ p.id }}</td><td class="px-3 py-2 text-xs">{{ p.ip }}</td><td class="px-3 py-2 text-xs">{{ p.port }}</td><td class="px-3 py-2 text-xs">{{ p.proxy_type }}</td><td class="px-3 py-2 text-xs">{{ p.occupied_kit_name || '-' }}</td></tr></tbody></table>
+                    </div>
+                    <div v-else class="text-center py-6 text-sm text-on-surface-variant">暂无分配的代理</div>
                 </div>
             </div>
 
