@@ -4502,7 +4502,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                                 <td class="px-3 py-2 text-xs">{{ ga.country || '—' }}</td>
                                                 <td class="px-3 py-2 text-xs">{{ ga.registration_year || '—' }}</td>
                                                 <td class="px-3 py-2">
-                                                    <span v-if="ga.occupied_kit_name" class="badge bg-error-container text-error font-semibold text-xs">被【{{ ga.occupied_kit_name }}】占用</span>
+                                                    <span v-if="ga.occupied_kit_name" class="badge bg-error-container text-error font-semibold text-xs">{{ ga.occupied_by || ga.occupied_kit_name }}</span>
                                                     <span v-else class="badge bg-[#146c2e]/10 text-[#146c2e] font-semibold text-xs">可用</span>
                                                 </td>
                                                 <td class="px-3 py-2">

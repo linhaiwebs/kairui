@@ -2957,8 +2957,11 @@ def list_proxies(status_filter=None) -> list:
             "  CASE WHEN EXISTS (SELECT 1 FROM brand_kits WHERE id = p.occupied_kit_id) "
             "       THEN p.occupied_kit_name ELSE NULL END,"
             "  (SELECT bk.name FROM brand_kits bk WHERE bk.proxy_id = p.id LIMIT 1)"
-            ") AS occupied_kit_name "
-            "FROM proxies p"
+            ") AS occupied_kit_name, "
+            "u.username AS occupied_by "
+            "FROM proxies p "
+            "LEFT JOIN brand_kits bk ON bk.id = COALESCE(p.occupied_kit_id, (SELECT bk2.id FROM brand_kits bk2 WHERE bk2.proxy_id = p.id LIMIT 1)) "
+            "LEFT JOIN users u ON u.id = bk.created_by"
         )
         params = []
         if status_filter:
@@ -3056,12 +3059,7 @@ def list_deprecated_proxies() -> list:
 # ---------------------------------------------------------------------------
 
 def list_google_accounts() -> list:
-    """List all Google accounts with occupancy info — bidirectional check.
-
-    Uses occupied_kit_id if valid, otherwise falls back to checking which brand_kit
-    references this account. This handles cases where create_brand_kit's occupancy
-    UPDATE didn't persist (WAL race, old code, migration, etc).
-    """
+    """List all Google accounts with occupancy info — bidirectional check."""
     conn = get_db()
     try:
         rows = conn.execute(
@@ -3077,7 +3075,11 @@ def list_google_accounts() -> list:
             "       THEN ga.occupied_kit_name ELSE NULL END,"
             "  (SELECT bk.name FROM brand_kits bk WHERE bk.google_account_id = ga.id LIMIT 1)"
             ") AS occupied_kit_name, "
-            "ga.created_at, ga.updated_at FROM google_accounts ga ORDER BY ga.id"
+            "u.username AS occupied_by, "
+            "ga.created_at, ga.updated_at FROM google_accounts ga "
+            "LEFT JOIN brand_kits bk ON bk.id = COALESCE(ga.occupied_kit_id, (SELECT bk2.id FROM brand_kits bk2 WHERE bk2.google_account_id = ga.id LIMIT 1)) "
+            "LEFT JOIN users u ON u.id = bk.created_by "
+            "ORDER BY ga.id"
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
