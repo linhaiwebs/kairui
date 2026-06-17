@@ -2610,8 +2610,18 @@ def register_routes(app):
                     f"}}}}).transform(resp);"
                     "}"
                 )
-                cf_client.upload_worker(real_cf_id, worker_name, script)
-                cf_client.create_worker_route(zone_id, f"*{domain}/*", worker_name)
+                # Upload worker script
+                up_resp = cf_client.upload_worker(real_cf_id, worker_name, script)
+                if isinstance(up_resp, dict) and not up_resp.get("success"):
+                    errs = up_resp.get("errors", [])
+                    msg = "; ".join(e.get("message", str(e)) for e in errs)
+                    raise Exception(f"Worker上传失败: {msg}")
+                # Create route
+                rt_resp = cf_client.create_worker_route(zone_id, f"*{domain}/*", worker_name)
+                if isinstance(rt_resp, dict) and not rt_resp.get("success"):
+                    errs = rt_resp.get("errors", [])
+                    msg = "; ".join(e.get("message", str(e)) for e in errs)
+                    raise Exception(f"路由创建失败: {msg}")
                 update_site_fields(sid, {"mirror_target": target})
                 results.append({"site_id": sid, "ok": True, "domain": domain})
                 logger.info(f"Mirror: {domain} -> {target_host} (worker={worker_name})")
