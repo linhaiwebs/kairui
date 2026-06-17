@@ -3358,9 +3358,7 @@ pipelineStatuses[siteId].demo_importing = false;
                         <div class="flex items-center gap-3">
                             <!-- Site name -->
                             <div class="w-32 flex-shrink-0">
-                                <div class="font-medium text-on-surface text-sm truncate">{{ site.site_name }}
-                                    <span v-if="site.mirror_target" class="ml-1 text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 cursor-pointer" @click.stop="unmirrorSite(site)" title="点击取消镜像"><i class="fas fa-bolt"></i>镜像→{{ site.mirror_target.replace('https://','').substring(0,20) }}</span>
-                                </div>
+                                <div class="font-medium text-on-surface text-sm truncate">{{ site.site_name }}</div>
                                 <div class="text-xs text-on-surface-variant">{{ site.site_type === 'static' ? '静态站点' : 'WordPress' }}</div>
                             </div>
                             <!-- 1Panel Status -->
@@ -3442,6 +3440,10 @@ pipelineStatuses[siteId].demo_importing = false;
                             <div class="flex-shrink-0 w-24 text-right text-xs text-on-surface-variant">
                                 <span v-if="site.created_at" :title="site.created_at">{{ site.created_at.split('T')[0] }}</span>
                                 <span v-else>-</span>
+                            </div>
+                            <!-- Tags -->
+                            <div class="flex-shrink-0 w-16 text-center">
+                                <span v-if="site.mirror_target" @click.stop="unmirrorSite(site)" class="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full cursor-pointer inline-flex items-center gap-0.5" title="点击取消镜像"><i class="fas fa-bolt text-[8px]"></i>镜像</span>
                             </div>
                             <!-- Actions -->
                             <div class="flex items-center gap-1.5 flex-shrink-0">
