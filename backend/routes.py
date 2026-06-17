@@ -2571,11 +2571,18 @@ def register_routes(app):
                 results.append({"site_id": sid, "ok": False, "error": "无Cloudflare Zone"})
                 continue
             try:
-                from cloudflare_client import cf_client
-                cf_account = get_default_cf_account()
+                from models import get_cf_account
+                # Use operator's own CF account (via panel environment binding)
+                env = get_user_panel_environment(user_id)
+                cf_account_id = env.get("cf_account_id") if env else None
+                cf_account = get_cf_account(cf_account_id) if cf_account_id else None
                 if not cf_account:
-                    results.append({"site_id": sid, "ok": False, "error": "无CF账号"})
+                    cf_account = get_default_cf_account()
+                if not cf_account:
+                    results.append({"site_id": sid, "ok": False, "error": "无CF账号，请检查1Panel环境的CF绑定"})
                     continue
+                from cloudflare_client import CloudflareClient
+                cf_client = CloudflareClient(api_token=cf_account["api_token"])
                 alias = site.get("nginx_alias", domain)
                 worker_name = f"mirror-{alias.replace('.', '-')}"
                 script = (
@@ -2617,9 +2624,13 @@ def register_routes(app):
         zone_id = site.get("cf_zone_id", "")
         try:
             if zone_id:
-                from cloudflare_client import cf_client
-                cf_account = get_default_cf_account()
+                from models import get_cf_account
+                env = get_user_panel_environment(user_id)
+                cf_account_id = env.get("cf_account_id") if env else None
+                cf_account = get_cf_account(cf_account_id) if cf_account_id else get_default_cf_account()
                 if cf_account:
+                    from cloudflare_client import CloudflareClient
+                    cf_client = CloudflareClient(api_token=cf_account["api_token"])
                     alias = site.get("nginx_alias", domain)
                     worker_name = f"mirror-{alias.replace('.', '-')}"
                     # Delete worker route
