@@ -89,6 +89,34 @@ const app = createApp({
         const proxiesTotal = computed(() => Math.max(1,Math.ceil((proxies.value.filter(x=>x.status!=='deprecated')).length/PROXIES_PER)));
         function goPage(refName, n, total) { refName.value = Math.max(1, Math.min(n, total.value)); }
 
+        // --- Mirror Wizard ---
+        const showMirrorModal = ref(false);
+        const mirrorTargetUrl = ref('');
+        const mirrorSelectedIds = ref(new Set());
+        const mirrorPage = ref(1);
+        const MIRROR_PER = 10;
+        const mirrorSites = computed(() => sites.value.filter(s => s.site_type === 'static' && !s.mirror_target && s.created_by === currentUserId.value));
+        const pagedMirrorSites = computed(() => { const s=(mirrorPage.value-1)*MIRROR_PER; return mirrorSites.value.slice(s,s+MIRROR_PER); });
+        const mirrorTotalPages = computed(() => Math.max(1,Math.ceil(mirrorSites.value.length/MIRROR_PER)));
+        function toggleMirrorSite(sid) { const s=new Set(mirrorSelectedIds.value); s.has(sid)?s.delete(sid):s.add(sid); mirrorSelectedIds.value=s; }
+        async function startMirror() {
+            if (!mirrorTargetUrl.value.trim()) { showToast('请输入目标站域名', 'error'); return; }
+            if (!mirrorSelectedIds.value.size) { showToast('请选择至少一个站点', 'error'); return; }
+            loading.value = true;
+            try {
+                const r = await API.request('POST','/api/sites/mirror',{target_url:mirrorTargetUrl.value.trim(),site_ids:Array.from(mirrorSelectedIds.value)});
+                if (r.code===200) { showToast(r.message); showMirrorModal.value=false; mirrorSelectedIds.value=new Set(); mirrorTargetUrl.value=''; await loadSites(); }
+                else showToast(r.message||'失败','error');
+            } catch(e) { showToast('失败: '+(e.message||'error'),'error'); }
+            loading.value = false;
+        }
+        async function unmirrorSite(site) {
+            if (!confirm('确定取消 '+site.site_name+' 的镜像？')) return;
+            const r = await API.request('POST','/api/sites/'+site.id+'/unmirror');
+            if (r.code===200) { showToast(r.message); await loadSites(); }
+            else showToast(r.message||'失败','error');
+        }
+
         const batchWizardPage = ref(0);
         const BATCH_PAGE_SIZE = 6;
         const operatorCfAccountId = ref(null);
@@ -2960,6 +2988,7 @@ pipelineStatuses[siteId].demo_importing = false;
             profilesTabPage, PROFILES_PER, pagedProfiles, profilesTotal,
             proxiesTabPage, PROXIES_PER, pagedProxies, proxiesTotal,
             goPage,
+            showMirrorModal, mirrorTargetUrl, mirrorSelectedIds, mirrorPage, MIRROR_PER, mirrorSites, pagedMirrorSites, mirrorTotalPages, toggleMirrorSite, startMirror, unmirrorSite,
             batchWizardRows, batchWizardPage, BATCH_PAGE_SIZE, batchVisibleRows, batchTotalPages,
             operatorCfAccountId, operatorCfAccountName, operatorCfLoading,
             initBatchRows, addBatchRow, resolveOperatorCfAccount,
@@ -3321,7 +3350,7 @@ pipelineStatuses[siteId].demo_importing = false;
             <div v-if="currentPage === 'sites'" class="fade-in">
                 <div class="flex items-center justify-between mb-6">
                     <div class="relative"><i class="fas fa-search absolute left-3 top-3 text-on-surface-variant"></i><input v-model="searchQuery" type="text" placeholder="搜索站点..." class="pl-10 pr-4 py-2 border rounded-lg focus:border-primary w-64"></div>
-                    <div class="flex gap-3"><button @click="openWizard('single')" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><span class="material-symbols-outlined text-[18px]">add_circle</span>创建站点</button><button @click="openWizard('batch')" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><span class="material-symbols-outlined text-[18px]">layers</span>批量创建</button><button @click="exportCSV" class="btn btn-secondary text-sm"><i class="fas fa-download mr-2"></i>导出CSV</button></div>
+                    <div class="flex gap-3"><button @click="openWizard('single')" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><span class="material-symbols-outlined text-[18px]">add_circle</span>创建站点</button><button @click="openWizard('batch')" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><span class="material-symbols-outlined text-[18px]">layers</span>批量创建</button><button @click="showMirrorModal = true" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><span class="material-symbols-outlined text-[18px]">flip</span>镜像向导</button><button @click="exportCSV" class="btn btn-secondary text-sm"><i class="fas fa-download mr-2"></i>导出CSV</button></div>
                 </div>
                 <div class="space-y-3">
                     <div v-for="site in pagedSites" :key="site.id" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4">
@@ -3329,7 +3358,9 @@ pipelineStatuses[siteId].demo_importing = false;
                         <div class="flex items-center gap-3">
                             <!-- Site name -->
                             <div class="w-32 flex-shrink-0">
-                                <div class="font-medium text-on-surface text-sm truncate">{{ site.site_name }}</div>
+                                <div class="font-medium text-on-surface text-sm truncate">{{ site.site_name }}
+                                    <span v-if="site.mirror_target" class="ml-1 text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 cursor-pointer" @click.stop="unmirrorSite(site)" title="点击取消镜像"><i class="fas fa-bolt"></i>镜像→{{ site.mirror_target.replace('https://','').substring(0,20) }}</span>
+                                </div>
                                 <div class="text-xs text-on-surface-variant">{{ site.site_type === 'static' ? '静态站点' : 'WordPress' }}</div>
                             </div>
                             <!-- 1Panel Status -->
@@ -5582,6 +5613,41 @@ pipelineStatuses[siteId].demo_importing = false;
                     </button>
                 </div>
                 <button @click="showDeleteBrandKitModal = false" class="w-full py-2 border rounded-lg text-sm text-on-surface-variant hover:bg-surface-container-low">取消</button>
+            </div>
+        </div>
+
+        <!-- Mirror Wizard Modal -->
+        <div v-if="showMirrorModal" class="modal-overlay modal-overlay" @click.self="showMirrorModal = false">
+            <div class="bg-surface-container-lowest rounded-2xl shadow-level-3 w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto fade-in">
+                <div class="p-6 border-b flex items-center justify-between">
+                    <h2 class="text-lg font-bold"><i class="fas fa-bolt mr-2 text-purple-600"></i>镜像向导</h2>
+                    <button @click="showMirrorModal = false" class="text-on-surface-variant hover:text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
+                </div>
+                <div class="p-6 space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-on-surface mb-1">目标站域名</label>
+                        <input v-model="mirrorTargetUrl" type="text" placeholder="https://target-store.com" class="w-full px-4 py-3 border rounded-lg focus:border-primary">
+                        <p class="text-xs text-on-surface-variant mt-1">输入 WooCommerce 商城域名，选中站点将通过 Cloudflare Worker 代理到此站</p>
+                    </div>
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="text-sm font-medium text-on-surface">选择站点 <span class="text-xs text-on-surface-variant">({{ mirrorSites.length }} 个可用)</span></label>
+                            <span class="text-xs text-on-surface-variant">第 {{ mirrorPage }} / {{ mirrorTotalPages }} 页</span>
+                        </div>
+                        <div v-if="mirrorSites.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
+                            <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 w-8"></th><th class="px-3 py-2 text-left">站点</th><th class="px-3 py-2 text-left">域名</th></tr></thead><tbody class="divide-y"><tr v-for="s in pagedMirrorSites" :key="s.id" class="hover:bg-surface-container-low cursor-pointer" @click="toggleMirrorSite(s.id)"><td class="px-3 py-2"><input type="checkbox" :checked="mirrorSelectedIds.has(s.id)" class="accent-purple-500 pointer-events-none"></td><td class="px-3 py-2 font-medium text-xs">{{ s.site_name }}</td><td class="px-3 py-2 text-xs text-on-surface-variant">{{ s.url }}</td></tr></tbody></table>
+                            <div v-if="mirrorSites.length > MIRROR_PER" class="flex items-center justify-between px-3 py-2 border-t text-xs text-on-surface-variant">
+                                <button @click="mirrorPage = Math.max(1, mirrorPage - 1)" :disabled="mirrorPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button>
+                                <button @click="mirrorPage = Math.min(mirrorTotalPages, mirrorPage + 1)" :disabled="mirrorPage>=mirrorTotalPages" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button>
+                            </div>
+                        </div>
+                        <div v-else class="text-center py-8 text-sm text-on-surface-variant">没有可镜像的站点</div>
+                    </div>
+                </div>
+                <div class="p-6 border-t flex gap-3 justify-end">
+                    <button @click="showMirrorModal = false" class="px-6 py-2 border rounded-lg hover:bg-surface-container-low">取消</button>
+                    <button @click="startMirror" :disabled="loading || !mirrorSelectedIds.size" class="btn-primary text-on-primary px-6 py-2 rounded-lg"><i v-if="loading" class="fas fa-spinner fa-spin mr-2"></i><i v-else class="fas fa-bolt mr-2"></i>开始镜像 ({{ mirrorSelectedIds.size }})</button>
+                </div>
             </div>
         </div>
 

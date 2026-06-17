@@ -133,5 +133,35 @@ class CloudflareClient:
         return self._request("GET", f"/zones/{zone_id}/settings/ssl")
 
 
+    # ---- Workers (mirror proxy) ----
+    def upload_worker(self, account_id, worker_name, script):
+        """Upload a Worker script. Creates or updates."""
+        return self._request(
+            "PUT",
+            f"/accounts/{account_id}/workers/scripts/{worker_name}",
+            json_data=script,
+            extra_headers={"Content-Type": "application/javascript"},
+        )
+
+    def delete_worker(self, account_id, worker_name):
+        """Delete a Worker script."""
+        return self._request("DELETE", f"/accounts/{account_id}/workers/scripts/{worker_name}")
+
+    def create_worker_route(self, zone_id, pattern, worker_name):
+        """Create a Worker route for a zone."""
+        return self._request(
+            "POST",
+            f"/zones/{zone_id}/workers/routes",
+            {"pattern": pattern, "script": worker_name},
+        )
+
+    def list_worker_routes(self, zone_id):
+        """List all Worker routes for a zone."""
+        return self._request("GET", f"/zones/{zone_id}/workers/routes")
+
+    def delete_worker_route(self, zone_id, route_id):
+        """Delete a Worker route."""
+        return self._request("DELETE", f"/zones/{zone_id}/workers/routes/{route_id}")
+
 # Singleton instance
 cf_client = CloudflareClient()

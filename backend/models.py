@@ -485,6 +485,8 @@ def _migrate_add_columns(conn):
             conn.execute("ALTER TABLE sites ADD COLUMN stitch_design_status TEXT DEFAULT ''")
         if "panel_environment_id" not in cols:
             conn.execute("ALTER TABLE sites ADD COLUMN panel_environment_id INTEGER DEFAULT NULL")
+        if "mirror_target" not in cols:
+            conn.execute("ALTER TABLE sites ADD COLUMN mirror_target TEXT DEFAULT ''")
     except Exception:
         pass
 

@@ -2539,6 +2539,103 @@ def register_routes(app):
             logger.error(f"Failed to delete site {site_id}: {e}")
             return jsonify({"code": 500, "message": f"删除站点失败: {str(e)[:100]}"}), 500
 
+    @app.route("/api/sites/mirror", methods=["POST"])
+    @jwt_required()
+    def sites_mirror():
+        """Set up Cloudflare Worker mirror proxy for selected static sites."""
+        data = request.get_json(silent=True) or {}
+        target = (data.get("target_url") or "").strip()
+        site_ids = data.get("site_ids") or []
+        if not target or not site_ids:
+            return jsonify({"code": 400, "message": "请提供目标URL和站点列表"}), 400
+        # Remove https:// prefix for target host
+        import re
+        tm = re.match(r'https?://([^/]+)', target)
+        target_host = tm.group(1) if tm else target
+        if not target_host:
+            return jsonify({"code": 400, "message": "目标URL格式无效"}), 400
+
+        user_id = get_current_user_id()
+        results = []
+        for sid in site_ids:
+            site = get_site(sid)
+            if not site:
+                results.append({"site_id": sid, "ok": False, "error": "站点不存在"})
+                continue
+            if str(site.get("created_by")) != str(user_id):
+                results.append({"site_id": sid, "ok": False, "error": "无权操作此站点"})
+                continue
+            domain = site.get("url", "")
+            zone_id = site.get("cf_zone_id", "")
+            if not zone_id:
+                results.append({"site_id": sid, "ok": False, "error": "无Cloudflare Zone"})
+                continue
+            try:
+                from cloudflare_client import cf_client
+                cf_account = get_default_cf_account()
+                if not cf_account:
+                    results.append({"site_id": sid, "ok": False, "error": "无CF账号"})
+                    continue
+                alias = site.get("nginx_alias", domain)
+                worker_name = f"mirror-{alias.replace('.', '-')}"
+                script = (
+                    f"export default {{ async fetch(request) {{ "
+                    f"const url = new URL(request.url); "
+                    f"url.hostname = '{target_host}'; "
+                    f"const resp = await fetch(url.toString(), {{ method: request.method, headers: request.headers, body: request.body }}); "
+                    f"return new HTMLRewriter().on('a[href]', {{ element(el) {{ "
+                    f"var h = el.getAttribute('href'); "
+                    f"if(h){{ h = h.replace('{target_host}', '{domain}'); el.setAttribute('href', h); }} "
+                    f"}}}}).on('img[src]', {{ element(el) {{ "
+                    f"var s = el.getAttribute('src'); "
+                    f"if(s){{ s = s.replace('{target_host}', '{domain}'); el.setAttribute('src', s); }} "
+                    f"}}}}).transform(resp); "
+                    f"}} }};"
+                )
+                cf_client.upload_worker(cf_account["id"], worker_name, script)
+                cf_client.create_worker_route(zone_id, f"*{domain}/*", worker_name)
+                update_site_fields(sid, {"mirror_target": target})
+                results.append({"site_id": sid, "ok": True, "domain": domain})
+                logger.info(f"Mirror: {domain} -> {target_host} (worker={worker_name})")
+            except Exception as e:
+                logger.error(f"Mirror failed for site {sid}: {e}")
+                results.append({"site_id": sid, "ok": False, "error": str(e)[:100]})
+        ok = sum(1 for r in results if r.get("ok"))
+        return jsonify({"code": 200, "data": {"ok": ok, "results": results}, "message": f"已为 {ok} 个站点启用镜像"})
+
+    @app.route("/api/sites/<int:site_id>/unmirror", methods=["POST"])
+    @jwt_required()
+    def sites_unmirror(site_id):
+        """Remove Cloudflare Worker mirror proxy."""
+        site = get_site(site_id)
+        if not site:
+            return jsonify({"code": 404, "message": "站点不存在"}), 404
+        user_id = get_current_user_id()
+        if str(site.get("created_by")) != str(user_id):
+            return jsonify({"code": 403, "message": "无权操作此站点"}), 403
+        domain = site.get("url", "")
+        zone_id = site.get("cf_zone_id", "")
+        try:
+            if zone_id:
+                from cloudflare_client import cf_client
+                cf_account = get_default_cf_account()
+                if cf_account:
+                    alias = site.get("nginx_alias", domain)
+                    worker_name = f"mirror-{alias.replace('.', '-')}"
+                    # Delete worker route
+                    routes = cf_client.list_worker_routes(zone_id)
+                    if routes.get("success") or routes.get("result"):
+                        for r in (routes.get("result") or []):
+                            if r.get("script") == worker_name and domain in (r.get("pattern") or ""):
+                                cf_client.delete_worker_route(zone_id, r["id"])
+                    # Delete worker script
+                    cf_client.delete_worker(cf_account["id"], worker_name)
+            update_site_fields(site_id, {"mirror_target": ""})
+            return jsonify({"code": 200, "message": "镜像已取消"})
+        except Exception as e:
+            logger.error(f"Unmirror failed for site {site_id}: {e}")
+            return jsonify({"code": 500, "message": f"取消失败: {str(e)[:100]}"}), 500
+
     @app.route("/api/sites/<int:site_id>/fix-website", methods=["POST"])
     @jwt_required()
     def fix_site_website(site_id):
