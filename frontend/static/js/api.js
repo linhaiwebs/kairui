@@ -216,6 +216,10 @@ const API = {
         return this.request('GET', '/api/panel/status');
     },
 
+    async getCurrentPanelEnvironment() {
+        return this.request('GET', '/api/panel/environments/current');
+    },
+
     async panelSync(importOrphans = false) {
         return this.request('POST', '/api/panel/sync', { import_orphans: importOrphans });
     },

@@ -3291,6 +3291,17 @@ def register_routes(app):
             if not panel_env and user_id:
                 panel_env = get_user_panel_environment(user_id)
 
+            # CF account isolation: enforce operator's bound CF account
+            if panel_env and panel_env.get("cf_account_id"):
+                env_cf_id = str(panel_env["cf_account_id"])
+                inbound_cf_id = str(cf_account_id) if cf_account_id else ""
+                if inbound_cf_id and inbound_cf_id != env_cf_id:
+                    return jsonify({"code": 403, "message": f"无权使用该Cloudflare账号。请使用您运营环境绑定的CF账号。"}), 403
+                # Auto-correct: if no cf_account_id provided, use the env's bound one
+                if not inbound_cf_id:
+                    cf_account_id = panel_env["cf_account_id"]
+                    cf_account = get_cf_account(int(cf_account_id))
+
             # Get global config for panel defaults
             global_cfg = get_global_config()
             panel_server_ip = global_cfg.get("panel_server_ip", "")
@@ -3313,8 +3324,18 @@ def register_routes(app):
                 if not domain:
                     continue
 
+                # Per-domain brand kit (batch wizard: each row has its own kit)
+                dom_brand_kit_id = dom.get("brand_kit_id") or brand_kit_id
+                dom_brand_kit = brand_kit
+                if dom_brand_kit_id and str(dom_brand_kit_id) != str(brand_kit_id or ""):
+                    try:
+                        dom_brand_kit = get_brand_kit(int(dom_brand_kit_id))
+                        if not dom_brand_kit or dom_brand_kit.get("status") != "ready":
+                            dom_brand_kit = None
+                    except Exception:
+                        dom_brand_kit = None
+
                 # 1Panel accepts dots in alias, use domain directly
-                # sitePath will be .../sites/maxc.lhwebs.com (not maxc-lhwebs-com)
                 alias = domain
 
                 # Create site record
@@ -3328,10 +3349,10 @@ def register_routes(app):
                     "status": "deploying",
                     "site_type": "static",
                     "static_dir": f"/www/sites/{alias}/index",
-                    "brand_kit_id": brand_kit_id,
+                    "brand_kit_id": dom_brand_kit_id,
                     "nginx_alias": alias,
                     "created_by": user_id,
-                    "cloakbrowser_profile_name": brand_kit.get("cloakbrowser_profile_name") if brand_kit else None,
+                    "cloakbrowser_profile_name": dom_brand_kit.get("cloakbrowser_profile_name") if dom_brand_kit else None,
                 }
                 site = create_site(site_data)
                 site_id = site["id"]
@@ -3430,7 +3451,7 @@ def register_routes(app):
                     target=_bg_deploy_static,
                     args=(bg_task_id, site_id, alias, domain),
                     kwargs={
-                        "brand_kit": brand_kit,
+                        "brand_kit": dom_brand_kit,
                         "panel_host": panel_host,
                         "panel_port": panel_port,
                         "panel_api_key": panel_key,

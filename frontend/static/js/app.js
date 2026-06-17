@@ -66,6 +66,18 @@ const app = createApp({
         const wizardBrandKitId = ref(null);
         const brandKitsForWizard = ref([]);
         const profileTestState = ref({ testing: false, result: null, message: '' });
+        // Batch wizard state
+        const batchWizardRows = ref([]);
+        const batchWizardPage = ref(0);
+        const BATCH_PAGE_SIZE = 6;
+        const operatorCfAccountId = ref(null);
+        const operatorCfAccountName = ref('');
+        const operatorCfLoading = ref(false);
+        const batchVisibleRows = computed(() => {
+            const start = batchWizardPage.value * BATCH_PAGE_SIZE;
+            return batchWizardRows.value.slice(start, start + BATCH_PAGE_SIZE);
+        });
+        const batchTotalPages = computed(() => Math.max(1, Math.ceil(batchWizardRows.value.length / BATCH_PAGE_SIZE)));
 
         // Edit
         const showEditModal = ref(false);
@@ -1599,6 +1611,36 @@ pipelineStatuses[siteId].demo_importing = false;
             await API.cfUpdateAccount(id, { notes: text });
             await loadCfAccounts();
         }
+        // ---- Batch Wizard ----
+        function initBatchRows(n = 3) {
+            batchWizardRows.value = [];
+            for (let i = 0; i < n; i++) batchWizardRows.value.push({ brand_kit_id: null, domain: '' });
+            batchWizardPage.value = 0;
+        }
+        function addBatchRow() {
+            batchWizardRows.value.push({ brand_kit_id: null, domain: '' });
+            if (batchTotalPages.value > batchWizardPage.value + 1) batchWizardPage.value = batchTotalPages.value - 1;
+        }
+        async function resolveOperatorCfAccount() {
+            operatorCfLoading.value = true;
+            try {
+                const envResp = await API.getCurrentPanelEnvironment();
+                if (envResp.code !== 200 || !envResp.data) {
+                    operatorCfAccountId.value = null; operatorCfAccountName.value = '未绑定面板环境'; cfSelectedAccountId.value = ''; return;
+                }
+                const cfId = envResp.data.cf_account_id;
+                if (!cfId) {
+                    operatorCfAccountId.value = null; operatorCfAccountName.value = '面板环境未绑定CF账号'; cfSelectedAccountId.value = ''; return;
+                }
+                await loadCfAccounts();
+                const match = cfAccounts.value.find(a => a.id === cfId);
+                operatorCfAccountId.value = cfId;
+                operatorCfAccountName.value = match ? match.name : ('CF #' + cfId);
+                cfSelectedAccountId.value = cfId;
+            } catch (e) {
+                operatorCfAccountId.value = null; operatorCfAccountName.value = '查询失败';
+            } finally { operatorCfLoading.value = false; }
+        }
 
         // ---- WordPress.com Functions ----
         // ---- 3-Step Wizard ----
@@ -1608,18 +1650,19 @@ pipelineStatuses[siteId].demo_importing = false;
             createForm.admin_password = globalConfig.default_admin_password || ''; createForm.tag = ''; createForm.security_id = '';
             createForm.http_username = ''; createForm.http_password = ''; createForm.verify_certificate = true; createForm.ssl_version = 'auto';
             createForm.domains = ''; createForm.base_port = 8081;
-            // Fetch next available port
             try { const r = await API.getNextPort(); if (r.code === 200 && r.data) createForm.base_port = r.data.next_port; } catch (e) {}
             createProgress.show = false; createProgress.results = [];
             wizardBrandKitId.value = null;
             profileTestState.value = { testing: false, result: null, message: '' };
-            await loadCfAccounts();
-            await loadBrandKitsForWizard();
-            // Auto-select first CF account if available (for 1Panel + DNS auto-config)
-            if (cfAccounts.value.length > 0) {
-                cfSelectedAccountId.value = cfAccounts.value[0].id;
+            if (mode === 'batch') {
+                await resolveOperatorCfAccount();
+                await loadBrandKitsForWizard();
+                initBatchRows(3);
             } else {
-                cfSelectedAccountId.value = '';
+                await loadCfAccounts();
+                await loadBrandKitsForWizard();
+                if (cfAccounts.value.length > 0) { cfSelectedAccountId.value = cfAccounts.value[0].id; }
+                else { cfSelectedAccountId.value = ''; }
             }
             wizardOpen.value = true;
         }
@@ -1727,8 +1770,10 @@ pipelineStatuses[siteId].demo_importing = false;
             const isBatch = wizardMode.value === 'batch';
             let domains = [];
             if (isBatch) {
-                domains = createForm.domains.split('\n').map(d => d.trim()).filter(d => d).map(d => ({ domain: d }));
-                if (!domains.length) { showToast('请至少输入一个域名', 'error'); return; }
+                domains = batchWizardRows.value
+                    .filter(r => r.domain.trim())
+                    .map(r => ({ domain: r.domain.trim(), brand_kit_id: r.brand_kit_id || null }));
+                if (!domains.length) { showToast('请至少填写一个域名', 'error'); return; }
             } else {
                 const domain = createForm.site_name.trim();
                 if (!domain) { showToast('请输入域名', 'error'); return; }
@@ -1740,7 +1785,7 @@ pipelineStatuses[siteId].demo_importing = false;
             try {
                 const resp = await API.batchCreateStaticSite({
                     domains: domains,
-                    brand_kit_id: wizardBrandKitId.value || null,
+                    brand_kit_id: isBatch ? null : (wizardBrandKitId.value || null),
                     cf_account_id: cfSelectedAccountId.value || null,
                     admin_name: createForm.admin_name || 'admin',
                     admin_password: createForm.admin_password || '',
@@ -2855,6 +2900,9 @@ pipelineStatuses[siteId].demo_importing = false;
             loadBrandKitsForSelect,
             handleLogin, handleLogout, refreshSites, syncWithPanel,
             openWizard, closeWizard, onWizardGroupChange, wizardCreateSite, testProfileForWizard, profileTestState,
+            batchWizardRows, batchWizardPage, BATCH_PAGE_SIZE, batchVisibleRows, batchTotalPages,
+            operatorCfAccountId, operatorCfAccountName, operatorCfLoading,
+            initBatchRows, addBatchRow, resolveOperatorCfAccount,
 
             openEditModal, submitEdit, confirmDelete, fixSiteWebsite, openSiteBrowser, saveGlobalConfig, exportCSV,
             loadFeedProducts, openFeedProductModal, closeFeedProductModal, handleSaveFeedProduct,
@@ -3112,6 +3160,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     <h4 class="text-sm font-semibold text-on-surface mb-3">快速操作</h4>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <button @click="openWizard('single')" class="flex items-center gap-2 p-3 border rounded-lg hover:border-primary hover:bg-primary/5 transition text-sm"><i class="fas fa-plus-circle text-primary"></i> 创建站点</button>
+                        <button @click="openWizard('batch')" class="flex items-center gap-2 p-3 border rounded-lg hover:border-primary hover:bg-primary/5 transition text-sm"><i class="fas fa-layer-group text-primary"></i> 批量创建</button>
                         <button @click="currentPage = 'woocommerce-products'" class="flex items-center gap-2 p-3 border rounded-lg hover:border-primary hover:bg-primary/5 transition text-sm"><i class="fas fa-upload text-green-600"></i> 上传产品</button>
                         <button @click="currentPage = 'shai-pin-feed'" class="flex items-center gap-2 p-3 border rounded-lg hover:border-primary hover:bg-primary/5 transition text-sm"><i class="fas fa-file-export text-[#146c2e]"></i> 生成Feed</button>
                         <button @click="currentPage = 'resource-overview'" class="flex items-center gap-2 p-3 border rounded-lg hover:border-primary hover:bg-primary/5 transition text-sm"><i class="fas fa-chart-bar text-purple-600"></i> 资源总览</button>
@@ -3208,7 +3257,7 @@ pipelineStatuses[siteId].demo_importing = false;
             <div v-if="currentPage === 'sites'" class="fade-in">
                 <div class="flex items-center justify-between mb-6">
                     <div class="relative"><i class="fas fa-search absolute left-3 top-3 text-on-surface-variant"></i><input v-model="searchQuery" type="text" placeholder="搜索站点..." class="pl-10 pr-4 py-2 border rounded-lg focus:border-primary w-64"></div>
-                    <div class="flex gap-3"><button @click="openWizard('single')" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><span class="material-symbols-outlined text-[18px]">add_circle</span>创建站点</button><button @click="exportCSV" class="btn btn-secondary text-sm"><i class="fas fa-download mr-2"></i>导出CSV</button></div>
+                    <div class="flex gap-3"><button @click="openWizard('single')" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><span class="material-symbols-outlined text-[18px]">add_circle</span>创建站点</button><button @click="openWizard('batch')" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><span class="material-symbols-outlined text-[18px]">layers</span>批量创建</button><button @click="exportCSV" class="btn btn-secondary text-sm"><i class="fas fa-download mr-2"></i>导出CSV</button></div>
                 </div>
                 <div class="space-y-3">
                     <div v-for="site in pagedSites" :key="site.id" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4">
@@ -5113,62 +5162,73 @@ pipelineStatuses[siteId].demo_importing = false;
                         <p class="text-xs text-on-surface-variant mt-2">Cloudflare控制台 → My Profile → API Tokens → 创建Token（需Zone:DNS:Edit权限）</p>
                     </div>
                     <div v-else class="space-y-4">
-                        <div class="bg-[#146c2e]/5 border border-[#146c2e]/20 rounded-lg p-4"><p class="text-[#146c2e] text-sm"><i class="fab fa-cloudflare mr-2"></i>Cloudflare已连接 — DNS将在创建站点时自动配置</p></div>
-                        <div v-if="cfAccounts.length"><label class="block text-sm font-medium text-on-surface mb-1">选择Cloudflare账号</label><select v-model="cfSelectedAccountId" class="w-full px-4 py-3 border rounded-lg focus:border-primary"><option value="">默认账号</option><option v-for="acc in cfAccounts" :key="acc.id" :value="acc.id">{{ acc.name }}<span v-if="acc.is_default" class="text-xs text-tertiary">（默认）</span><span v-if="acc.notes" class="text-xs text-on-surface-variant"> — {{ acc.notes }}</span></option></select><p class="text-xs text-on-surface-variant mt-1">DNS解析将使用所选账号自动创建</p></div>
-                        <div v-else class="bg-surface-container-low rounded-lg p-4 text-center text-on-surface-variant"><p>暂无已保存的Cloudflare账号</p></div>
+                        <!-- Batch mode: CF account locked -->
+                        <div v-if="wizardMode === 'batch'" class="bg-blue-50 border border-primary-container/20 rounded-lg p-4">
+                            <p class="text-sm text-primary"><i class="fas fa-lock mr-2"></i>Cloudflare账号已自动绑定: <strong>{{ operatorCfAccountName || '解析中...' }}</strong></p>
+                            <p class="text-xs text-on-surface-variant mt-1">该账号关联自您的1Panel运营环境，不可更改</p>
+                        </div>
+                        <!-- Single mode: dropdown -->
+                        <div v-else>
+                            <div class="bg-[#146c2e]/5 border border-[#146c2e]/20 rounded-lg p-4"><p class="text-[#146c2e] text-sm"><i class="fab fa-cloudflare mr-2"></i>Cloudflare已连接 — DNS将在创建站点时自动配置</p></div>
+                            <div v-if="cfAccounts.length"><label class="block text-sm font-medium text-on-surface mb-1">选择Cloudflare账号</label><select v-model="cfSelectedAccountId" class="w-full px-4 py-3 border rounded-lg focus:border-primary"><option value="">默认账号</option><option v-for="acc in cfAccounts" :key="acc.id" :value="acc.id">{{ acc.name }}<span v-if="acc.is_default" class="text-xs text-tertiary">（默认）</span><span v-if="acc.notes" class="text-xs text-on-surface-variant"> — {{ acc.notes }}</span></option></select><p class="text-xs text-on-surface-variant mt-1">DNS解析将使用所选账号自动创建</p></div>
+                            <div v-else class="bg-surface-container-low rounded-lg p-4 text-center text-on-surface-variant"><p>暂无已保存的Cloudflare账号</p></div>
+                        </div>
                     </div>
 
-                    <!-- Brand Kit selection -->
-                    <div class="border-t pt-4 mt-2">
-                        <label class="block text-sm font-medium text-on-surface mb-1"><i class="fas fa-paint-brush mr-1 text-primary"></i>选择品牌套件（可选）</label>
-                        <select v-model.number="wizardBrandKitId" class="w-full px-4 py-3 border rounded-lg focus:border-primary text-sm">
-                            <option :value="null">— 不使用品牌套件 —</option>
-                            <option v-for="k in brandKitsForWizard" :key="k.id" :value="k.id">{{ k.name }}{{ k.brand_name ? ' (' + k.brand_name + ')' : '' }}<span v-if="k.industry"> · {{ k.industry }}</span></option>
-                        </select>
-                        <p class="text-xs text-on-surface-variant mt-1">选择后将自动使用套件的品牌名、网站产品和页脚配置</p>
-                        <!-- Display associated profile when fingerprint is enabled -->
-                        <div v-if="fingerprintEnabled && wizardBrandKitId" class="mt-2 bg-blue-50 border border-primary-container/20 rounded-lg p-3">
-                            <div class="flex items-center justify-between">
-                                <p class="text-sm text-primary">
-                                    <i class="fas fa-fingerprint mr-1"></i>
-                                    <span v-if="brandKitsForWizard.find(k=>k.id===wizardBrandKitId)?.cloakbrowser_profile_name">
-                                        指纹环境: <strong>{{ brandKitsForWizard.find(k=>k.id===wizardBrandKitId).cloakbrowser_profile_name }}</strong>
-                                    </span>
-                                    <span v-else class="text-primary">该套件暂未关联指纹环境</span>
-                                </p>
-                                <button v-if="brandKitsForWizard.find(k=>k.id===wizardBrandKitId)?.cloakbrowser_profile_name"
-                                    @click="testProfileForWizard" :disabled="profileTestState.testing"
-                                    class="px-3 py-1 text-xs rounded"
-                                    :class="profileTestState.result === true ? 'bg-[#146c2e]/10 text-[#146c2e] border border-green-300' :
-                                           profileTestState.result === false ? 'bg-error-container text-error border border-red-300' :
-                                           'bg-blue-100 text-primary border border-blue-300 hover:bg-blue-200'">
-                                    <i v-if="profileTestState.testing" class="fas fa-spinner fa-spin mr-1"></i>
-                                    <i v-else-if="profileTestState.result === true" class="fas fa-check-circle mr-1"></i>
-                                    <i v-else-if="profileTestState.result === false" class="fas fa-times-circle mr-1"></i>
-                                    <i v-else class="fas fa-play mr-1"></i>
-                                    {{ profileTestState.testing ? '测试中...' : profileTestState.result === true ? '已通过' : profileTestState.result === false ? '失败' : '测试环境' }}
-                                </button>
+                    <!-- Batch: Paired rows (brand kit + domain) -->
+                    <div v-if="wizardMode === 'batch'" class="border-t pt-4 mt-2">
+                        <div class="flex items-center justify-between mb-3">
+                            <label class="text-sm font-medium text-on-surface"><i class="fas fa-paint-brush mr-1 text-primary"></i>品牌套件 & 域名配对</label>
+                            <span class="text-xs text-on-surface-variant">{{ batchWizardRows.length }} 个站点</span>
+                        </div>
+                        <p class="text-xs text-on-surface-variant mb-2">第 {{ batchWizardPage + 1 }} / {{ batchTotalPages }} 页（每页 {{ BATCH_PAGE_SIZE }} 条）</p>
+                        <div class="flex gap-3 mb-2 text-xs font-medium text-on-surface-variant px-1">
+                            <div class="w-1/2">品牌套件</div><div class="w-1/2">域名</div>
+                        </div>
+                        <div v-for="(row, idx) in batchVisibleRows" :key="batchWizardPage * BATCH_PAGE_SIZE + idx" class="flex gap-3 items-start mb-2">
+                            <div class="w-1/2">
+                                <select v-model.number="row.brand_kit_id" class="w-full px-2 py-2 border rounded-lg text-sm focus:border-primary">
+                                    <option :value="null">— 无 —</option>
+                                    <option v-for="k in brandKitsForWizard" :key="k.id" :value="k.id">{{ k.name }}{{ k.brand_name ? ' (' + k.brand_name + ')' : '' }}</option>
+                                </select>
                             </div>
-                            <p v-if="profileTestState.result === false" class="mt-2 text-xs text-error">{{ profileTestState.message }}</p>
-                            <p v-if="profileTestState.result === true" class="mt-2 text-xs text-[#146c2e]">{{ profileTestState.message }}</p>
+                            <div class="w-1/2">
+                                <input v-model="row.domain" type="text" placeholder="site.example.com" class="w-full px-2 py-2 border rounded-lg text-sm focus:border-primary">
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between mt-3 pt-3 border-t">
+                            <button @click="addBatchRow" class="px-3 py-1.5 text-xs border rounded-lg hover:bg-primary/5 text-primary"><i class="fas fa-plus mr-1"></i>添加一行</button>
+                            <div class="flex gap-1">
+                                <button @click="batchWizardPage = Math.max(0, batchWizardPage - 1)" :disabled="batchWizardPage === 0" class="px-2 py-1 text-xs border rounded hover:bg-surface-container-low disabled:opacity-40 disabled:cursor-not-allowed"><i class="fas fa-chevron-left"></i></button>
+                                <span class="px-2 py-1 text-xs text-on-surface-variant">{{ batchWizardPage + 1 }} / {{ batchTotalPages }}</span>
+                                <button @click="batchWizardPage = Math.min(batchTotalPages - 1, batchWizardPage + 1)" :disabled="batchWizardPage >= batchTotalPages - 1" class="px-2 py-1 text-xs border rounded hover:bg-surface-container-low disabled:opacity-40 disabled:cursor-not-allowed"><i class="fas fa-chevron-right"></i></button>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Domain / Site Name -->
-                    <div class="border-t pt-4 mt-2">
-                        <div class="flex items-center gap-2 mb-1">
-                            <label class="block text-sm font-medium text-on-surface"><span class="material-symbols-outlined">language</span>域名 / 站点名称</label>
-                            <span class="text-xs text-on-surface-variant">（标签: 模板独立站）</span>
+                    <!-- Single mode: Brand Kit + Domain -->
+                    <template v-else>
+                        <div class="border-t pt-4 mt-2">
+                            <label class="block text-sm font-medium text-on-surface mb-1"><i class="fas fa-paint-brush mr-1 text-primary"></i>选择品牌套件（可选）</label>
+                            <select v-model.number="wizardBrandKitId" class="w-full px-4 py-3 border rounded-lg focus:border-primary text-sm">
+                                <option :value="null">— 不使用品牌套件 —</option>
+                                <option v-for="k in brandKitsForWizard" :key="k.id" :value="k.id">{{ k.name }}{{ k.brand_name ? ' (' + k.brand_name + ')' : '' }}<span v-if="k.industry"> · {{ k.industry }}</span></option>
+                            </select>
+                            <p class="text-xs text-on-surface-variant mt-1">选择后将自动使用套件的品牌名、网站产品和页脚配置</p>
+                            <div v-if="fingerprintEnabled && wizardBrandKitId" class="mt-2 bg-blue-50 border border-primary-container/20 rounded-lg p-3">
+                                <div class="flex items-center justify-between">
+                                    <p class="text-sm text-primary"><i class="fas fa-fingerprint mr-1"></i><span v-if="brandKitsForWizard.find(k=>k.id===wizardBrandKitId)?.cloakbrowser_profile_name">指纹环境: <strong>{{ brandKitsForWizard.find(k=>k.id===wizardBrandKitId).cloakbrowser_profile_name }}</strong></span><span v-else class="text-primary">该套件暂未关联指纹环境</span></p>
+                                    <button v-if="brandKitsForWizard.find(k=>k.id===wizardBrandKitId)?.cloakbrowser_profile_name" @click="testProfileForWizard" :disabled="profileTestState.testing" class="px-3 py-1 text-xs rounded" :class="profileTestState.result === true ? 'bg-[#146c2e]/10 text-[#146c2e] border border-green-300' : profileTestState.result === false ? 'bg-error-container text-error border border-red-300' : 'bg-blue-100 text-primary border border-blue-300 hover:bg-blue-200'"><i v-if="profileTestState.testing" class="fas fa-spinner fa-spin mr-1"></i><i v-else-if="profileTestState.result === true" class="fas fa-check-circle mr-1"></i><i v-else-if="profileTestState.result === false" class="fas fa-times-circle mr-1"></i><i v-else class="fas fa-play mr-1"></i>{{ profileTestState.testing ? '测试中...' : profileTestState.result === true ? '已通过' : profileTestState.result === false ? '失败' : '测试环境' }}</button>
+                                </div>
+                                <p v-if="profileTestState.result === false" class="mt-2 text-xs text-error">{{ profileTestState.message }}</p>
+                                <p v-if="profileTestState.result === true" class="mt-2 text-xs text-[#146c2e]">{{ profileTestState.message }}</p>
+                            </div>
                         </div>
-                        <div v-if="wizardMode === 'single'">
-                            <input v-model="createForm.site_name" type="text" placeholder="例如: site1.example.com" class="w-full px-4 py-3 border rounded-lg focus:border-primary">
-                            <p class="text-xs text-on-surface-variant mt-1">将作为WordPress站点的主域名</p>
+                        <div class="border-t pt-4 mt-2">
+                            <div class="flex items-center gap-2 mb-1"><label class="block text-sm font-medium text-on-surface"><span class="material-symbols-outlined">language</span>域名 / 站点名称</label><span class="text-xs text-on-surface-variant">（标签: 模板独立站）</span></div>
+                            <div v-if="wizardMode === 'single'"><input v-model="createForm.site_name" type="text" placeholder="例如: site1.example.com" class="w-full px-4 py-3 border rounded-lg focus:border-primary"><p class="text-xs text-on-surface-variant mt-1">将作为WordPress站点的主域名</p></div>
                         </div>
-                        <div v-if="wizardMode === 'batch'">
-                            <textarea v-model="createForm.domains" rows="5" placeholder="site1.example.com&#10;site2.example.com&#10;site3.example.com" class="w-full px-4 py-3 border rounded-lg focus:border-primary"></textarea>
-                            <p class="text-xs text-on-surface-variant mt-1">每行输入一个域名，将批量创建多个WordPress站点</p>
-                        </div>
-                    </div>
+                    </template>
 
                     <!-- 1Panel status hint -->
                     <div v-if="!panelConnected" class="bg-error-container border border-error/20 rounded-lg p-3"><p class="text-error text-sm"><i class="fas fa-exclamation-triangle mr-2"></i>1Panel未连接，站点将仅保存到本地。</p></div>
