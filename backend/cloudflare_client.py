@@ -145,7 +145,7 @@ class CloudflareClient:
         return self._request(
             "PUT",
             f"/accounts/{account_id}/workers/scripts/{worker_name}",
-            json_data=script,
+            data=script,
             extra_headers={"Content-Type": "application/javascript"},
         )
 

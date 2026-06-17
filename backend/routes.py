@@ -2583,6 +2583,16 @@ def register_routes(app):
                     continue
                 from cloudflare_client import CloudflareClient
                 cf_client = CloudflareClient(api_token=cf_account["api_token"])
+                # Get real CF account ID (not our internal DB ID)
+                real_cf_id = cf_account.get("cf_external_id") or cf_account["id"]
+                try:
+                    accts_resp = cf_client._request("GET", "/accounts")
+                    if accts_resp.get("success"):
+                        for a in (accts_resp.get("result") or []):
+                            real_cf_id = a["id"]
+                            break
+                except Exception:
+                    pass
                 alias = site.get("nginx_alias", domain)
                 worker_name = f"mirror-{alias.replace('.', '-')}"
                 script = (
@@ -2599,7 +2609,7 @@ def register_routes(app):
                     f"}}}}).transform(resp); "
                     f"}} }};"
                 )
-                cf_client.upload_worker(cf_account["id"], worker_name, script)
+                cf_client.upload_worker(real_cf_id, worker_name, script)
                 cf_client.create_worker_route(zone_id, f"*{domain}/*", worker_name)
                 update_site_fields(sid, {"mirror_target": target})
                 results.append({"site_id": sid, "ok": True, "domain": domain})
@@ -2640,7 +2650,15 @@ def register_routes(app):
                             if r.get("script") == worker_name and domain in (r.get("pattern") or ""):
                                 cf_client.delete_worker_route(zone_id, r["id"])
                     # Delete worker script
-                    cf_client.delete_worker(cf_account["id"], worker_name)
+                    # Get real CF account ID
+                    real_cf_id = cf_account["id"]
+                    try:
+                        accts_resp = cf_client._request("GET", "/accounts")
+                        if accts_resp.get("success"):
+                            for a in (accts_resp.get("result") or []):
+                                real_cf_id = a["id"]; break
+                    except Exception: pass
+                    cf_client.delete_worker(real_cf_id, worker_name)
             update_site_fields(site_id, {"mirror_target": ""})
             return jsonify({"code": 200, "message": "镜像已取消"})
         except Exception as e:
