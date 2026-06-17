@@ -68,6 +68,27 @@ const app = createApp({
         const profileTestState = ref({ testing: false, result: null, message: '' });
         // Batch wizard state
         const batchWizardRows = ref([]);
+        // --- General pagination state ---
+        const brandKitsPage = ref(1); const BRAND_KITS_PER = 10;
+        const usersPage = ref(1); const USERS_PER = 10;
+        const mcPage = ref(1); const MC_PER = 10;
+        const googleAccountsTabPage = ref(1); const GOOGLE_ACCOUNTS_PER = 10;
+        const profilesTabPage = ref(1); const PROFILES_PER = 10;
+        const proxiesTabPage = ref(1); const PROXIES_PER = 10;
+        const pagedBrandKits = computed(() => { const s = (brandKitsPage.value-1)*BRAND_KITS_PER; return (brandKits.value||[]).slice(s,s+BRAND_KITS_PER); });
+        const brandKitsTotal = computed(() => Math.max(1,Math.ceil((brandKits.value||[]).length/BRAND_KITS_PER)));
+        const pagedUsers = computed(() => { const s=(usersPage.value-1)*USERS_PER; return (users.value||[]).slice(s,s+USERS_PER); });
+        const usersTotal = computed(() => Math.max(1,Math.ceil((users.value||[]).length/USERS_PER)));
+        const pagedMcSites = computed(() => { const s=(mcPage.value-1)*MC_PER; return (sites.value||[]).slice(s,s+MC_PER); });
+        const mcTotal = computed(() => Math.max(1,Math.ceil((sites.value||[]).length/MC_PER)));
+        const pagedGoogleAccounts = computed(() => { const s=(googleAccountsTabPage.value-1)*GOOGLE_ACCOUNTS_PER; return (googleAccounts.value||[]).slice(s,s+GOOGLE_ACCOUNTS_PER); });
+        const googleAccountsTotal = computed(() => Math.max(1,Math.ceil((googleAccounts.value||[]).length/GOOGLE_ACCOUNTS_PER)));
+        const pagedProfiles = computed(() => { const s=(profilesTabPage.value-1)*PROFILES_PER; return (cloakbrowserProfiles.value||[]).slice(s,s+PROFILES_PER); });
+        const profilesTotal = computed(() => Math.max(1,Math.ceil((cloakbrowserProfiles.value||[]).length/PROFILES_PER)));
+        const pagedProxies = computed(() => { const all=proxies.value.filter(x=>x.status!=='deprecated'); const s=(proxiesTabPage.value-1)*PROXIES_PER; return all.slice(s,s+PROXIES_PER); });
+        const proxiesTotal = computed(() => Math.max(1,Math.ceil((proxies.value.filter(x=>x.status!=='deprecated')).length/PROXIES_PER)));
+        function goPage(refName, n, total) { refName.value = Math.max(1, Math.min(n, total.value)); }
+
         const batchWizardPage = ref(0);
         const BATCH_PAGE_SIZE = 6;
         const operatorCfAccountId = ref(null);
@@ -2932,6 +2953,13 @@ pipelineStatuses[siteId].demo_importing = false;
             loadBrandKitsForSelect,
             handleLogin, handleLogout, refreshSites, syncWithPanel,
             openWizard, closeWizard, onWizardGroupChange, wizardCreateSite, testProfileForWizard, profileTestState,
+            brandKitsPage, BRAND_KITS_PER, pagedBrandKits, brandKitsTotal,
+            usersPage, USERS_PER, pagedUsers, usersTotal,
+            mcPage, MC_PER, pagedMcSites, mcTotal,
+            googleAccountsTabPage, GOOGLE_ACCOUNTS_PER, pagedGoogleAccounts, googleAccountsTotal,
+            profilesTabPage, PROFILES_PER, pagedProfiles, profilesTotal,
+            proxiesTabPage, PROXIES_PER, pagedProxies, proxiesTotal,
+            goPage,
             batchWizardRows, batchWizardPage, BATCH_PAGE_SIZE, batchVisibleRows, batchTotalPages,
             operatorCfAccountId, operatorCfAccountName, operatorCfLoading,
             initBatchRows, addBatchRow, resolveOperatorCfAccount,
@@ -4521,7 +4549,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                             </tr>
                                         </thead>
                                         <tbody class="divide-y divide-outline-variant">
-                                            <tr v-for="ga in googleAccounts" :key="ga.id" class="hover:bg-surface-container-low">
+                                            <tr v-for="ga in pagedGoogleAccounts" :key="ga.id" class="hover:bg-surface-container-low">
                                                 <td class="px-3 py-2 text-xs font-mono">#{{ ga.id }}</td>
                                                 <td class="px-3 py-2 text-xs font-mono">{{ ga.email }}</td>
                                                 <td class="px-3 py-2 text-xs font-mono">{{ ga.password || '***' }}</td>
@@ -4542,6 +4570,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <div class="mt-2 text-xs text-on-surface-variant">
                                     共 {{ googleAccounts.length }} 个账户 | 可用 {{ googleAccounts.filter(a => !a.occupied_kit_name).length }} | 已占用 {{ googleAccounts.filter(a => a.occupied_kit_name).length }}
                                 </div>
+                                <div v-if="(googleAccounts||[]).length > GOOGLE_ACCOUNTS_PER" class="flex items-center justify-between text-xs text-on-surface-variant mt-2"><span>第 {{ googleAccountsTabPage }} / {{ googleAccountsTotal }} 页</span><div class="flex gap-1"><button @click="goPage(googleAccountsTabPage,googleAccountsTabPage-1,googleAccountsTotal)" :disabled="googleAccountsTabPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button><button @click="goPage(googleAccountsTabPage,googleAccountsTabPage+1,googleAccountsTotal)" :disabled="googleAccountsTabPage>=googleAccountsTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button></div></div>
                             </div>
                             <!-- Tab: 指纹环境 -->
                             <div v-else-if="settingsActiveTab === 'fingerprint'" @vue:mounted="loadCloakbrowserProfiles(); loadProxies(); loadDeprecatedProxies()">
@@ -4590,18 +4619,20 @@ pipelineStatuses[siteId].demo_importing = false;
                                 </div>
                                 <div class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                                     <div v-if="cloakbrowserProfiles.length" class="overflow-x-auto">
-                                        <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">名称</th><th class="px-3 py-2 text-left">平台</th><th class="px-3 py-2 text-left">国家</th><th class="px-3 py-2 text-left">代理</th><th class="px-3 py-2 text-left">状态</th><th class="px-3 py-2 text-right">操作</th></tr></thead><tbody class="divide-y"><tr v-for="p in cloakbrowserProfiles" :key="p.name" class="hover:bg-surface-container-low"><td class="px-3 py-2 font-mono text-xs">{{ p.name }}</td><td class="px-3 py-2 text-xs">{{ p.platform || p.config?.platform || '-' }}</td><td class="px-3 py-2 text-xs">{{ p.country || p.config?.country || '-' }}</td><td class="px-3 py-2 text-xs max-w-[120px] truncate" :title="p.proxy">{{ p.proxy || '-' }}</td><td class="px-3 py-2"><span v-if="p.bound" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">使用中</span><span v-if="p.bound_kit_name" class="text-[10px] text-on-surface-variant ml-1">({{ p.bound_kit_name }})</span><span v-else class="badge bg-surface-container-high text-on-surface-variant text-xs">可用</span></td><td class="px-3 py-2 text-right"><button @click="deleteProfile(p.name)" class="text-xs text-error hover:text-error"><span class="material-symbols-outlined text-sm">delete</span></button></td></tr></tbody></table>
+                                        <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">名称</th><th class="px-3 py-2 text-left">平台</th><th class="px-3 py-2 text-left">国家</th><th class="px-3 py-2 text-left">代理</th><th class="px-3 py-2 text-left">状态</th><th class="px-3 py-2 text-right">操作</th></tr></thead><tbody class="divide-y"><tr v-for="p in pagedProfiles" :key="p.name" class="hover:bg-surface-container-low"><td class="px-3 py-2 font-mono text-xs">{{ p.name }}</td><td class="px-3 py-2 text-xs">{{ p.platform || p.config?.platform || '-' }}</td><td class="px-3 py-2 text-xs">{{ p.country || p.config?.country || '-' }}</td><td class="px-3 py-2 text-xs max-w-[120px] truncate" :title="p.proxy">{{ p.proxy || '-' }}</td><td class="px-3 py-2"><span v-if="p.bound" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">使用中</span><span v-if="p.bound_kit_name" class="text-[10px] text-on-surface-variant ml-1">({{ p.bound_kit_name }})</span><span v-else class="badge bg-surface-container-high text-on-surface-variant text-xs">可用</span></td><td class="px-3 py-2 text-right"><button @click="deleteProfile(p.name)" class="text-xs text-error hover:text-error"><span class="material-symbols-outlined text-sm">delete</span></button></td></tr></tbody></table>
                                     </div>
                                     <div v-else class="text-center py-8 text-sm text-on-surface-variant">暂无指纹环境</div>
                                 </div>
+                                <div v-if="(cloakbrowserProfiles||[]).length > PROFILES_PER" class="flex items-center justify-between text-xs text-on-surface-variant mt-2"><span>第 {{ profilesTabPage }} / {{ profilesTotal }} 页</span><div class="flex gap-1"><button @click="goPage(profilesTabPage,profilesTabPage-1,profilesTotal)" :disabled="profilesTabPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button><button @click="goPage(profilesTabPage,profilesTabPage+1,profilesTotal)" :disabled="profilesTabPage>=profilesTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button></div></div>
                                 </div>
                                 <!-- Proxy Pool sub-tab -->
                                 <div v-show="fingerprintSubTab === 'proxies'" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                                     <div v-if="proxies.length" class="overflow-x-auto">
-                                            <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">ID</th><th class="px-3 py-2 text-left">IP</th><th class="px-3 py-2 text-left">端口</th><th class="px-3 py-2 text-left">类型</th><th class="px-3 py-2 text-left">状态</th><th class="px-3 py-2 text-left">占用</th></tr></thead><tbody class="divide-y"><tr v-for="p in proxies.filter(x => x.status !== 'deprecated')" :key="p.id" class="hover:bg-surface-container-low"><td class="px-3 py-2 text-xs font-mono">{{ p.id }}</td><td class="px-3 py-2 text-xs">{{ p.ip }}</td><td class="px-3 py-2 text-xs">{{ p.port }}</td><td class="px-3 py-2 text-xs">{{ p.proxy_type }}</td><td class="px-3 py-2"><span v-if="p.occupied_kit_name" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">使用中</span><span v-else class="badge bg-surface-container-high text-on-surface-variant text-xs">可用</span></td><td class="px-3 py-2 text-xs"><span v-if="p.occupied_kit_name">{{ p.occupied_by || '-' }} · {{ p.occupied_kit_name }}</span><span v-else class="text-on-surface-variant">-</span></td></tr></tbody></table>
+                                            <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">ID</th><th class="px-3 py-2 text-left">IP</th><th class="px-3 py-2 text-left">端口</th><th class="px-3 py-2 text-left">类型</th><th class="px-3 py-2 text-left">状态</th><th class="px-3 py-2 text-left">占用</th></tr></thead><tbody class="divide-y"><tr v-for="p in pagedProxies" :key="p.id" class="hover:bg-surface-container-low"><td class="px-3 py-2 text-xs font-mono">{{ p.id }}</td><td class="px-3 py-2 text-xs">{{ p.ip }}</td><td class="px-3 py-2 text-xs">{{ p.port }}</td><td class="px-3 py-2 text-xs">{{ p.proxy_type }}</td><td class="px-3 py-2"><span v-if="p.occupied_kit_name" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">使用中</span><span v-else class="badge bg-surface-container-high text-on-surface-variant text-xs">可用</span></td><td class="px-3 py-2 text-xs"><span v-if="p.occupied_kit_name">{{ p.occupied_by || '-' }} · {{ p.occupied_kit_name }}</span><span v-else class="text-on-surface-variant">-</span></td></tr></tbody></table>
                                         </div>
                                         <div v-else class="text-center py-6 text-sm text-on-surface-variant">暂无代理</div>
                                 </div>
+                                <div v-if="(proxies.filter(x=>x.status!=='\''deprecated'\'')).length > PROXIES_PER" class="flex items-center justify-between text-xs text-on-surface-variant mt-2 px-2"><span>第 {{ proxiesTabPage }} / {{ proxiesTotal }} 页</span><div class="flex gap-1"><button @click="goPage(proxiesTabPage,proxiesTabPage-1,proxiesTotal)" :disabled="proxiesTabPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button><button @click="goPage(proxiesTabPage,proxiesTabPage+1,proxiesTotal)" :disabled="proxiesTabPage>=proxiesTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button></div></div>
                                 <!-- Deprecated sub-tab -->
                                 <div v-show="fingerprintSubTab === 'deprecated'" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                                     <div v-if="deprecatedProxies.length" class="overflow-x-auto">
@@ -4658,7 +4689,7 @@ pipelineStatuses[siteId].demo_importing = false;
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-outline-variant">
-                            <tr v-for="user in users" :key="user.id" class="hover:bg-surface-container-low">
+                            <tr v-for="user in pagedUsers" :key="user.id" class="hover:bg-surface-container-low">
                                 <td class="px-4 py-3 text-sm text-on-surface-variant">#{{ user.id }}</td>
                                 <td class="px-4 py-3 font-medium">{{ user.username }}</td>
                                 <td class="px-4 py-3"><span :class="user.role === 'admin' ? 'bg-blue-100 text-primary' : 'bg-blue-100 text-primary'" class="badge">{{ user.role === 'admin' ? '管理员' : '运营' }}</span></td>
@@ -4674,7 +4705,13 @@ pipelineStatuses[siteId].demo_importing = false;
                         </tbody>
                     </table>
                 </div>
-                <!-- User Modal -->
+                <div v-if="(users||[]).length > USERS_PER" class="flex items-center justify-between text-xs text-on-surface-variant mt-3">
+                    <span>第 {{ usersPage }} / {{ usersTotal }} 页</span>
+                    <div class="flex gap-1"><button @click="goPage(usersPage,usersPage-1,usersTotal)" :disabled="usersPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button><button @click="goPage(usersPage,usersPage+1,usersTotal)" :disabled="usersPage>=usersTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button></div>
+                </div>
+            </div>
+
+            <!-- Brand Kits List -->
                 <div v-if="showUserModal" class="modal-overlay modal-overlay" @click.self="closeUserModal">
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 w-full max-w-md p-6 fade-in">
                         <h3 class="text-lg font-semibold text-on-surface mb-4">{{ userEditId ? '编辑用户' : '创建用户' }}</h3>
@@ -4716,7 +4753,7 @@ pipelineStatuses[siteId].demo_importing = false;
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-outline-variant">
-                            <tr v-for="kit in brandKits" :key="kit.id" class="hover:bg-surface-container-low transition cursor-pointer" @click="openBrandKitDetail(kit)">
+                            <tr v-for="kit in pagedBrandKits" :key="kit.id" class="hover:bg-surface-container-low transition cursor-pointer" @click="openBrandKitDetail(kit)">
                                 <td class="px-4 py-3">
                                     <div v-if="kit.processed_svg || kit.raw_svg" v-html="kit.processed_svg || kit.raw_svg" class="w-8 h-8 svg-preview" style="overflow:hidden;max-width:32px;max-height:32px"></div>
                                     <i v-else class="fas fa-paint-brush text-on-surface-variant text-lg"></i>
@@ -4764,6 +4801,13 @@ pipelineStatuses[siteId].demo_importing = false;
                             </tr>
                         </tbody>
                     </table>
+                </div>
+                <div v-if="(brandKits||[]).length > BRAND_KITS_PER" class="flex items-center justify-between text-xs text-on-surface-variant mt-3">
+                    <span>第 {{ brandKitsPage }} / {{ brandKitsTotal }} 页</span>
+                    <div class="flex gap-1">
+                        <button @click="goPage(brandKitsPage, brandKitsPage-1, brandKitsTotal)" :disabled="brandKitsPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button>
+                        <button @click="goPage(brandKitsPage, brandKitsPage+1, brandKitsTotal)" :disabled="brandKitsPage>=brandKitsTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button>
+                    </div>
                 </div>
             </div>
 
