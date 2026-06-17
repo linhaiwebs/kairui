@@ -5513,7 +5513,7 @@ def register_routes(app):
                 country=(data.get("country") or "US").strip(),
                 platform=(data.get("platform") or None),
             )
-            # Auto-import proxy to pool
+            # Auto-import proxy to pool (each profile = independent proxy entry)
             proxy_url = (data.get("proxy") or "").strip()
             if proxy_url:
                 from models import get_db
@@ -5522,13 +5522,11 @@ def register_routes(app):
                     host = m.group(3)
                     port = int(m.group(4))
                     db = get_db()
-                    exists = db.execute("SELECT id FROM proxies WHERE proxy_url = ?", (proxy_url,)).fetchone()
-                    if not exists:
-                        db.execute(
-                            "INSERT INTO proxies (proxy_url, proxy_type, ip, port) VALUES (?, 'socks5', ?, ?)",
-                            (proxy_url, host, port),
-                        )
-                        db.commit()
+                    db.execute(
+                        "INSERT INTO proxies (proxy_url, proxy_type, ip, port) VALUES (?, 'socks5', ?, ?)",
+                        (proxy_url, host, port),
+                    )
+                    db.commit()
             return jsonify({"code": 200, "message": "Profile 创建成功", "data": result})
         except FileExistsError:
             return jsonify({"code": 409, "message": f"Profile '{name}' 已存在"}), 409
