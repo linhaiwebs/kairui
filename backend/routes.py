@@ -2596,18 +2596,19 @@ def register_routes(app):
                 alias = site.get("nginx_alias", domain)
                 worker_name = f"mirror-{alias.replace('.', '-')}"
                 script = (
-                    f"export default {{ async fetch(request) {{ "
-                    f"const url = new URL(request.url); "
-                    f"url.hostname = '{target_host}'; "
-                    f"const resp = await fetch(url.toString(), {{ method: request.method, headers: request.headers, body: request.body }}); "
-                    f"return new HTMLRewriter().on('a[href]', {{ element(el) {{ "
-                    f"var h = el.getAttribute('href'); "
-                    f"if(h){{ h = h.replace('{target_host}', '{domain}'); el.setAttribute('href', h); }} "
-                    f"}}}}).on('img[src]', {{ element(el) {{ "
-                    f"var s = el.getAttribute('src'); "
-                    f"if(s){{ s = s.replace('{target_host}', '{domain}'); el.setAttribute('src', s); }} "
-                    f"}}}}).transform(resp); "
-                    f"}} }};"
+                    "addEventListener('fetch', event => {"
+                    "event.respondWith(handleRequest(event.request))"
+                    "});"
+                    "async function handleRequest(request) {"
+                    f"const url = new URL(request.url);"
+                    f"url.hostname = '{target_host}';"
+                    f"const resp = await fetch(url.toString(), {{method: request.method, headers: request.headers, body: request.body}});"
+                    f"return new HTMLRewriter().on('a[href]', {{element(el){{"
+                    f"var h=el.getAttribute('href');if(h){{h=h.replace('{target_host}','{domain}');el.setAttribute('href',h);}}"
+                    f"}}}}).on('img[src]',{{element(el){{"
+                    f"var s=el.getAttribute('src');if(s){{s=s.replace('{target_host}','{domain}');el.setAttribute('src',s);}}"
+                    f"}}}}).transform(resp);"
+                    "}"
                 )
                 cf_client.upload_worker(real_cf_id, worker_name, script)
                 cf_client.create_worker_route(zone_id, f"*{domain}/*", worker_name)
