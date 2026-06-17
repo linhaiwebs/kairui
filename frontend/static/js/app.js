@@ -59,6 +59,8 @@ const app = createApp({
         const cfConnected = ref(false);
         const cfToken = ref('');
         const cfNote = ref('');
+        const editingCfNoteId = ref(null);
+        const editingCfNoteText = ref('');
         const cfAccounts = ref([]);
         const cfSelectedAccountId = ref('');
         const wizardBrandKitId = ref(null);
@@ -1591,6 +1593,12 @@ pipelineStatuses[siteId].demo_importing = false;
             const resp = await API.cfSetDefaultAccount(id);
             if (resp.code === 200) { showToast('已设为默认账号'); await loadCfAccounts(); } else { showToast(resp.message || '设置失败', 'error'); }
         }
+        async function saveCfNote(id) {
+            const text = editingCfNoteText.value.trim();
+            editingCfNoteId.value = null;
+            await API.cfUpdateAccount(id, { notes: text });
+            await loadCfAccounts();
+        }
 
         // ---- WordPress.com Functions ----
         // ---- 3-Step Wizard ----
@@ -2810,7 +2818,7 @@ pipelineStatuses[siteId].demo_importing = false;
             csvUploading, csvFileInput, handleCsvUpload,
             wooPage, wooPerPage, wooPagedProducts, wooTotalPages, wooGoPage,
             feedPage, feedPerPage, feedPagedProducts, feedTotalPages, feedGoPage,
-            cfConnected, cfToken, cfNote, cfAccounts, cfSelectedAccountId,
+            cfConnected, cfToken, cfNote, editingCfNoteId, editingCfNoteText, saveCfNote, cfAccounts, cfSelectedAccountId,
             deepseekApiKeys, deepseekVisibleKeys, deepseekKeyErrors, deepseekConnected, deepseekVerify,
             crawlbaseApiKeys, crawlbaseVisibleKeys, crawlbaseKeyErrors, crawlbaseConnected, crawlbaseVerify,
             cloakbrowserProfiles, loadCloakbrowserProfiles,
@@ -4374,7 +4382,8 @@ pipelineStatuses[siteId].demo_importing = false;
                                             <i class="fas fa-cloud text-tertiary"></i>
                                             <span class="text-sm font-medium">{{ acc.name }}</span>
                                             <span v-if="acc.is_default" class="text-xs bg-orange-100 text-tertiary px-2 py-0.5 rounded-full">默认</span>
-                                            <span v-if="acc.notes" class="text-xs text-on-surface-variant">{{ acc.notes }}</span>
+                                            <span v-if="acc.notes && editingCfNoteId !== acc.id" @click="editingCfNoteId = acc.id; editingCfNoteText = acc.notes" class="text-xs text-on-surface-variant cursor-pointer hover:text-primary" title="点击编辑备注">{{ acc.notes }}</span>
+                                            <input v-if="editingCfNoteId === acc.id" v-model="editingCfNoteText" @blur="saveCfNote(acc.id)" @keyup.enter="saveCfNote(acc.id)" class="text-xs px-1 py-0.5 border rounded w-24" />
                                         </div>
                                         <div class="flex gap-1">
                                             <button v-if="!acc.is_default" @click="handleSetDefaultCfAccount(acc.id)" class="text-xs text-on-surface-variant hover:text-tertiary px-2 py-1" title="设为默认"><i class="fas fa-star"></i></button>

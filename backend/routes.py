@@ -6130,6 +6130,30 @@ def register_routes(app):
             logger.error(f"CF create account failed: {e}")
             return jsonify({"code": 500, "message": str(e)[:100]}), 500
 
+    @app.route("/api/cloudflare/accounts/<int:account_id>", methods=["PUT"])
+    @jwt_required()
+    def cf_update_account(account_id):
+        """Update a Cloudflare account (notes, name)."""
+        try:
+            acct = get_cf_account(account_id)
+            if not acct:
+                return jsonify({"code": 404, "message": "账号不存在"}), 404
+            data = request.get_json(silent=True) or {}
+            updates = {}
+            for key in ("name", "notes"):
+                if key in data:
+                    updates[key] = data[key]
+            if updates:
+                from models import get_db
+                db = get_db()
+                sets = ", ".join(f"{k} = ?" for k in updates)
+                vals = list(updates.values()) + [account_id]
+                db.execute(f"UPDATE cloudflare_accounts SET {sets} WHERE id = ?", vals)
+                db.commit()
+            return jsonify({"code": 200, "message": "已更新"})
+        except Exception as e:
+            return jsonify({"code": 500, "message": str(e)[:100]}), 500
+
     @app.route("/api/cloudflare/accounts/<int:account_id>", methods=["DELETE"])
     @jwt_required()
     def cf_delete_account(account_id):

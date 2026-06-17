@@ -280,6 +280,10 @@ const API = {
         return this.request('PUT', `/api/cloudflare/accounts/${id}/default`);
     },
 
+    async cfUpdateAccount(id, data) {
+        return this.request('PUT', `/api/cloudflare/accounts/${id}`, data);
+    },
+
     // Cloudflare
     async cfVerifyToken(apiToken, notes = '') {
         return this.request('POST', '/api/cloudflare/verify', { api_token: apiToken, notes });
