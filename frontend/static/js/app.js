@@ -4570,7 +4570,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <div class="mt-2 text-xs text-on-surface-variant">
                                     共 {{ googleAccounts.length }} 个账户 | 可用 {{ googleAccounts.filter(a => !a.occupied_kit_name).length }} | 已占用 {{ googleAccounts.filter(a => a.occupied_kit_name).length }}
                                 </div>
-                                <div v-if="(googleAccounts||[]).length > GOOGLE_ACCOUNTS_PER" class="flex items-center justify-between text-xs text-on-surface-variant mt-2"><span>第 {{ googleAccountsTabPage }} / {{ googleAccountsTotal }} 页</span><div class="flex gap-1"><button @click="goPage(googleAccountsTabPage,googleAccountsTabPage-1,googleAccountsTotal)" :disabled="googleAccountsTabPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button><button @click="goPage(googleAccountsTabPage,googleAccountsTabPage+1,googleAccountsTotal)" :disabled="googleAccountsTabPage>=googleAccountsTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button></div></div>
+                                <div v-if="(googleAccounts||[]).length > GOOGLE_ACCOUNTS_PER" class="flex items-center justify-between text-xs text-on-surface-variant mt-2"><span>第 {{ googleAccountsTabPage }} / {{ googleAccountsTotal }} 页</span><div class="flex gap-1"><button @click="googleAccountsTabPage = Math.max(1, googleAccountsTabPage - 1)" :disabled="googleAccountsTabPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button><button @click="googleAccountsTabPage = Math.min(googleAccountsTotal, googleAccountsTabPage + 1)" :disabled="googleAccountsTabPage>=googleAccountsTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button></div></div>
                             </div>
                             <!-- Tab: 指纹环境 -->
                             <div v-else-if="settingsActiveTab === 'fingerprint'" @vue:mounted="loadCloakbrowserProfiles(); loadProxies(); loadDeprecatedProxies()">
@@ -4623,7 +4623,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                     </div>
                                     <div v-else class="text-center py-8 text-sm text-on-surface-variant">暂无指纹环境</div>
                                 </div>
-                                <div v-if="(cloakbrowserProfiles||[]).length > PROFILES_PER" class="flex items-center justify-between text-xs text-on-surface-variant mt-2"><span>第 {{ profilesTabPage }} / {{ profilesTotal }} 页</span><div class="flex gap-1"><button @click="goPage(profilesTabPage,profilesTabPage-1,profilesTotal)" :disabled="profilesTabPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button><button @click="goPage(profilesTabPage,profilesTabPage+1,profilesTotal)" :disabled="profilesTabPage>=profilesTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button></div></div>
+                                <div v-if="(cloakbrowserProfiles||[]).length > PROFILES_PER" class="flex items-center justify-between text-xs text-on-surface-variant mt-2"><span>第 {{ profilesTabPage }} / {{ profilesTotal }} 页</span><div class="flex gap-1"><button @click="profilesTabPage = Math.max(1, profilesTabPage - 1)" :disabled="profilesTabPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button><button @click="profilesTabPage = Math.min(profilesTotal, profilesTabPage + 1)" :disabled="profilesTabPage>=profilesTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button></div></div>
                                 </div>
                                 <!-- Proxy Pool sub-tab -->
                                 <div v-show="fingerprintSubTab === 'proxies'" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
@@ -4632,7 +4632,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                         </div>
                                         <div v-else class="text-center py-6 text-sm text-on-surface-variant">暂无代理</div>
                                 </div>
-                                <div v-if="proxies.filter(x => x.status !== 'deprecated').length > PROXIES_PER" class="flex items-center justify-between text-xs text-on-surface-variant mt-2 px-2"><span>第 {{ proxiesTabPage }} / {{ proxiesTotal }} 页</span><div class="flex gap-1"><button @click="goPage(proxiesTabPage,proxiesTabPage-1,proxiesTotal)" :disabled="proxiesTabPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button><button @click="goPage(proxiesTabPage,proxiesTabPage+1,proxiesTotal)" :disabled="proxiesTabPage>=proxiesTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button></div></div>
+                                <div v-if="proxies.filter(x => x.status !== 'deprecated').length > PROXIES_PER" class="flex items-center justify-between text-xs text-on-surface-variant mt-2 px-2"><span>第 {{ proxiesTabPage }} / {{ proxiesTotal }} 页</span><div class="flex gap-1"><button @click="proxiesTabPage = Math.max(1, proxiesTabPage - 1)" :disabled="proxiesTabPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button><button @click="proxiesTabPage = Math.min(proxiesTotal, proxiesTabPage + 1)" :disabled="proxiesTabPage>=proxiesTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button></div></div>
                                 <!-- Deprecated sub-tab -->
                                 <div v-show="fingerprintSubTab === 'deprecated'" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                                     <div v-if="deprecatedProxies.length" class="overflow-x-auto">
@@ -4707,7 +4707,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 </div>
                 <div v-if="(users||[]).length > USERS_PER" class="flex items-center justify-between text-xs text-on-surface-variant mt-3">
                     <span>第 {{ usersPage }} / {{ usersTotal }} 页</span>
-                    <div class="flex gap-1"><button @click="goPage(usersPage,usersPage-1,usersTotal)" :disabled="usersPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button><button @click="goPage(usersPage,usersPage+1,usersTotal)" :disabled="usersPage>=usersTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button></div>
+                    <div class="flex gap-1"><button @click="usersPage = Math.max(1, usersPage - 1)" :disabled="usersPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button><button @click="usersPage = Math.min(usersTotal, usersPage + 1)" :disabled="usersPage>=usersTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button></div>
                 </div>
             </div>
 
@@ -4805,8 +4805,8 @@ pipelineStatuses[siteId].demo_importing = false;
                 <div v-if="(brandKits||[]).length > BRAND_KITS_PER" class="flex items-center justify-between text-xs text-on-surface-variant mt-3">
                     <span>第 {{ brandKitsPage }} / {{ brandKitsTotal }} 页</span>
                     <div class="flex gap-1">
-                        <button @click="goPage(brandKitsPage, brandKitsPage-1, brandKitsTotal)" :disabled="brandKitsPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button>
-                        <button @click="goPage(brandKitsPage, brandKitsPage+1, brandKitsTotal)" :disabled="brandKitsPage>=brandKitsTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button>
+                        <button @click="brandKitsPage = Math.max(1, brandKitsPage - 1)" :disabled="brandKitsPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button>
+                        <button @click="brandKitsPage = Math.min(brandKitsTotal, brandKitsPage + 1)" :disabled="brandKitsPage>=brandKitsTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button>
                     </div>
                 </div>
             </div>
@@ -4866,7 +4866,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 </tbody>
                             </table>
                         </div>
-                        <div v-if="(sites||[]).length > MC_PER" class="flex items-center justify-between text-xs text-on-surface-variant mt-3"><span>第 {{ mcPage }} / {{ mcTotal }} 页</span><div class="flex gap-1"><button @click="goPage(mcPage,mcPage-1,mcTotal)" :disabled="mcPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button><button @click="goPage(mcPage,mcPage+1,mcTotal)" :disabled="mcPage>=mcTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button></div></div>
+                        <div v-if="(sites||[]).length > MC_PER" class="flex items-center justify-between text-xs text-on-surface-variant mt-3"><span>第 {{ mcPage }} / {{ mcTotal }} 页</span><div class="flex gap-1"><button @click="mcPage = Math.max(1, mcPage - 1)" :disabled="mcPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button><button @click="mcPage = Math.min(mcTotal, mcPage + 1)" :disabled="mcPage>=mcTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button></div></div>
                     </div>
                 </div>
             </div>
