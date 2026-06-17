@@ -4731,7 +4731,7 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- Brand Kits List -->
-            <div v-if="currentPage === 'brand-kits'" class="fade-in">
+            <div v-if="currentPage === 'brand-kits'" class="fade-in max-w-[1440px] mx-auto">
                 <div class="flex items-center justify-between mb-6">
                     <h3 class="font-semibold text-on-surface"><i class="fas fa-paint-brush mr-2 text-primary"></i>品牌套件</h3>
                     <button @click="openBrandKitModal(null)" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus mr-2"></i>创建套件</button>
@@ -4812,7 +4812,7 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- Google Merchant Center Automation -->
-            <div v-if="currentPage === 'mc-automation'" class="fade-in">
+            <div v-if="currentPage === 'mc-automation'" class="fade-in max-w-[1440px] mx-auto">
                 <div class="space-y-6">
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
                         <h3 class="font-semibold text-on-surface mb-2"><i class="fab fa-google mr-2 text-primary"></i>Google Merchant Center 自动化</h3>
@@ -4822,7 +4822,7 @@ pipelineStatuses[siteId].demo_importing = false;
                             <table class="w-full text-sm">
                                 <thead class="bg-surface-container-low"><tr><th class="px-4 py-3 text-left font-medium text-on-surface-variant">站点</th><th class="px-4 py-3 text-left font-medium text-on-surface-variant">Feed</th><th class="px-4 py-3 text-left font-medium text-on-surface-variant">域名验证</th><th class="px-4 py-3 text-left font-medium text-on-surface-variant">MC 账号</th><th class="px-4 py-3 text-right font-medium text-on-surface-variant">操作</th></tr></thead>
                                 <tbody class="divide-y">
-                                    <tr v-for="site in sites" :key="site.id" class="hover:bg-surface-container-low">
+                                    <tr v-for="site in pagedMcSites" :key="site.id" class="hover:bg-surface-container-low">
                                         <!-- Col 1: Site name + fingerprint -->
                                         <td class="px-4 py-3">
                                             <div class="font-medium text-on-surface">{{ site.site_name }}</div>
@@ -4866,6 +4866,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 </tbody>
                             </table>
                         </div>
+                        <div v-if="(sites||[]).length > MC_PER" class="flex items-center justify-between text-xs text-on-surface-variant mt-3"><span>第 {{ mcPage }} / {{ mcTotal }} 页</span><div class="flex gap-1"><button @click="goPage(mcPage,mcPage-1,mcTotal)" :disabled="mcPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button><button @click="goPage(mcPage,mcPage+1,mcTotal)" :disabled="mcPage>=mcTotal" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button></div></div>
                     </div>
                 </div>
             </div>
