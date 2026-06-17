@@ -2375,6 +2375,11 @@ pipelineStatuses[siteId].demo_importing = false;
         const mcBatchImportText = ref('');
         const mcBatchImporting = ref(false);
         const mcBatchResult = ref('');
+        const deprecatedProxies = ref([]);
+        const showDeprecatedProxies = ref(false);
+        async function loadDeprecatedProxies() {
+            try { const r = await API.request('GET', '/api/proxies/deprecated'); if (r.code === 200) deprecatedProxies.value = r.data || []; } catch (e) {}
+        }
         const showCreateProfile = ref(false);
         const showMcProfilePanel = ref(false);
 
@@ -2510,9 +2515,18 @@ pipelineStatuses[siteId].demo_importing = false;
                 else { showToast(resp.message || '操作失败', 'error'); }
             } catch (e) { showToast('操作失败', 'error'); }
         }
-        async function handleDeleteBrandKit(kit) {
-            if (!confirm(`确定删除品牌套件 "${kit.name}"？相关文件也将被删除。`)) return;
-            try { await API.deleteBrandKit(kit.id); showToast('套件已删除'); await loadBrandKits(); loadCloakbrowserProfiles(); loadProxies(); loadGoogleAccounts(); } catch (e) { showToast('删除失败', 'error'); }
+        const deleteBrandKitTarget = ref(null);
+        const showDeleteBrandKitModal = ref(false);
+        function openDeleteBrandKitModal(kit) { deleteBrandKitTarget.value = kit; showDeleteBrandKitModal.value = true; }
+        async function confirmDeleteBrandKit(mode) {
+            const kit = deleteBrandKitTarget.value;
+            if (!kit) return;
+            try {
+                await API.deleteBrandKit(kit.id, mode);
+                showToast(mode === 'deprecate' ? '套件已删除（代理已弃用）' : '套件已删除（代理已释放）');
+                showDeleteBrandKitModal.value = false; deleteBrandKitTarget.value = null;
+                await loadBrandKits(); loadCloakbrowserProfiles(); loadProxies(); loadGoogleAccounts();
+            } catch (e) { showToast('删除失败: ' + (e.message || 'error'), 'error'); }
         }
         async function handleGenerateBrandKit(kit) {
             brandKitGenerating[kit.id] = { status: 'running', steps: ['AI 生成 SVG Logo', 'AI 生成商家信息', 'SVG 文字转路径', 'SVG 优化', '导出品牌套件', '创建指纹环境'], current: 0 };
@@ -2866,7 +2880,7 @@ pipelineStatuses[siteId].demo_importing = false;
             cfConnected, cfToken, cfNote, editingCfNoteId, editingCfNoteText, saveCfNote, cfAccounts, cfSelectedAccountId,
             deepseekApiKeys, deepseekVisibleKeys, deepseekKeyErrors, deepseekConnected, deepseekVerify,
             crawlbaseApiKeys, crawlbaseVisibleKeys, crawlbaseKeyErrors, crawlbaseConnected, crawlbaseVerify,
-            cloakbrowserProfiles, loadCloakbrowserProfiles,
+            cloakbrowserProfiles, loadCloakbrowserProfiles, deprecatedProxies, showDeprecatedProxies, loadDeprecatedProxies,
             mcRegistering, mcFeedUrls, mcProfileDir,
             fingerprintEnabled, envTestBlocking,
             taskLogVisible, taskLogTitle, taskLogLines, taskLogStatus, taskLogResult, taskLogRef, taskLogSilent, muteTaskLog,
@@ -2922,7 +2936,7 @@ pipelineStatuses[siteId].demo_importing = false;
             brandKitWooForm, brandKitFooterForm, brandKitTaxForm, brandKitShippingForm, brandKitConfigSaving,
             loadBrandKits, openBrandKitModal, closeBrandKitModal, handleSaveBrandKit,
             selectedProfileProxy, onProfileChange,
-            handleDeleteBrandKit, handleGenerateBrandKit, openBrandKitDetail,
+            handleDeleteBrandKit, confirmDeleteBrandKit, showDeleteBrandKitModal, deleteBrandKitTarget, openDeleteBrandKitModal, handleGenerateBrandKit, openBrandKitDetail,
             handleDownloadBrandKitFile, loadBrandKitConfigForms, saveBrandKitConfig,
             users, showUserModal, userEditId, userForm, userFormError,
             loadUsers, openUserModal, closeUserModal, handleSaveUser, handleDeleteUser,
@@ -4503,7 +4517,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 </div>
                             </div>
                             <!-- Tab: 指纹环境 -->
-                            <div v-else-if="settingsActiveTab === 'fingerprint'" @vue:mounted="loadCloakbrowserProfiles()">
+                            <div v-else-if="settingsActiveTab === 'fingerprint'" @vue:mounted="loadCloakbrowserProfiles(); loadDeprecatedProxies()">
                                 <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 mb-4 flex items-center justify-between">
                                     <div>
                                         <p class="font-medium text-on-surface"><i class="fas fa-power-off mr-2 text-primary"></i>启用指纹环境</p>
@@ -4544,6 +4558,19 @@ pipelineStatuses[siteId].demo_importing = false;
                                         <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">名称</th><th class="px-3 py-2 text-left">平台</th><th class="px-3 py-2 text-left">国家</th><th class="px-3 py-2 text-left">代理</th><th class="px-3 py-2 text-left">状态</th><th class="px-3 py-2 text-right">操作</th></tr></thead><tbody class="divide-y"><tr v-for="p in cloakbrowserProfiles" :key="p.name" class="hover:bg-surface-container-low"><td class="px-3 py-2 font-mono text-xs">{{ p.name }}</td><td class="px-3 py-2 text-xs">{{ p.platform || p.config?.platform || '-' }}</td><td class="px-3 py-2 text-xs">{{ p.country || p.config?.country || '-' }}</td><td class="px-3 py-2 text-xs max-w-[120px] truncate" :title="p.proxy">{{ p.proxy || '-' }}</td><td class="px-3 py-2"><span v-if="p.bound" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">使用中</span><span v-if="p.bound_kit_name" class="text-[10px] text-on-surface-variant ml-1">({{ p.bound_kit_name }})</span><span v-else class="badge bg-surface-container-high text-on-surface-variant text-xs">可用</span></td><td class="px-3 py-2 text-right"><button @click="deleteProfile(p.name)" class="text-xs text-error hover:text-error"><span class="material-symbols-outlined text-sm">delete</span></button></td></tr></tbody></table>
                                     </div>
                                     <div v-else class="text-center py-8 text-sm text-on-surface-variant">暂无指纹环境</div>
+                                </div>
+                                <!-- Deprecated Proxies -->
+                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden mt-4">
+                                    <div class="flex items-center justify-between p-3 border-b cursor-pointer" @click="showDeprecatedProxies = !showDeprecatedProxies">
+                                        <p class="font-medium text-on-surface text-sm"><i class="fas fa-archive mr-2 text-tertiary"></i>弃用代理 <span class="text-xs text-on-surface-variant">({{ deprecatedProxies.length }})</span></p>
+                                        <span class="material-symbols-outlined text-on-surface-variant">{{ showDeprecatedProxies ? 'expand_less' : 'expand_more' }}</span>
+                                    </div>
+                                    <div v-if="showDeprecatedProxies">
+                                        <div v-if="deprecatedProxies.length" class="overflow-x-auto">
+                                            <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">ID</th><th class="px-3 py-2 text-left">IP</th><th class="px-3 py-2 text-left">端口</th><th class="px-3 py-2 text-left">类型</th></tr></thead><tbody class="divide-y"><tr v-for="p in deprecatedProxies" :key="p.id" class="hover:bg-surface-container-low"><td class="px-3 py-2 text-xs font-mono">{{ p.id }}</td><td class="px-3 py-2 text-xs">{{ p.ip }}</td><td class="px-3 py-2 text-xs">{{ p.port }}</td><td class="px-3 py-2 text-xs">{{ p.proxy_type }}</td></tr></tbody></table>
+                                        </div>
+                                        <div v-else class="text-center py-6 text-sm text-on-surface-variant">暂无弃用代理</div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -4665,7 +4692,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                             {{ (brandKitGenerating[kit.id] && brandKitGenerating[kit.id].status === 'running') ? '生成中' : '生成' }}
                                         </button>
                                         <button @click="openBrandKitModal(kit)" class="px-2.5 py-1.5 border rounded text-xs hover:bg-surface-container-low transition"><span class="material-symbols-outlined">edit</span></button>
-                                        <button @click="handleDeleteBrandKit(kit)" class="px-2.5 py-1.5 border rounded text-xs text-red-400 hover:bg-error-container transition"><span class="material-symbols-outlined">delete</span></button>
+                                        <button @click="openDeleteBrandKitModal(kit)" class="px-2.5 py-1.5 border rounded text-xs text-red-400 hover:bg-error-container transition"><span class="material-symbols-outlined">delete</span></button>
                                     </div>
                                     <div v-if="brandKitGenerating[kit.id] && brandKitGenerating[kit.id].status === 'running'" class="mt-2">
                                         <div class="w-full bg-surface-container-high rounded-full h-1">
@@ -5430,6 +5457,26 @@ pipelineStatuses[siteId].demo_importing = false;
                         {{ taskLogStatus === 'running' ? '请等待完成...' : '关闭' }}
                     </button>
                 </div>
+            </div>
+        </div>
+
+        <!-- Delete Brand Kit Modal -->
+        <div v-if="showDeleteBrandKitModal" class="modal-overlay modal-overlay" @click.self="showDeleteBrandKitModal = false">
+            <div class="bg-surface-container-lowest rounded-2xl shadow-level-3 w-full max-w-md mx-4 p-6 fade-in">
+                <h3 class="text-lg font-bold text-on-surface mb-3"><i class="fas fa-trash mr-2 text-error"></i>删除品牌套件</h3>
+                <p class="text-sm text-on-surface-variant mb-2">确定要删除 <strong>{{ deleteBrandKitTarget?.name }}</strong> 吗？</p>
+                <p class="text-xs text-on-surface-variant mb-4">选择如何处理关联的代理环境：</p>
+                <div class="space-y-3 mb-4">
+                    <button @click="confirmDeleteBrandKit('release')" class="w-full flex items-center gap-3 p-3 border rounded-lg hover:bg-primary/5 text-left">
+                        <span class="material-symbols-outlined text-[#146c2e]">restart_alt</span>
+                        <div><p class="font-medium text-sm">释放环境</p><p class="text-xs text-on-surface-variant">代理归还到可用池，指纹环境保留</p></div>
+                    </button>
+                    <button @click="confirmDeleteBrandKit('deprecate')" class="w-full flex items-center gap-3 p-3 border rounded-lg hover:bg-yellow-50 text-left">
+                        <span class="material-symbols-outlined text-tertiary">archive</span>
+                        <div><p class="font-medium text-sm">弃用环境</p><p class="text-xs text-on-surface-variant">代理标记为弃用，不再分配，指纹环境保留</p></div>
+                    </button>
+                </div>
+                <button @click="showDeleteBrandKitModal = false" class="w-full py-2 border rounded-lg text-sm text-on-surface-variant hover:bg-surface-container-low">取消</button>
             </div>
         </div>
 

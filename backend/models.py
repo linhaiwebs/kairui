@@ -604,7 +604,8 @@ def _migrate_add_columns(conn):
                 ip TEXT DEFAULT '',
                 port INTEGER DEFAULT NULL,
                 occupied_kit_id INTEGER DEFAULT NULL,
-                occupied_kit_name TEXT DEFAULT NULL
+                occupied_kit_name TEXT DEFAULT NULL,
+                status TEXT DEFAULT 'active'
             )
         """)
     except Exception:
@@ -654,6 +655,8 @@ def _migrate_add_columns(conn):
         proxy_cols = [row[1] for row in conn.execute("PRAGMA table_info(proxies)").fetchall()]
         if "proxy_type" not in proxy_cols:
             conn.execute("ALTER TABLE proxies ADD COLUMN proxy_type TEXT DEFAULT 'socks5'")
+        if "status" not in proxy_cols:
+            conn.execute("ALTER TABLE proxies ADD COLUMN status TEXT DEFAULT 'active'")
     except Exception:
         pass
 
@@ -2491,13 +2494,20 @@ def create_brand_kit(data: dict) -> dict:
         # Auto-populate brand_name from name if not provided
         if not data.get("brand_name"):
             data["brand_name"] = data.get("name", "")
-        # Resolve proxy from proxy_id if provided
+        # Resolve proxy from proxy_id if provided, auto-assign from pool otherwise
         proxy_url = data.get("proxy", "")
         proxy_id = data.get("proxy_id") or None
         if proxy_id and not proxy_url:
             p_row = conn.execute("SELECT proxy_url FROM proxies WHERE id = ?", (proxy_id,)).fetchone()
             if p_row:
                 proxy_url = p_row["proxy_url"]
+        if not proxy_id:
+            auto = conn.execute(
+                "SELECT id, proxy_url FROM proxies WHERE status = 'active' AND occupied_kit_id IS NULL ORDER BY id LIMIT 1"
+            ).fetchone()
+            if auto:
+                proxy_id = auto["id"]
+                proxy_url = auto["proxy_url"]
 
         conn.execute(
             """INSERT INTO brand_kits
@@ -2733,8 +2743,11 @@ def update_brand_kit(kit_id: int, data: dict) -> dict | None:
         conn.close()
 
 
-def delete_brand_kit(kit_id: int) -> None:
-    """Delete brand kit record and its asset directory. Releases associated fingerprint env, proxy, and Google account."""
+def delete_brand_kit(kit_id: int, proxy_mode: str = "release") -> None:
+    """Delete brand kit record and its asset directory.
+
+    proxy_mode: 'release' = free proxy back to pool, 'deprecate' = mark as deprecated
+    """
     conn = get_db()
     try:
         row = conn.execute(
@@ -2744,20 +2757,30 @@ def delete_brand_kit(kit_id: int) -> None:
         if row:
             # Release CloakBrowser profile if assigned (clear DB link + delete profile dir)
             if row["cloakbrowser_profile_name"]:
-                profile_path = os.path.join(get_profiles_root(), row["cloakbrowser_profile_name"])
-                if os.path.isdir(profile_path):
-                    shutil.rmtree(profile_path, ignore_errors=True)
-                release_cloakbrowser_profile_from_brand_kit(row["cloakbrowser_profile_name"])
+                if proxy_mode == "deprecate":
+                    # Keep profile but release DB link
+                    release_cloakbrowser_profile_from_brand_kit(row["cloakbrowser_profile_name"])
+                else:
+                    profile_path = os.path.join(get_profiles_root(), row["cloakbrowser_profile_name"])
+                    if os.path.isdir(profile_path):
+                        shutil.rmtree(profile_path, ignore_errors=True)
+                    release_cloakbrowser_profile_from_brand_kit(row["cloakbrowser_profile_name"])
             if row["directory"]:
                 dir_path = os.path.join(os.path.dirname(__file__), row["directory"])
                 if os.path.isdir(dir_path):
                     shutil.rmtree(dir_path, ignore_errors=True)
-            # Release proxy if assigned
+            # Handle proxy
             if row["proxy_id"]:
-                conn.execute(
-                    "UPDATE proxies SET occupied_kit_id = NULL, occupied_kit_name = NULL WHERE id = ?",
-                    (row["proxy_id"],),
-                )
+                if proxy_mode == "deprecate":
+                    conn.execute(
+                        "UPDATE proxies SET status = 'deprecated', occupied_kit_id = NULL, occupied_kit_name = NULL WHERE id = ?",
+                        (row["proxy_id"],),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE proxies SET occupied_kit_id = NULL, occupied_kit_name = NULL WHERE id = ?",
+                        (row["proxy_id"],),
+                    )
             # Release Google account if assigned
             if row["google_account_id"]:
                 conn.execute(
@@ -2919,12 +2942,12 @@ def import_proxies_from_text(text: str, proxy_type: str = "http") -> int:
         conn.close()
 
 
-def list_proxies() -> list:
+def list_proxies(status_filter=None) -> list:
     """List all proxies with occupancy info — bidirectional check."""
     conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT p.id, p.proxy_url, p.ip, p.port, p.proxy_type, "
+        sql = (
+            "SELECT p.id, p.proxy_url, p.ip, p.port, p.proxy_type, p.status, "
             "COALESCE("
             "  CASE WHEN EXISTS (SELECT 1 FROM brand_kits WHERE id = p.occupied_kit_id) "
             "       THEN p.occupied_kit_id ELSE NULL END,"
@@ -2935,34 +2958,22 @@ def list_proxies() -> list:
             "       THEN p.occupied_kit_name ELSE NULL END,"
             "  (SELECT bk.name FROM brand_kits bk WHERE bk.proxy_id = p.id LIMIT 1)"
             ") AS occupied_kit_name "
-            "FROM proxies p ORDER BY p.id"
-        ).fetchall()
+            "FROM proxies p"
+        )
+        params = []
+        if status_filter:
+            sql += " WHERE p.status = ?"
+            params.append(status_filter)
+        sql += " ORDER BY p.id"
+        rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
 def get_available_proxies() -> list:
-    """List all proxies with occupancy info — bidirectional check."""
-    conn = get_db()
-    try:
-        rows = conn.execute(
-            "SELECT p.id, p.proxy_url, p.ip, p.port, p.proxy_type, "
-            "COALESCE("
-            "  CASE WHEN EXISTS (SELECT 1 FROM brand_kits WHERE id = p.occupied_kit_id) "
-            "       THEN p.occupied_kit_id ELSE NULL END,"
-            "  (SELECT bk.id FROM brand_kits bk WHERE bk.proxy_id = p.id LIMIT 1)"
-            ") AS occupied_kit_id, "
-            "COALESCE("
-            "  CASE WHEN EXISTS (SELECT 1 FROM brand_kits WHERE id = p.occupied_kit_id) "
-            "       THEN p.occupied_kit_name ELSE NULL END,"
-            "  (SELECT bk.name FROM brand_kits bk WHERE bk.proxy_id = p.id LIMIT 1)"
-            ") AS occupied_kit_name "
-            "FROM proxies p ORDER BY p.id"
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
+    """List available (active + unoccupied) proxies."""
+    return list_proxies(status_filter="active")
 
 
 def reseed_proxies() -> int:
@@ -2981,6 +2992,61 @@ def get_proxy(proxy_id: int) -> dict | None:
     try:
         row = conn.execute("SELECT * FROM proxies WHERE id = ?", (proxy_id,)).fetchone()
         return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def assign_proxy_from_pool(kit_id: int, kit_name: str) -> dict | None:
+    """Auto-assign an unoccupied active proxy from the pool. Returns proxy dict or None."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT * FROM proxies WHERE status = 'active' AND occupied_kit_id IS NULL ORDER BY id LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        conn.execute(
+            "UPDATE proxies SET occupied_kit_id = ?, occupied_kit_name = ? WHERE id = ?",
+            (kit_id, kit_name, row["id"]),
+        )
+        conn.commit()
+        return dict(row)
+    finally:
+        conn.close()
+
+
+def release_proxy(proxy_id: int):
+    """Release a proxy back to the available pool."""
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE proxies SET occupied_kit_id = NULL, occupied_kit_name = NULL WHERE id = ?",
+            (proxy_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def deprecate_proxy(proxy_id: int):
+    """Mark a proxy as deprecated and release its kit binding."""
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE proxies SET status = 'deprecated', occupied_kit_id = NULL, occupied_kit_name = NULL WHERE id = ?",
+            (proxy_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_deprecated_proxies() -> list:
+    """List all deprecated proxies."""
+    conn = get_db()
+    try:
+        rows = conn.execute("SELECT * FROM proxies WHERE status = 'deprecated' ORDER BY id").fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
 

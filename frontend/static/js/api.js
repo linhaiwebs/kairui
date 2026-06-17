@@ -528,8 +528,8 @@ const API = {
     async updateBrandKit(id, data) {
         return this.request('PUT', `/api/brand-kits/${id}`, data);
     },
-    async deleteBrandKit(id) {
-        return this.request('DELETE', `/api/brand-kits/${id}`);
+    async deleteBrandKit(id, mode = 'release') {
+        return this.request('DELETE', `/api/brand-kits/${id}?mode=${mode}`);
     },
     async generateBrandKit(id) {
         return this.request('POST', `/api/brand-kits/${id}/generate`);

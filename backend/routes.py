@@ -90,6 +90,7 @@ from models import (
     update_brand_kit,
     get_available_google_accounts,
     get_available_proxies,
+    list_deprecated_proxies,
     get_google_account,
     get_proxy,
     delete_google_account,
@@ -9670,13 +9671,19 @@ Respond with strict JSON only (no markdown code blocks):
     @app.route("/api/brand-kits/<int:kit_id>", methods=["DELETE"])
     @jwt_required()
     def delete_brand_kit_route(kit_id):
-        """Delete brand kit and its assets."""
+        """Delete brand kit and its assets.
+        Query params: mode=release (default) | deprecate
+        """
         try:
             kit = get_brand_kit(kit_id)
             if not kit:
                 return jsonify({"code": 404, "message": "品牌套件不存在"}), 404
-            delete_brand_kit(kit_id)
-            return jsonify({"code": 200, "message": "已删除"})
+            mode = request.args.get("mode", "release")
+            if mode not in ("release", "deprecate"):
+                mode = "release"
+            delete_brand_kit(kit_id, proxy_mode=mode)
+            msg = "已删除（代理已弃用）" if mode == "deprecate" else "已删除（代理已释放）"
+            return jsonify({"code": 200, "message": msg})
         except Exception as e:
             logger.error(f"delete_brand_kit: {e}")
             return jsonify({"code": 500, "message": str(e)[:200]}), 500
@@ -10102,6 +10109,16 @@ Make UNIQUE decisions — different hero type, card style, layout from typical d
             return jsonify({"code": 200, "data": get_available_proxies()})
         except Exception as e:
             logger.error(f"available_proxies: {e}")
+            return jsonify({"code": 500, "message": str(e)[:200]}), 500
+
+    @app.route("/api/proxies/deprecated", methods=["GET"])
+    @jwt_required()
+    def list_deprecated_proxies_route():
+        """List deprecated proxies."""
+        try:
+            return jsonify({"code": 200, "data": list_deprecated_proxies()})
+        except Exception as e:
+            logger.error(f"deprecated_proxies: {e}")
             return jsonify({"code": 500, "message": str(e)[:200]}), 500
 
     @app.route("/api/proxies/import", methods=["POST"])
