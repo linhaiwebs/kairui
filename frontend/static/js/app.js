@@ -2936,7 +2936,7 @@ pipelineStatuses[siteId].demo_importing = false;
             brandKitWooForm, brandKitFooterForm, brandKitTaxForm, brandKitShippingForm, brandKitConfigSaving,
             loadBrandKits, openBrandKitModal, closeBrandKitModal, handleSaveBrandKit,
             selectedProfileProxy, onProfileChange,
-            handleDeleteBrandKit, confirmDeleteBrandKit, showDeleteBrandKitModal, deleteBrandKitTarget, openDeleteBrandKitModal, handleGenerateBrandKit, openBrandKitDetail,
+            confirmDeleteBrandKit, showDeleteBrandKitModal, deleteBrandKitTarget, openDeleteBrandKitModal, handleGenerateBrandKit, openBrandKitDetail,
             handleDownloadBrandKitFile, loadBrandKitConfigForms, saveBrandKitConfig,
             users, showUserModal, userEditId, userForm, userFormError,
             loadUsers, openUserModal, closeUserModal, handleSaveUser, handleDeleteUser,
