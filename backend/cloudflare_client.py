@@ -20,10 +20,16 @@ class CloudflareClient:
             "Content-Type": "application/json",
         } if self.api_token else {"Content-Type": "application/json"}
 
-    def _request(self, method, path, json_data=None):
+    def _request(self, method, path, json_data=None, extra_headers=None, data=None):
         url = f"{self.BASE_URL}{path}"
+        hdrs = self._headers()
+        if extra_headers:
+            hdrs.update(extra_headers)
         try:
-            resp = requests.request(method, url, headers=self._headers(), json=json_data, timeout=30)
+            if data is not None:
+                resp = requests.request(method, url, headers=hdrs, data=data, timeout=30)
+            else:
+                resp = requests.request(method, url, headers=hdrs, json=json_data, timeout=30)
             return resp.json()
         except requests.RequestException as e:
             logger.error(f"Cloudflare API error: {e}")
