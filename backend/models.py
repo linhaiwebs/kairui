@@ -1180,7 +1180,7 @@ def update_site_fields(site_id, fields):
             "google_feed_url", "google_verification_method", "google_verification_done",
             "google_mc_account_id", "cloakbrowser_profile_name",
             "stitch_design_status", "site_type", "static_dir", "brand_kit_id",
-            "panel_environment_id",
+            "panel_environment_id", "mirror_target",
             "demo_imported", "demo_name", "brand_configured",
         }
         sets = []
