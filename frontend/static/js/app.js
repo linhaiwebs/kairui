@@ -4813,7 +4813,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 </div>
             </div>
 
-            <!-- Brand Kits List -->
+            <!-- User Modal -->
                 <div v-if="showUserModal" class="modal-overlay modal-overlay" @click.self="closeUserModal">
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 w-full max-w-md p-6 fade-in">
                         <h3 class="text-lg font-semibold text-on-surface mb-4">{{ userEditId ? '编辑用户' : '创建用户' }}</h3>
@@ -4833,7 +4833,7 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- Brand Kits List -->
-            <div v-if="currentPage === 'brand-kits'" class="fade-in max-w-[1440px] mx-auto">
+            <div v-if="currentPage === 'brand-kits'" class="fade-in max-w-[1440px] mx-auto px-lg">
                 <div class="flex items-center justify-between mb-6">
                     <h3 class="font-semibold text-on-surface"><i class="fas fa-paint-brush mr-2 text-primary"></i>品牌套件</h3>
                     <button @click="openBrandKitModal(null)" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus mr-2"></i>创建套件</button>
@@ -4914,7 +4914,7 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- Google Merchant Center Automation -->
-            <div v-if="currentPage === 'mc-automation'" class="fade-in max-w-[1440px] mx-auto">
+            <div v-if="currentPage === 'mc-automation'" class="fade-in max-w-[1440px] mx-auto px-lg">
                 <div class="space-y-6">
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
                         <h3 class="font-semibold text-on-surface mb-2"><i class="fab fa-google mr-2 text-primary"></i>Google Merchant Center 自动化</h3>
