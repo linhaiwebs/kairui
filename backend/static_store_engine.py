@@ -230,6 +230,14 @@ def _esc(s):
 _INLINE_CSS = ""
 _INLINE_JS = ""
 
+def _brand_logo_html(brand_kit):
+    """Return inline SVG logo or empty string."""
+    svg = brand_kit.get("processed_svg") or brand_kit.get("raw_svg") or ""
+    if svg and "<svg" in svg:
+        # Ensure SVG has proper viewBox for scaling
+        return f'<span class="brand-logo" style="display:inline-block;width:32px;height:32px;margin-right:8px;vertical-align:middle">{svg}</span>'
+    return ""
+
 def _head(title, extra=""):
     """Return standard HTML5 <head> with inline CSS from global cache."""
     style_tag = f"<style>{_INLINE_CSS}</style>" if _INLINE_CSS else ""
@@ -1384,7 +1392,7 @@ def _render_editorial(products, design, brand_kit, brand_name, headline, subhead
     return f"""{_head(f"{brand_name}")}
 <header style="padding:24px 0;border-bottom:1px solid var(--border)">
   <div style="max-width:1200px;margin:0 auto;padding:0 24px;display:flex;justify-content:space-between;align-items:center">
-    <a href="/" style="font-size:18px;font-weight:400;letter-spacing:0.08em;text-transform:uppercase;color:var(--text);text-decoration:none">{_esc(brand_name)}</a>
+    <a href="/" style="font-size:18px;font-weight:400;letter-spacing:0.08em;text-transform:uppercase;color:var(--text);text-decoration:none">{_brand_logo_html(brand_kit)}{_esc(brand_name)}</a>
     <nav style="display:flex;gap:24px"><a href="/" style="color:var(--text);text-decoration:none;font-size:13px">Shop</a><a href="/about/" style="color:var(--text);text-decoration:none;font-size:13px">About</a><a href="/contact/" style="color:var(--text);text-decoration:none;font-size:13px">Contact</a></nav>
   </div>
 </header>
@@ -1413,7 +1421,7 @@ def _render_dark(products, design, brand_kit, brand_name, headline, subheadline)
     return f"""{_head(f"{brand_name}")}
 <style>body{{background:#08090A}}a{{color:#5E6AD2}}a:hover{{color:#7B7FE0}}</style>
 <header style="padding:12px 24px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:space-between;background:#08090A">
-  <a href="/" style="font-weight:600;font-size:14px;color:#F7F8F8;text-decoration:none;font-family:monospace">{_esc(brand_name)}</a>
+  <a href="/" style="font-weight:600;font-size:14px;color:#F7F8F8;text-decoration:none;font-family:monospace">{_brand_logo_html(brand_kit)}{_esc(brand_name)}</a>
   <nav style="display:flex;gap:20px"><a href="/" style="color:#9CA3AF;text-decoration:none;font-size:13px">Home</a><a href="/about/" style="color:#9CA3AF;text-decoration:none;font-size:13px">About</a><a href="/contact/" style="color:#9CA3AF;text-decoration:none;font-size:13px">Contact</a></nav>
 </header>
 <section style="padding:80px 24px 40px;text-align:center;background:#08090A">
@@ -1438,7 +1446,7 @@ def _render_bold(products, design, brand_kit, brand_name, headline, subheadline)
     if not cards: cards = '<p style="text-align:center;padding:80px;font-size:24px;font-weight:700">Coming Soon</p>'
     return f"""{_head(f"{brand_name}")}
 <header style="padding:16px 24px;display:flex;align-items:center;justify-content:space-between">
-  <a href="/" style="font-size:24px;font-weight:900;color:var(--text);text-decoration:none;letter-spacing:-0.03em">{_esc(brand_name)}</a>
+  <a href="/" style="font-size:24px;font-weight:900;color:var(--text);text-decoration:none;letter-spacing:-0.03em">{_brand_logo_html(brand_kit)}{_esc(brand_name)}</a>
   <nav style="display:flex;gap:24px"><a href="/" style="color:var(--text);text-decoration:none;font-weight:600;font-size:14px">Home</a><a href="/about/" style="color:var(--text);text-decoration:none;font-weight:600;font-size:14px">About</a><a href="/contact/" style="color:var(--text);text-decoration:none;font-weight:600;font-size:14px">Contact</a></nav>
 </header>
 <section style="padding:120px 24px;text-align:left;max-width:960px;margin:0 auto">
@@ -1463,7 +1471,7 @@ def _render_warm(products, design, brand_kit, brand_name, headline, subheadline)
     if not cards: cards = '<p style="text-align:center;padding:60px;color:var(--muted);font-size:18px">Products coming soon!</p>'
     return f"""{_head(f"{brand_name}")}
 <header style="padding:16px 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid var(--border)">
-  <a href="/" style="font-size:20px;font-weight:700;color:var(--text);text-decoration:none">{_esc(brand_name)}</a>
+  <a href="/" style="font-size:20px;font-weight:700;color:var(--text);text-decoration:none">{_brand_logo_html(brand_kit)}{_esc(brand_name)}</a>
   <nav style="display:flex;gap:20px"><a href="/" style="color:var(--text);text-decoration:none;font-weight:500;font-size:14px">Home</a><a href="/about/" style="color:var(--text);text-decoration:none;font-weight:500;font-size:14px">About</a><a href="/contact/" style="color:var(--text);text-decoration:none;font-weight:500;font-size:14px">Contact</a></nav>
 </header>
 <section style="padding:80px 24px;text-align:center;border-radius:0 0 32px 32px;margin-bottom:40px">
@@ -1608,7 +1616,7 @@ def render_homepage(products, design, brand_kit):
 
     html = f"""{_head(f"{brand_name} - Shop")}
 <header class="header">
-  <div class="logo"><a href="/">{_esc(brand_name)}</a></div>
+  <div class="logo"><a href="/">{_brand_logo_html(brand_kit)}{_esc(brand_name)}</a></div>
   <nav class="nav">
     <a href="/">Home</a>
     <a href="/about/">About</a>
@@ -1911,7 +1919,7 @@ def render_product_page(product, design, brand_kit, all_products):
 
     html = f"""{_head(f"{title} - {brand_name}", extra=json_ld_script)}
 <header class="header">
-  <div class="logo"><a href="/">{_esc(brand_name)}</a></div>
+  <div class="logo"><a href="/">{_brand_logo_html(brand_kit)}{_esc(brand_name)}</a></div>
   <nav class="nav">
     <a href="/">Home</a>
     <a href="/about/">About</a>
@@ -2020,7 +2028,7 @@ def render_cart_page(design, brand_kit):
 
     html = f"""{_head(f"Cart - {brand_name}")}
 <header class="header">
-  <div class="logo"><a href="/">{_esc(brand_name)}</a></div>
+  <div class="logo"><a href="/">{_brand_logo_html(brand_kit)}{_esc(brand_name)}</a></div>
   <nav class="nav">
     <a href="/">Home</a>
     <a href="/about/">About</a>
@@ -2153,7 +2161,7 @@ def render_checkout_page(design, brand_kit):
 
     html = f"""{_head(f"Checkout - {brand_name}")}
 <header class="header">
-  <div class="logo"><a href="/">{_esc(brand_name)}</a></div>
+  <div class="logo"><a href="/">{_brand_logo_html(brand_kit)}{_esc(brand_name)}</a></div>
   <nav class="nav">
     <a href="/">Home</a>
     <a href="/cart/">Cart</a>
@@ -2272,7 +2280,7 @@ def render_order_page(design, brand_kit):
 
     html = f"""{_head(f"Order Confirmed - {brand_name}")}
 <header class="header">
-  <div class="logo"><a href="/">{_esc(brand_name)}</a></div>
+  <div class="logo"><a href="/">{_brand_logo_html(brand_kit)}{_esc(brand_name)}</a></div>
   <nav class="nav">
     <a href="/">Home</a>
     <a href="/about/">About</a>
@@ -2325,7 +2333,7 @@ def render_policy_pages(design, brand_kit):
     def _page(title, body):
         return f"""{_head(f"{title} - {brand_name}")}
 <header class="header">
-  <div class="logo"><a href="/">{_esc(brand_name)}</a></div>
+  <div class="logo"><a href="/">{_brand_logo_html(brand_kit)}{_esc(brand_name)}</a></div>
   <nav class="nav">
     <a href="/">Home</a>
     <a href="/about/">About</a>

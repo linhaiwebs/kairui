@@ -2959,7 +2959,7 @@ def register_routes(app):
             item = ET.SubElement(channel, "item")
             ET.SubElement(item, "g:id").text = str(p.get("id", ""))
             ET.SubElement(item, "g:title").text = (p.get("title") or "")[:150]
-            ET.SubElement(item, "g:description").text = (p.get("description") or "")[:5000]
+            ET.SubElement(item, "g:description").text = re.sub(r"<[^>]*>", "", (p.get("description") or ""))[:5000]
             ET.SubElement(item, "g:link").text = product_url
 
             images = p.get("images") or []
@@ -3409,7 +3409,7 @@ def register_routes(app):
                 # Strip HTML from description
                 import re as _re
                 desc = _re.sub(r"<[^>]+>", "", desc)[:5000]
-                ET.SubElement(item, "g:description").text = desc
+                ET.SubElement(item, "g:description").text = re.sub(r"<[^>]*>", "", desc)
                 product_url = p.get("product_url", "") or f"https://{domain}/products/{pid}"
                 ET.SubElement(item, "g:link").text = product_url
                 image = p.get("image_url", "")
@@ -8241,7 +8241,7 @@ Respond with strict JSON only (no markdown code blocks):
                 ET.SubElement(item, "g:id").text = str(p.get("id", ""))
                 ET.SubElement(item, "g:title").text = (p.get("title") or "")[:150]
                 desc = (p.get("description") or "")[:5000]
-                ET.SubElement(item, "g:description").text = desc
+                ET.SubElement(item, "g:description").text = re.sub(r"<[^>]*>", "", desc)
                 ET.SubElement(item, "g:link").text = p.get("source_url") or site["url"]
 
                 images = p.get("images") or []
