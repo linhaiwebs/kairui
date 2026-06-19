@@ -566,8 +566,9 @@ const app = createApp({
         // ---- Data ----
         async function loadInitialData() {
             loading.value = true;
-            try { await Promise.all([loadSites(), checkPanelStatus(), loadConfig(), loadCfAccounts(), checkCfStatus(), loadWalmartCategories()]); }
+            try { await Promise.all([loadSites(), loadPanelEnvironments(), loadConfig(), loadCfAccounts(), checkCfStatus(), loadWalmartCategories()]); }
             finally { loading.value = false; }
+            checkPanelStatus();
         }
         async function loadSites() {
             try { const resp = await API.getSites(); if (resp.code === 200) sites.value = resp.data || []; } catch (e) {}
