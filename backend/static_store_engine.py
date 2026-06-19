@@ -213,6 +213,13 @@ def _safe_str(val, fallback=""):
     return str(val)
 
 
+def _strip_html(s):
+    """Strip HTML tags from a string."""
+    import re
+    if s is None:
+        return ""
+    return re.sub(r'<[^>]*>', '', str(s)).strip()
+
 def _esc(s):
     """HTML-escape a string."""
     if s is None:
@@ -1692,7 +1699,7 @@ def render_product_page(product, design, brand_kit, all_products):
 
     pid = product.get("id", "")
     title = _esc(product.get("title") or "Product")
-    description = _safe_str(product.get("description"), "No description available.")
+    description = _esc(_strip_html(_safe_str(product.get("description"), "No description available.")))
     price = product.get("price")
     sale_price = product.get("sale_price")
     currency = product.get("currency", "USD")
@@ -1821,7 +1828,7 @@ def render_product_page(product, design, brand_kit, all_products):
     # ---- Tabs ----
     tabs_html = ""
     if show_tabs:
-        details = product.get("description", "")
+        details = _esc(_strip_html(_safe_str(product.get("description"), "")))
         # Use a secondary description or shipping info if available
         additional_info = ""
         shipping_weight = _safe_str(product.get("shipping_weight"), "")
