@@ -2402,14 +2402,11 @@ def register_routes(app):
     @app.route("/api/sites/<int:site_id>", methods=["DELETE"])
     @jwt_required()
     def remove_site(site_id):
-        """Delete a site and all associated server resources.
+        """Delete a site and all associated server resources via SSH.
 
-        1. WordPress: delete app install (Docker container).
-        2. Delete 1Panel website — 1Panel's /websites/del with ForceDelete=true
-           automatically removes the website entry AND the site directory.
-        3. WordPress: delete manual nginx proxy config (not managed by 1Panel).
-        4. Static: delete local temp files.
-        5. Delete DB record.
+        1. SSH: delete site files + nginx config + reload
+        2. Static: delete local temp files.
+        3. Delete DB record.
         """
         try:
             site = get_site(site_id)
@@ -2420,100 +2417,41 @@ def register_routes(app):
             alias = site.get("nginx_alias", "")
             cleanup_errors = []
 
-            # ---- Step 1: Delete app install (WordPress Docker container) ----
-            if site.get("panel_app_install_id"):
-                try:
-                    _get_panel_client().operate_installed(
-                        site["panel_app_install_id"], "delete",
-                        force_delete=True, delete_backup=True, delete_db=False,
-                    )
-                    logger.info(f"Deleted 1Panel app install {site['panel_app_install_id']}")
-                except Exception as e:
-                    msg = f"应用删除失败: {str(e)[:80]}"
-                    logger.warning(msg)
-                    cleanup_errors.append(msg)
-
-            # ---- Step 2: Delete 1Panel website by domain ----
-            # 1Panel's /websites/del with ForceDelete=true removes:
-            #   - Website entry from 1Panel DB
-            #   - Nginx config file
-            #   - Site directory (/opt/1panel/apps/openresty/openresty/www/sites/{alias}/)
-            # Use site creator's panel env
-            site_pc = _get_panel_client()
+            # ---- Step 1: SSH cleanup - delete site files + nginx config ----
+            env = None
             try:
-                site_env = get_user_panel_environment(site.get("created_by") or 1)
-                if site_env:
-                    site_pc = OnePanelClient(host=site_env["host"], port=site_env["port"], api_key=site_env["api_key"])
+                env = get_user_panel_environment(site.get("created_by") or 1)
             except Exception:
                 pass
 
-            # Try stored website_id first, then fallback to domain search
-            pid = site.get("panel_website_id")
-            if pid:
-                logger.info(f"Using stored website_id={pid} for {domain}")
-            else:
-                pid = None
-                if domain:
-                    try:
-                        pc = site_pc or _get_panel_client()
-                        ws = pc.search_websites(name=domain)
-                        if ws.get("code") == 200:
-                            for w in (ws.get("data") or {}).get("items", []) or []:
-                                if w.get("primaryDomain") == domain:
-                                    pid = w.get("id")
-                                    logger.info(f"Found 1Panel website id={pid} for domain={domain}")
-                                    break
-                    except Exception as e:
-                        logger.warning(f"Search website by domain failed: {e}")
-            if not pid:
-                logger.warning(f"Could not find 1Panel website for domain={domain}")
-
-            if pid:
+            if env and alias:
                 try:
-                    pc = site_pc or _get_panel_client()
-                    del_resp = pc.delete_website(
-                        pid,
-                        delete_app=False,
-                        delete_backup=True,
-                        force_delete=True,
-                        delete_db=False,
-                    )
-                    if del_resp.get("code") == 200:
-                        logger.info(f"Deleted 1Panel website {pid} (directory auto-removed by 1Panel)")
+                    from ssh_client import get_ssh_client
+                    ssh = get_ssh_client(env["host"], 22, env.get("ssh_password", ""))
+
+                    # Delete nginx config
+                    nginx_conf = f"/www/conf.d/{alias}.conf"
+                    ssh.delete_file(nginx_conf)
+                    logger.info(f"SSH: deleted nginx conf {nginx_conf}")
+
+                    # Delete site files
+                    site_dir = site.get("static_dir", "")
+                    if site_dir:
+                        ssh.delete_file(site_dir)
+                        logger.info(f"SSH: deleted site dir {site_dir}")
                     else:
-                        msg = f"1Panel未删除(id={pid}): {del_resp.get('message', str(del_resp))[:100]}"
-                        logger.warning(msg)
-                        # Fallback: try to find by domain
-                        if domain:
-                            try:
-                                ws = pc.search_websites(name=domain)
-                                if ws.get("code") == 200:
-                                    for w in (ws.get("data") or {}).get("items", []) or []:
-                                        if w.get("primaryDomain") == domain and w.get("id") != pid:
-                                            logger.info(f"Fallback: found website id={w['id']} for {domain}, deleting...")
-                                            del_resp2 = pc.delete_website(w["id"], delete_app=False, delete_backup=True, force_delete=True, delete_db=False)
-                                            if del_resp2.get("code") == 200:
-                                                logger.info(f"Fallback: deleted 1Panel website {w['id']}")
-                                            break
-                            except Exception as fe:
-                                logger.warning(f"Fallback search failed: {fe}")
+                        # Fallback: delete by alias pattern
+                        ssh.delete_file(f"/www/sites/{alias}")
+                        logger.info(f"SSH: deleted site /www/sites/{alias}")
+
+                    ssh.reload_nginx()
+                    logger.info(f"SSH: nginx reloaded after cleanup for {domain}")
                 except Exception as e:
-                    msg = f"网站删除失败: {str(e)[:80]}"
+                    msg = f"SSH清理失败: {str(e)[:80]}"
                     logger.warning(msg)
                     cleanup_errors.append(msg)
 
-            # ---- Step 3: WordPress manual nginx proxy config cleanup ----
-            # WordPress sites have an extra nginx proxy config at /opt/1panel/www/
-            # that is NOT managed by 1Panel's website API. Only applies to WP sites.
-            if site.get("site_type") != "static" and alias:
-                try:
-                    result = _get_panel_client().delete_nginx_proxy_config(alias, domain)
-                    if result.get("code") == 200:
-                        logger.info(f"Cleaned up nginx proxy config for {alias}")
-                except Exception as e:
-                    logger.warning(f"nginx配置清理失败: {e}")
-
-            # ---- Step 4: Static site local temp cleanup ----
+            # ---- Step 2: Static site local temp cleanup ----
             if site.get("site_type") == "static":
                 local_dir = f"/app/backend/static-sites/{domain}"
                 try:
@@ -2526,7 +2464,7 @@ def register_routes(app):
 
             # Cloudflare DNS: skip deletion — keep DNS for reuse
 
-            # ---- Step 5: Delete DB record ----
+            # ---- Step 3: Delete DB record ----
             delete_site(site_id)
 
             if cleanup_errors:
@@ -2929,7 +2867,7 @@ def register_routes(app):
     @app.route("/api/server/init/<int:env_id>", methods=["POST"])
     @jwt_required()
     def server_init(env_id):
-        """Initialize Debian server: install OpenResty + configure site dirs."""
+        """Initialize server: install nginx/OpenResty + configure site dirs."""
         claims = get_jwt()
         if claims.get("role") != "admin":
             return jsonify({"code": 403, "message": "仅管理员可操作"}), 403
@@ -4772,34 +4710,24 @@ def register_routes(app):
         if not site:
             return jsonify({"code": 404, "message": "站点不存在"}), 404
 
-        # Static site: directly modify index.html on 1Panel
+        # Static site: directly modify index.html via SSH
         if site.get("site_type") == "static":
             try:
                 env = get_user_panel_environment(site.get("created_by") or 1)
                 if not env:
-                    return jsonify({"code": 400, "message": "未找到1Panel环境配置"}), 400
-                pc = OnePanelClient(host=env["host"], port=env["port"], api_key=env["api_key"])
-                nginx_alias = site.get("nginx_alias", "")
+                    return jsonify({"code": 400, "message": "未找到服务器环境配置"}), 400
+                from ssh_client import get_ssh_client
+                ssh = get_ssh_client(env["host"], 22, env.get("ssh_password", ""))
                 site_dir = site.get("static_dir", "")
-                if not nginx_alias:
-                    return jsonify({"code": 400, "message": "站点缺少nginx别名"}), 400
+                if not site_dir:
+                    return jsonify({"code": 400, "message": "站点缺少目录路径"}), 400
 
-                # Resolve file path
-                if site_dir.startswith("/www/"):
-                    remote_path = f"/opt/1panel/apps/openresty/openresty{site_dir}/index.html"
-                elif site_dir.startswith("/opt/"):
-                    remote_path = f"{site_dir}/index.html"
-                else:
-                    remote_path = f"/opt/1panel/apps/openresty/openresty/www/sites/{nginx_alias}/index/index.html"
+                remote_path = f"{site_dir}/index.html"
 
                 # Read current HTML
-                content_resp = pc.read_file(remote_path)
-                html = content_resp.get("data", {}).get("content", "") if content_resp.get("code") == 200 else ""
-                if not html and isinstance(content_resp.get("data"), str):
-                    html = content_resp["data"]
-
+                html = ssh.read_file(remote_path)
                 if not html or "<html" not in html.lower():
-                    logger.warning(f"inject_meta: empty or invalid HTML at {remote_path}, resp={str(content_resp)[:200]}")
+                    logger.warning(f"inject_meta: empty or invalid HTML at {remote_path}")
                     return jsonify({"code": 500, "message": f"无法读取站点HTML ({remote_path})"}), 500
 
                 # Inject meta tag before </head>
@@ -4811,13 +4739,9 @@ def register_routes(app):
                     return jsonify({"code": 500, "message": "HTML中未找到<head>标签"}), 500
 
                 # Save back
-                pc.delete_file(remote_path)
-                pc.create_file(remote_path, is_dir=False)
-                save_resp = pc.save_file(remote_path, html)
-                if save_resp.get("code") == 200:
-                    pc.reload_openresty()
-                    return jsonify({"code": 200, "message": "Meta标签已注入静态站点并重载"})
-                return jsonify({"code": 500, "message": f"保存失败: {save_resp.get('message', '')}"}), 500
+                ssh.write_file(remote_path, html)
+                ssh.reload_nginx()
+                return jsonify({"code": 200, "message": "Meta标签已注入静态站点并重载"})
             except Exception as e:
                 logger.error(f"inject_meta static error site={site_id}: {e}")
                 return jsonify({"code": 500, "message": str(e)[:200]}), 500
