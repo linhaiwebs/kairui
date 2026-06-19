@@ -518,6 +518,16 @@ def _migrate_add_columns(conn):
     except Exception:
         pass
 
+    # Add SSH columns to panel_environments (replaces 1Panel API)
+    try:
+        pe_cols = [row[1] for row in conn.execute("PRAGMA table_info(panel_environments)").fetchall()]
+        if "ssh_password" not in pe_cols:
+            conn.execute("ALTER TABLE panel_environments ADD COLUMN ssh_password TEXT DEFAULT ''")
+        if "ssh_initialized" not in pe_cols:
+            conn.execute("ALTER TABLE panel_environments ADD COLUMN ssh_initialized INTEGER DEFAULT 0")
+    except Exception:
+        pass
+
     # Add created_by + cloakbrowser_profile_name + proxy to brand_kits
     try:
         bk_cols = [row[1] for row in conn.execute("PRAGMA table_info(brand_kits)").fetchall()]
@@ -1322,9 +1332,10 @@ def create_panel_environment(data):
     now = datetime.utcnow().isoformat()
     try:
         conn.execute(
-            "INSERT INTO panel_environments (name, host, port, api_key, is_default, cf_account_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO panel_environments (name, host, port, api_key, is_default, cf_account_id, ssh_password, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (data.get("name", ""), data.get("host", ""), data.get("port", 3500),
-             data.get("api_key", ""), data.get("is_default", 0), data.get("cf_account_id"), now),
+             data.get("api_key", ""), data.get("is_default", 0), data.get("cf_account_id"),
+             data.get("ssh_password", ""), now),
         )
         env_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         conn.commit()
@@ -1338,7 +1349,7 @@ def update_panel_environment(env_id, data):
     try:
         sets = []
         vals = []
-        for key in ("name", "host", "port", "api_key", "cf_account_id"):
+        for key in ("name", "host", "port", "api_key", "cf_account_id", "ssh_password", "ssh_initialized"):
             if key in data:
                 sets.append(f"{key} = ?")
                 vals.append(data[key])

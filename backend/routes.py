@@ -2883,7 +2883,7 @@ def register_routes(app):
                 return jsonify({"code": 404, "message": "环境不存在"}), 404
             data = request.get_json(silent=True) or {}
             update_data = {}
-            for key in ("name", "host", "port", "api_key", "cf_account_id"):
+            for key in ("name", "host", "port", "api_key", "cf_account_id", "ssh_password", "ssh_initialized"):
                 if key in data:
                     update_data[key] = data[key]
             updated = update_panel_environment(env_id, update_data)

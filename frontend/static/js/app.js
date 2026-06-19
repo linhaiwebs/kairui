@@ -466,7 +466,7 @@ const app = createApp({
         }
         const settingsActiveTab = ref('wordpress');
         const settingsTabs = [
-            { key: 'wordpress', label: 'WordPress 默认' },
+            { key: 'wordpress', label: '网站设置' },
             { key: 'panel', label: '服务器环境' },
             { key: 'deepseek', label: 'DeepSeek API' },
             { key: 'crawlbase', label: 'Crawlbase' },
@@ -2822,7 +2822,7 @@ pipelineStatuses[siteId].demo_importing = false;
             panelEnvFormError.value = '';
             if (!panelEnvForm.name || !panelEnvForm.host || !panelEnvForm.api_key) { panelEnvFormError.value = '请填写所有必填字段'; return; }
             try {
-                const data = { name: panelEnvForm.name, host: panelEnvForm.host, port: panelEnvForm.port, api_key: panelEnvForm.api_key, cf_account_id: panelEnvForm.cf_account_id || null };
+                const data = { name: panelEnvForm.name, host: panelEnvForm.host, port: panelEnvForm.port, api_key: panelEnvForm.api_key, ssh_password: panelEnvForm.api_key, cf_account_id: panelEnvForm.cf_account_id || null };
                 let resp;
                 if (panelEnvEditId.value) {
                     resp = await API.updatePanelEnvironment(panelEnvEditId.value, data);
@@ -4495,8 +4495,8 @@ pipelineStatuses[siteId].demo_importing = false;
                                         <div class="space-y-4">
                                             <div><label class="block text-sm font-medium text-on-surface mb-1">环境名称</label><input v-model="panelEnvForm.name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="如：美国服务器"></div>
                                             <div><label class="block text-sm font-medium text-on-surface mb-1">主机地址</label><input v-model="panelEnvForm.host" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="如：192.168.1.1"></div>
-                                            <div><label class="block text-sm font-medium text-on-surface mb-1">端口</label><input v-model.number="panelEnvForm.port" type="number" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="3500"></div>
-                                            <div><label class="block text-sm font-medium text-on-surface mb-1">API Key</label><input v-model="panelEnvForm.api_key" type="password" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="1Panel API Key"></div>
+                                            <div><label class="block text-sm font-medium text-on-surface mb-1">SSH 端口</label><input v-model.number="panelEnvForm.port" type="number" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="22"></div>
+                                            <div><label class="block text-sm font-medium text-on-surface mb-1">SSH 密码</label><input v-model="panelEnvForm.api_key" type="password" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="服务器SSH密码"></div>
                                             <div v-if="cfAccounts.length"><label class="block text-sm font-medium text-on-surface mb-1">Cloudflare 账户</label>
                                                 <select v-model="panelEnvForm.cf_account_id" class="w-full px-4 py-2 border rounded-lg focus:border-primary">
                                                     <option :value="null">使用默认账户</option>
