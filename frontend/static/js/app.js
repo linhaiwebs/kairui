@@ -2853,6 +2853,22 @@ pipelineStatuses[siteId].demo_importing = false;
                 else { showToast(resp.message || '设置失败', 'error'); }
             } catch (e) { showToast('设置失败', 'error'); }
         }
+        async function handleServerInit(env) {
+            if (!confirm(`将在 ${env.host} 安装OpenResty并配置站点环境，继续？`)) return;
+            loading.value = true;
+            try {
+                const r = await API.request('POST', '/api/server/init/' + env.id);
+                if (r.code === 200) { showToast('初始化完成'); await loadPanelEnvironments(); }
+                else showToast(r.message, 'error');
+            } catch (e) { showToast('初始化失败', 'error'); }
+            loading.value = false;
+        }
+        async function handleServerTest(env) {
+            try {
+                const r = await API.request('POST', '/api/server/test/' + env.id);
+                showToast(r.code === 200 ? '连接成功' : r.message, r.code === 200 ? 'success' : 'error');
+            } catch (e) { showToast('连接失败', 'error'); }
+        }
 
         // ---- Fingerprint Categories & Profile Mapping ----
         
@@ -3046,7 +3062,7 @@ pipelineStatuses[siteId].demo_importing = false;
 
             exportSystemData, importSystemData, handleImportFile, importFileInput,            panelEnvironments, showPanelEnvModal, panelEnvEditId, panelEnvForm, panelEnvFormError,
             loadPanelEnvironments, openPanelEnvModal, closePanelEnvModal, handleSavePanelEnv,
-            handleDeletePanelEnv, handleSetDefaultPanelEnv,
+            handleDeletePanelEnv, handleSetDefaultPanelEnv, handleServerInit, handleServerTest,
             showToast, showModal,
         };
     },
@@ -4469,7 +4485,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                     <button @click="openPanelEnvModal(null)" class="btn-primary text-on-primary px-3 py-1.5 rounded-lg text-sm"><i class="fas fa-plus mr-1"></i>添加环境</button>
                                 </div>
                                 <div v-if="!panelEnvironments.length" class="text-center py-8 text-sm text-on-surface-variant">
-                                    <i class="fas fa-inbox text-2xl mb-2 block"></i>暂未配置 1Panel 环境
+                                    <i class="fas fa-inbox text-2xl mb-2 block"></i>暂未配置服务器环境
                                 </div>
                                 <div v-else class="space-y-3">
                                     <div v-for="env in panelEnvironments" :key="env.id" class="bg-surface-container-low rounded-lg p-4 flex items-center justify-between">
@@ -4477,11 +4493,15 @@ pipelineStatuses[siteId].demo_importing = false;
                                             <div class="flex items-center gap-2">
                                                 <span class="font-medium text-on-surface">{{ env.name }}</span>
                                                 <span v-if="env.is_default" class="text-xs bg-blue-100 text-primary px-2 py-0.5 rounded-full">默认</span>
+                                                <span v-if="env.ssh_initialized" class="text-xs bg-green-100 text-[#146c2e] px-2 py-0.5 rounded-full">已就绪</span>
+                                                <span v-else class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">未初始化</span>
                                             </div>
-                                            <p class="text-xs text-on-surface-variant mt-1">{{ env.host }}:{{ env.port }}</p>
+                                            <p class="text-xs text-on-surface-variant mt-1">{{ env.host }}:{{ env.port || 22 }}</p>
                                             <p v-if="env.cf_account_id" class="text-xs text-primary mt-0.5">CF: {{ (cfAccounts.find(a => a.id === env.cf_account_id) || {}).name || env.cf_account_id }}<span v-if="(cfAccounts.find(a => a.id === env.cf_account_id) || {}).notes" class="text-on-surface-variant"> — {{ (cfAccounts.find(a => a.id === env.cf_account_id) || {}).notes }}</span></p>
                                         </div>
-                                        <div class="flex gap-1">
+                                        <div class="flex gap-1 flex-wrap items-center">
+                                            <button v-if="!env.ssh_initialized" @click="handleServerInit(env)" class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200" title="初始化服务器"><i class="fas fa-rocket mr-1"></i>初始化</button>
+                                            <button @click="handleServerTest(env)" class="text-xs text-primary hover:text-primary px-2 py-1" title="测试连接"><i class="fas fa-plug mr-1"></i>测试</button>
                                             <button v-if="!env.is_default" @click="handleSetDefaultPanelEnv(env)" class="text-xs text-on-surface-variant hover:text-primary px-2 py-1" title="设为默认"><i class="fas fa-star"></i></button>
                                             <button @click="openPanelEnvModal(env)" class="text-xs text-on-surface-variant hover:text-primary px-2 py-1" title="编辑"><span class="material-symbols-outlined">edit</span></button>
                                             <button @click="handleDeletePanelEnv(env)" class="text-xs text-on-surface-variant hover:text-error px-2 py-1" title="删除"><span class="material-symbols-outlined">delete</span></button>

@@ -2927,6 +2927,48 @@ def register_routes(app):
         except Exception as e:
             return jsonify({"code": 500, "message": str(e)[:200]}), 500
 
+    @app.route("/api/server/init/<int:env_id>", methods=["POST"])
+    @jwt_required()
+    def server_init(env_id):
+        """Initialize Debian server: install OpenResty + configure site dirs."""
+        claims = get_jwt()
+        if claims.get("role") != "admin":
+            return jsonify({"code": 403, "message": "仅管理员可操作"}), 403
+        env = get_panel_environment(env_id)
+        if not env:
+            return jsonify({"code": 404, "message": "环境不存在"}), 404
+        pw = env.get("ssh_password", "")
+        if not pw:
+            return jsonify({"code": 400, "message": "请先设置SSH密码"}), 400
+        try:
+            from ssh_client import SSHClient
+            ssh = SSHClient(env["host"], env.get("port", 22), 'root', pw)
+            results = ssh.server_init()
+            update_panel_environment(env_id, {"ssh_initialized": 1})
+            if not env.get("port"):
+                update_panel_environment(env_id, {"port": 22})
+            ssh.close()
+            return jsonify({"code": 200, "data": {"results": results}, "message": "服务器初始化完成"})
+        except Exception as e:
+            logger.error(f"Server init failed: {e}")
+            return jsonify({"code": 500, "message": f"初始化失败: {str(e)[:200]}"}), 500
+
+    @app.route("/api/server/test/<int:env_id>", methods=["POST"])
+    @jwt_required()
+    def server_test(env_id):
+        """Test SSH connection."""
+        env = get_panel_environment(env_id)
+        if not env:
+            return jsonify({"code": 404, "message": "环境不存在"}), 404
+        try:
+            from ssh_client import SSHClient
+            ssh = SSHClient(env["host"], env.get("port", 22), 'root', env.get("ssh_password", ""))
+            result = ssh.test_connection()
+            ssh.close()
+            return jsonify({"code": 200, "data": {"result": result}, "message": "连接成功"})
+        except Exception as e:
+            return jsonify({"code": 500, "message": f"连接失败: {str(e)[:200]}"}), 500
+
     @app.route("/api/panel/environments/<int:env_id>/default", methods=["PUT"])
     @jwt_required()
     def panel_set_default_environment(env_id):
