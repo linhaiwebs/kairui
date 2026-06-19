@@ -566,7 +566,7 @@ const app = createApp({
         // ---- Data ----
         async function loadInitialData() {
             loading.value = true;
-            try { await Promise.all([loadSites(), checkPanelStatus(), loadPanelData(), loadConfig(), loadCfAccounts(), checkCfStatus(), loadWalmartCategories()]); }
+            try { await Promise.all([loadSites(), checkPanelStatus(), loadConfig(), loadCfAccounts(), checkCfStatus(), loadWalmartCategories()]); }
             finally { loading.value = false; }
         }
         async function loadSites() {
@@ -614,7 +614,7 @@ const app = createApp({
             const isStatic = s.site_type === 'static';
             if (s.gmc_registered && !isStatic) return '已完成';
             if (isStatic) {
-                // 4-step flow: DNS → 1Panel创建 → 设计生成 → 上传文件 → 上线
+                // 4-step flow: DNS → 服务器创建 → 设计生成 → 上传文件 → 上线
                 if (s.files_uploaded) return '已上线';
                 if (s.design_complete) return '正在上传文件...';
                 if (s.design_message) return s.design_message.substring(0, 40);
@@ -750,39 +750,14 @@ pipelineStatuses[siteId].demo_importing = false;
             })();
         }
         async function checkPanelStatus() {
-            try { const resp = await API.panelStatus(); panelConnected.value = resp.data?.connected || false; } catch (e) { panelConnected.value = false; }
-        }
-        async function loadPanelData() {
-            try {
-                const [w, i, g] = await Promise.all([API.panelSearchWebsites(), API.panelSearchInstalled(), API.panelSearchGroups()]);
-                if (w.code === 200) panelWebsites.value = w.data?.items || [];
-                if (i.code === 200) panelInstalledApps.value = i.data?.items || [];
-                if (g.code === 200) panelGroups.value = g.data || [];
-            } catch (e) {}
+            panelConnected.value = panelEnvironments.value.length > 0;
         }
         async function loadConfig() {
             try { const resp = await API.getConfig(); if (resp.code === 200) { Object.assign(globalConfig, resp.data); createForm.admin_name = resp.data.default_admin_name || 'admin'; createForm.db_service = resp.data.db_service || 'mariadb'; if (resp.data.deepseek_api_key) { const dk = resp.data.deepseek_api_key; const parsed = dk.startsWith('[') ? JSON.parse(dk) : [dk]; if (Array.isArray(parsed) && parsed.length) { deepseekApiKeys.value = parsed; deepseekConnected.value = true; } } if (resp.data.crawlbase_api_key) { const ck = resp.data.crawlbase_api_key; const parsed = ck.startsWith('[') ? JSON.parse(ck) : [ck]; if (Array.isArray(parsed) && parsed.length) { crawlbaseApiKeys.value = parsed; crawlbaseConnected.value = true; } } } } catch (e) {}
         }
         async function refreshSites() {
             loading.value = true;
-            try { await Promise.all([loadSites(), loadPanelData()]); showToast('数据已刷新'); } finally { loading.value = false; }
-        }
-
-        async function syncWithPanel() {
-            loading.value = true;
-            try {
-                const resp = await API.panelSync(true);
-                if (resp.code === 200) {
-                    const d = resp.data;
-                    let msg = `同步完成: 更新${d.updated}个, 清理${d.cleared}个`;
-                    if (d.imported) msg += `, 导入${d.imported}个`;
-                    if (d.untracked_websites > 0) msg += `, 发现${d.untracked_websites}个未同步的WordPress网站`;
-                    if (d.orphaned_wp_apps > 0) msg += `, 发现${d.orphaned_wp_apps}个未关联网站的WordPress应用`;
-                    if (d.errors && d.errors.length) msg += `, ${d.errors.length}个错误`;
-                    showToast(msg);
-                    await loadSites();
-                } else { showToast(resp.message || '同步失败', 'error'); }
-            } catch (e) { showToast('同步失败', 'error'); } finally { loading.value = false; }
+            try { await loadSites(); showToast('数据已刷新'); } finally { loading.value = false; }
         }
 
         // ---- Feed Products (GMC) ----
@@ -1739,7 +1714,7 @@ pipelineStatuses[siteId].demo_importing = false;
             }
             wizardOpen.value = true;
         }
-        function closeWizard() { wizardOpen.value = false; loadSites(); loadPanelData(); }
+        function closeWizard() { wizardOpen.value = false; loadSites(); }
         function onWizardGroupChange() {
             const g = panelGroups.value.find(g => g.id === createForm.website_group_id);
             if (g && g.name) createForm.tag = g.name;
@@ -2136,7 +2111,7 @@ pipelineStatuses[siteId].demo_importing = false;
         // ---- WP Polling ----
         function startWPPolling(siteId, domain) {
             if (wpPollingTimers[siteId]) return;
-            wpInstallStatuses[siteId] = { status: 'installing', message: '1Panel正在创建数据库...', domain };
+            wpInstallStatuses[siteId] = { status: 'installing', message: '正在创建数据库...', domain };
             let stopped = false;
             const timer = setInterval(async () => {
                 if (stopped) return;
@@ -2178,7 +2153,7 @@ pipelineStatuses[siteId].demo_importing = false;
         // ---- Delete ----
         function confirmDelete(site) {
             modal.loading = false; modal.progress = '';
-            showModal('删除站点', `确定要删除 "${site.site_name}" 吗？${site.panel_website_id ? '将同时从1Panel删除关联的网站、应用和数据库。' : ''}此操作不可撤销。`,
+            showModal('删除站点', `确定要删除 "${site.site_name}" 吗？${site.panel_website_id ? '将同时从服务器删除关联的网站、应用和数据库。' : ''}此操作不可撤销。`,
                 async () => {
                     modal.loading = true;
                     try {
@@ -2186,25 +2161,13 @@ pipelineStatuses[siteId].demo_importing = false;
                         await API.deleteSite(site.id);
                         modal.show = false;
                         showToast('站点已删除');
-                        await loadSites(); await loadPanelData();
+                        await loadSites();
                     } catch (e) { showToast('删除失败', 'error'); modal.loading = false; modal.progress = ''; }
                 }
             );
         }
 
-        // ---- Fix 1Panel Website ----
-        async function fixSiteWebsite(site) {
-            loading.value = true;
-            try {
-                const resp = await API.fixWebsite(site.id);
-                if (resp.code === 200) {
-                    showToast(resp.message || '1Panel网站已修复');
-                    await loadSites();
-                } else {
-                    showToast(resp.message || '修复失败', 'error');
-                }
-            } catch (e) { showToast('修复失败', 'error'); } finally { loading.value = false; }
-        }
+        // ---- Fix Website ----
 
         async function openSiteBrowser(site) {
             if (!site.cloakbrowser_profile_name) {
@@ -2802,7 +2765,7 @@ pipelineStatuses[siteId].demo_importing = false;
             } catch (e) { showToast('删除失败', 'error'); }
         }
 
-        // ---- Panel Environment (multi-1Panel) ----
+        // ---- Panel Environment (multi-server) ----
         async function loadPanelEnvironments() {
             try { const resp = await API.listPanelEnvironments(); if (resp.code === 200) panelEnvironments.value = resp.data || []; } catch (e) {}
         }
@@ -3019,7 +2982,7 @@ pipelineStatuses[siteId].demo_importing = false;
             silentInstallSites, startSilentInstall,
             brandKitApplyStatus, brandKitApplying, applyBrandKitForm, brandKitsForSelect,
             loadBrandKitsForSelect,
-            handleLogin, handleLogout, refreshSites, syncWithPanel,
+            handleLogin, handleLogout, refreshSites,
             openWizard, closeWizard, onWizardGroupChange, wizardCreateSite, testProfileForWizard, profileTestState,
             brandKitsPage, BRAND_KITS_PER, pagedBrandKits, brandKitsTotal,
             usersPage, USERS_PER, pagedUsers, usersTotal,
@@ -3033,7 +2996,7 @@ pipelineStatuses[siteId].demo_importing = false;
             operatorCfAccountId, operatorCfAccountName, operatorCfLoading,
             initBatchRows, addBatchRow, resolveOperatorCfAccount,
 
-            openEditModal, submitEdit, confirmDelete, fixSiteWebsite, openSiteBrowser, saveGlobalConfig, exportCSV,
+            openEditModal, submitEdit, confirmDelete, openSiteBrowser, saveGlobalConfig, exportCSV,
             loadFeedProducts, openFeedProductModal, closeFeedProductModal, handleSaveFeedProduct,
             handleDeleteFeedProduct, handleImportSampleProducts, handleExportFeed,
             toggleFeedMenu, setSourceTab, loadFeedStats,
@@ -3235,12 +3198,9 @@ pipelineStatuses[siteId].demo_importing = false;
                 <div class="flex items-center gap-sm">
                     <span :class="['inline-flex items-center gap-xs font-label-sm', panelConnected ? 'text-[#146c2e]' : 'text-error']">
                         <span class="material-symbols-outlined" style="font-size:14px">{{ panelConnected ? 'cloud_done' : 'cloud_off' }}</span>
-                        {{ panelConnected ? '1Panel' : '离线' }}
+                        {{ panelConnected ? '服务器' : '离线' }}
                     </span>
                 </div>
-                <button v-if="currentPage === 'sites'" @click="syncWithPanel" class="btn btn-secondary btn-sm">
-                    <span class="material-symbols-outlined" style="font-size:16px">sync</span> 同步
-                </button>
                 <button v-if="currentPage === 'sites'" @click="refreshSites" class="btn btn-primary btn-sm">
                     <span class="material-symbols-outlined" style="font-size:16px">refresh</span> 刷新
                 </button>
@@ -3264,7 +3224,6 @@ pipelineStatuses[siteId].demo_importing = false;
                     <button v-if="currentPage === 'settings'" @click="exportSystemData" class="flex items-center gap-sm px-md py-sm bg-primary-container text-on-primary rounded-lg hover:bg-primary transition-colors font-label-md text-label-md shadow-level-1" title="导出所有配置和数据"><span class="material-symbols-outlined text-[18px]">download</span>导出配置</button>
                     <button v-if="currentPage === 'settings'" @click="importSystemData" class="flex items-center gap-sm px-md py-sm bg-surface-container-low border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container-high transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]">upload</span>导入配置</button>
                     <input v-if="currentPage === 'settings'" type="file" ref="importFileInput" @change="handleImportFile" accept=".json" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden">
-                    <button v-if="currentPage === 'sites'" @click="syncWithPanel" class="flex items-center gap-sm px-md py-sm bg-primary-container text-on-primary rounded-lg hover:bg-primary transition-colors font-label-md text-label-md shadow-level-1" title="从1Panel同步数据"><span class="material-symbols-outlined text-[18px]">sync</span>同步1Panel</button>
                     <button v-if="currentPage === 'sites'" @click="refreshSites" class="flex items-center gap-sm px-md py-sm bg-surface-container-low border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container-high transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]" :class="loading ? 'animate-spin' : ''">refresh</span>刷新</button>
                 </div>
 
@@ -3275,7 +3234,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5"><div class="flex items-center justify-between"><div><p class="text-xs text-on-surface-variant">站点总数</p><p class="text-3xl font-bold text-on-surface mt-1">{{ sites.length }}</p></div><div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center"><i class="fas fa-globe text-blue-600 text-lg"></i></div></div><div class="mt-3 text-xs text-on-surface-variant">静态 {{ sites.filter(s=>s.site_type==='static').length }} · WP {{ sites.filter(s=>s.site_type!=='static').length }}</div></div>
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5"><div class="flex items-center justify-between"><div><p class="text-xs text-on-surface-variant">产品总数</p><p class="text-3xl font-bold text-on-surface mt-1">{{ wooProducts.length + generatedFeed.length }}</p></div><div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center"><i class="fas fa-shopping-cart text-green-600 text-lg"></i></div></div><div class="mt-3 text-xs text-on-surface-variant">网站产品 {{ wooProducts.length }} · Feed {{ generatedFeed.length }}</div></div>
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5"><div class="flex items-center justify-between"><div><p class="text-xs text-on-surface-variant">品牌套件</p><p class="text-3xl font-bold text-on-surface mt-1">{{ brandKits.length }}</p></div><div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center"><i class="fas fa-palette text-purple-600 text-lg"></i></div></div><div class="mt-3 text-xs text-on-surface-variant">Google账户 {{ googleAccounts.length }}</div></div>
-                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5"><div class="flex items-center justify-between"><div><p class="text-xs text-on-surface-variant">1Panel</p><p class="text-3xl font-bold mt-1" :class="panelConnected ? 'text-[#146c2e]' : 'text-error'">{{ panelConnected ? '在线' : '离线' }}</p></div><div class="w-10 h-10 rounded-lg flex items-center justify-center" :class="panelConnected ? 'bg-green-100' : 'bg-red-100'"><i class="fas fa-server text-lg" :class="panelConnected ? 'text-green-600' : 'text-red-500'"></i></div></div><div class="mt-3 text-xs text-on-surface-variant">指纹环境 {{ cloakbrowserProfiles.length }}</div></div>
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5"><div class="flex items-center justify-between"><div><p class="text-xs text-on-surface-variant">服务器</p><p class="text-3xl font-bold mt-1" :class="panelConnected ? 'text-[#146c2e]' : 'text-error'">{{ panelConnected ? '在线' : '离线' }}</p></div><div class="w-10 h-10 rounded-lg flex items-center justify-center" :class="panelConnected ? 'bg-green-100' : 'bg-red-100'"><i class="fas fa-server text-lg" :class="panelConnected ? 'text-green-600' : 'text-red-500'"></i></div></div><div class="mt-3 text-xs text-on-surface-variant">指纹环境 {{ cloakbrowserProfiles.length }}</div></div>
                 </div>
                 <!-- Charts Row -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -3401,7 +3360,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <div class="font-medium text-on-surface text-sm truncate">{{ site.site_name }}</div>
                                 <div class="text-xs text-on-surface-variant">{{ site.site_type === 'static' ? '静态站点' : 'WordPress' }}</div>
                             </div>
-                            <!-- 1Panel Status -->
+                            <!-- Server Status -->
                             <div class="w-16 flex-shrink-0 text-center">
                                 <span v-if="site.panel_website_id" class="inline-flex items-center gap-1 text-xs text-[#146c2e]"><span class="material-symbols-outlined text-[14px]">check_circle</span>已关联</span>
                                 <span v-else class="text-xs text-on-surface-variant">未关联</span>
@@ -3423,7 +3382,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                     <div class="timeline-line" :class="(pipelineStatuses[site.id]?.dns_resolved || site.status === 'deploying') ? 'active' : ''"></div>
                                     <!-- ② 网站 -->
                                     <div class="timeline-icon" :class="pipelineStatuses[site.id]?.site_created ? 'active' : (site.status === 'deploying' ? 'in-progress' : 'inactive')"
-                                         :title="pipelineStatuses[site.id]?.site_created ? '1Panel网站已创建' : '创建1Panel网站'">
+                                         :title="pipelineStatuses[site.id]?.site_created ? '网站已创建' : '创建网站'">
                                         <i class="fas fa-server"></i>
                                     </div>
                                     <div class="timeline-line" :class="pipelineStatuses[site.id]?.design_started ? 'active' : (pipelineStatuses[site.id]?.site_created ? 'in-progress' : '')"></div>
@@ -3489,7 +3448,6 @@ pipelineStatuses[siteId].demo_importing = false;
                             <div class="flex items-center gap-1.5 flex-shrink-0">
                                 <button v-if="site.cloakbrowser_profile_name" @click="openSiteBrowser(site)" class="text-green-600 hover:text-green-700 p-1.5" title="打开指纹浏览器"><i class="fas fa-external-link-alt"></i></button>
                                 <button @click="openEditModal(site)" class="text-blue-600 hover:text-blue-700 p-1.5" title="编辑"><i class="fas fa-edit"></i></button>
-                                <button v-if="site.panel_app_install_id && (!site.panel_website_id || site.panel_status === 'deleted')" @click="fixSiteWebsite(site)" class="text-orange-500 hover:text-orange-600 p-1.5" title="修复1Panel网站"><i class="fas fa-wrench"></i></button>
                                 <button @click="openMetaModal(site)" class="text-purple-500 hover:text-purple-600 p-1.5" title="注入Meta标签"><i class="fas fa-code"></i></button>
                                 <button @click="confirmDelete(site)" class="text-red-500 hover:text-red-600 p-1.5" title="删除"><i class="fas fa-trash"></i></button>
                             </div>
@@ -3542,7 +3500,7 @@ pipelineStatuses[siteId].demo_importing = false;
                         <span class="spinner w-4 h-4 inline-block"></span><p>加载环境列表...</p>
                     </div>
                     <div v-else-if="envSelectModal.environments.length === 0" class="text-center py-12 text-on-surface-variant">
-                        <i class="fas fa-exclamation-triangle text-3xl mb-3"></i><p>暂无可用的 1Panel 环境，请联系管理员在系统设置中配置</p>
+                        <i class="fas fa-exclamation-triangle text-3xl mb-3"></i><p>暂无可用的服务器环境，请联系管理员在系统设置中配置</p>
                     </div>
                     <div v-else>
                         <div class="space-y-2 max-h-80 overflow-y-auto mb-4">
@@ -4478,7 +4436,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <div class="mt-4"><label class="block text-sm font-medium text-on-surface mb-1">默认数据库服务</label><select v-model="globalConfig.db_service" class="w-full px-4 py-2 border rounded-lg focus:border-primary"><option value="mariadb">MariaDB</option><option value="mysql">MySQL</option></select></div>
                     
                             </div>
-                            <!-- Tab: 1Panel 环境 -->
+                            <!-- Tab: 服务器环境 -->
                             <div v-else-if="settingsActiveTab === 'panel'" @vue:mounted="loadPanelEnvironments()">
                                 <div class="flex items-center justify-between mb-4">
                                     <h4 class="text-sm font-semibold text-on-surface"><span class="material-symbols-outlined">dns</span>已保存的服务器环境</h4>
@@ -4821,7 +4779,7 @@ pipelineStatuses[siteId].demo_importing = false;
                             <div><label class="block text-sm font-medium text-on-surface mb-1">用户名</label><input v-model="userForm.username" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="请输入用户名"></div>
                             <div><label class="block text-sm font-medium text-on-surface mb-1">{{ userEditId ? '新密码（留空不修改）' : '密码' }}</label><input v-model="userForm.password" type="password" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="请输入密码"></div>
                             <div><label class="block text-sm font-medium text-on-surface mb-1">角色</label><select v-model="userForm.role" class="w-full px-4 py-2 border rounded-lg focus:border-primary"><option value="operator">运营</option><option value="admin">管理员</option></select></div>
-                            <div v-if="userForm.role === 'operator'"><label class="block text-sm font-medium text-on-surface mb-1">指定 1Panel 环境</label><select v-model="userForm.panel_environment_id" class="w-full px-4 py-2 border rounded-lg focus:border-primary"><option :value="null">使用默认环境</option><option v-for="env in panelEnvironments" :key="env.id" :value="env.id">{{ env.name }} ({{ env.host }})</option></select><p class="text-xs text-on-surface-variant mt-1">运营人员登录后将使用指定的 1Panel 环境</p></div>
+                            <div v-if="userForm.role === 'operator'"><label class="block text-sm font-medium text-on-surface mb-1">服务器环境</label><select v-model="userForm.panel_environment_id" class="w-full px-4 py-2 border rounded-lg focus:border-primary"><option :value="null">使用默认环境</option><option v-for="env in panelEnvironments" :key="env.id" :value="env.id">{{ env.name }} ({{ env.host }})</option></select><p class="text-xs text-on-surface-variant mt-1">运营人员登录后将使用指定的服务器环境</p></div>
                             <p v-if="userFormError" class="text-error text-sm">{{ userFormError }}</p>
                         </div>
                         <div class="flex justify-end gap-2 mt-6">
@@ -5388,7 +5346,7 @@ pipelineStatuses[siteId].demo_importing = false;
 
                 <div class="p-6 space-y-4">
                     <!-- Cloudflare DNS -->
-                    <div class="bg-blue-50 border border-primary-container/20 rounded-lg p-4 mb-2"><p class="text-primary text-sm"><i class="fas fa-info-circle mr-2"></i>站点创建时将<strong>自动创建DNS解析</strong>（指向1Panel服务器，开启Cloudflare代理）。</p></div>
+                    <div class="bg-blue-50 border border-primary-container/20 rounded-lg p-4 mb-2"><p class="text-primary text-sm"><i class="fas fa-info-circle mr-2"></i>站点创建时将<strong>自动创建DNS解析</strong>（指向服务器，开启Cloudflare代理）。</p></div>
                     <div v-if="!cfConnected" class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-2">
                         <p class="text-yellow-700 text-sm mb-3"><i class="fas fa-exclamation-triangle mr-2"></i>Cloudflare未授权。请在下方输入API Token或前往系统设置中配置。</p>
                         <div class="flex gap-2"><input v-model="cfToken" type="password" placeholder="输入Cloudflare API Token" class="flex-1 px-3 py-2 border rounded-lg text-sm focus:border-primary"><button @click="cfVerify" :disabled="loading" class="bg-tertiary-container text-on-primary px-4 py-2 rounded-lg text-sm hover:bg-tertiary"><i class="fas fa-check mr-1"></i>验证并保存</button></div>
@@ -5398,7 +5356,7 @@ pipelineStatuses[siteId].demo_importing = false;
                         <!-- Batch mode: CF account locked -->
                         <div v-if="wizardMode === 'batch'" class="bg-blue-50 border border-primary-container/20 rounded-lg p-4">
                             <p class="text-sm text-primary"><i class="fas fa-lock mr-2"></i>Cloudflare账号已自动绑定: <strong>{{ operatorCfAccountName || '解析中...' }}</strong></p>
-                            <p class="text-xs text-on-surface-variant mt-1">该账号关联自您的1Panel运营环境，不可更改</p>
+                            <p class="text-xs text-on-surface-variant mt-1">该账号关联自您的服务器运营环境，不可更改</p>
                         </div>
                         <!-- Single mode: dropdown -->
                         <div v-else>
@@ -5463,9 +5421,9 @@ pipelineStatuses[siteId].demo_importing = false;
                         </div>
                     </template>
 
-                    <!-- 1Panel status hint -->
-                    <div v-if="!panelConnected" class="bg-error-container border border-error/20 rounded-lg p-3"><p class="text-error text-sm"><i class="fas fa-exclamation-triangle mr-2"></i>1Panel未连接，站点将仅保存到本地。</p></div>
-                    <div v-else class="bg-[#146c2e]/5 border border-[#146c2e]/20 rounded-lg p-3"><p class="text-[#146c2e] text-sm"><i class="fas fa-check-circle mr-2"></i>1Panel已连接，将通过API实际安装WordPress。</p></div>
+                    <!-- 服务器状态提示 -->
+                    <div v-if="!panelConnected" class="bg-error-container border border-error/20 rounded-lg p-3"><p class="text-error text-sm"><i class="fas fa-exclamation-triangle mr-2"></i>服务器未连接，站点将仅保存到本地。</p></div>
+                    <div v-else class="bg-[#146c2e]/5 border border-[#146c2e]/20 rounded-lg p-3"><p class="text-[#146c2e] text-sm"><i class="fas fa-check-circle mr-2"></i>服务器已连接，将通过API实际安装WordPress。</p></div>
                 </div>
 
                 <!-- Wizard Footer -->

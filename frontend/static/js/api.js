@@ -163,68 +163,8 @@ const API = {
         return this.request('POST', `/api/tasks/${encodeURIComponent(taskId)}/cancel`);
     },
 
-    // Panel proxy
-    async panelSearchApps(name = '') {
-        return this.request('POST', '/api/panel/apps/search', { name, page: 1, pageSize: 100 });
-    },
-    
-    async panelSearchInstalled(name = '') {
-        return this.request('POST', '/api/panel/apps/installed/search', { name, page: 1, pageSize: 100 });
-    },
-    
-    async panelGetAppDetail(appId, version) {
-        return this.request('GET', `/api/panel/apps/detail/${appId}/${version}`);
-    },
-    
-    async panelInstallApp(data) {
-        return this.request('POST', '/api/panel/apps/install', data);
-    },
-    
-    async panelGetAppServices(key) {
-        return this.request('GET', `/api/panel/apps/services/${key}`);
-    },
-    
-    async panelSearchWebsites(name = '') {
-        return this.request('POST', '/api/panel/websites/search', { name, page: 1, pageSize: 100 });
-    },
-    
-    async panelGetWebsitesList() {
-        return this.request('GET', '/api/panel/websites/list');
-    },
-    
-    async panelCreateWebsite(data) {
-        return this.request('POST', '/api/panel/websites/create', data);
-    },
-    
-    async panelCheckWebsite(data) {
-        return this.request('POST', '/api/panel/websites/check', data);
-    },
-    
-    async panelDeleteWebsite(id, deleteApp = true) {
-        return this.request('DELETE', `/api/panel/websites/${id}`, { deleteApp, deleteBackup: true });
-    },
-    
-    async panelOperateWebsite(id, operate) {
-        return this.request('POST', '/api/panel/websites/operate', { id, operate });
-    },
-    
-    async panelSearchGroups() {
-        return this.request('POST', '/api/panel/groups/search', { type: 'website' });
-    },
-    
-    async panelStatus() {
-        return this.request('GET', '/api/panel/status');
-    },
 
-    async getCurrentPanelEnvironment() {
-        return this.request('GET', '/api/panel/environments/current');
-    },
-
-    async panelSync(importOrphans = false) {
-        return this.request('POST', '/api/panel/sync', { import_orphans: importOrphans });
-    },
-
-    // Panel Environments (multi-1Panel)
+    // Server Environments
     async listPanelEnvironments() {
         return this.request('GET', '/api/panel/environments');
     },
