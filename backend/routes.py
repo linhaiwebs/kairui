@@ -2855,10 +2855,9 @@ def register_routes(app):
             host = (data.get("host") or "").strip()
             if not host:
                 return jsonify({"code": 400, "message": "主机地址不能为空"}), 400
-            port = int(data.get("port", 3500))
+            port = int(data.get("port", 22))
             api_key = (data.get("api_key") or "").strip()
-            if not api_key:
-                return jsonify({"code": 400, "message": "API Key不能为空"}), 400
+            ssh_password = (data.get("ssh_password") or api_key).strip()
             env = create_panel_environment({
                 "name": name,
                 "host": host,
