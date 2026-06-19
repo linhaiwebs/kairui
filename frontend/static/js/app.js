@@ -4588,8 +4588,8 @@ pipelineStatuses[siteId].demo_importing = false;
                                             </tr>
                                         </thead>
                                         <tbody class="divide-y divide-outline-variant">
-                                            <tr v-for="ga in pagedGoogleAccounts" :key="ga.id" class="hover:bg-surface-container-low">
-                                                <td class="px-3 py-2 text-xs font-mono">#{{ ga.id }}</td>
+                                            <tr v-for="(ga, idx) in pagedGoogleAccounts" :key="ga.id" class="hover:bg-surface-container-low">
+                                                <td class="px-3 py-2 text-xs font-mono">{{ (googleAccountsTabPage - 1) * GOOGLE_ACCOUNTS_PER + idx + 1 }}</td>
                                                 <td class="px-3 py-2 text-xs font-mono">{{ ga.email }}</td>
                                                 <td class="px-3 py-2 text-xs font-mono">{{ ga.password || '***' }}</td>
                                                 <td class="px-3 py-2 text-xs">{{ ga.recovery_email || '—' }}</td>
@@ -4667,7 +4667,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <!-- Proxy Pool sub-tab -->
                                 <div v-show="fingerprintSubTab === 'proxies'" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                                     <div v-if="proxies.length" class="overflow-x-auto">
-                                            <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">ID</th><th class="px-3 py-2 text-left">IP</th><th class="px-3 py-2 text-left">端口</th><th class="px-3 py-2 text-left">类型</th><th class="px-3 py-2 text-left">状态</th><th class="px-3 py-2 text-left">占用</th></tr></thead><tbody class="divide-y"><tr v-for="p in pagedProxies" :key="p.id" class="hover:bg-surface-container-low"><td class="px-3 py-2 text-xs font-mono">{{ p.id }}</td><td class="px-3 py-2 text-xs">{{ p.ip }}</td><td class="px-3 py-2 text-xs">{{ p.port }}</td><td class="px-3 py-2 text-xs">{{ p.proxy_type }}</td><td class="px-3 py-2"><span v-if="p.occupied_kit_name" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">使用中</span><span v-else class="badge bg-surface-container-high text-on-surface-variant text-xs">可用</span></td><td class="px-3 py-2 text-xs"><span v-if="p.occupied_kit_name">{{ p.occupied_by || '-' }} · {{ p.occupied_kit_name }}</span><span v-else class="text-on-surface-variant">-</span></td></tr></tbody></table>
+                                            <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">ID</th><th class="px-3 py-2 text-left">IP</th><th class="px-3 py-2 text-left">端口</th><th class="px-3 py-2 text-left">类型</th><th class="px-3 py-2 text-left">状态</th><th class="px-3 py-2 text-left">占用</th></tr></thead><tbody class="divide-y"><tr v-for="(p, idx) in pagedProxies" :key="p.id" class="hover:bg-surface-container-low"><td class="px-3 py-2 text-xs font-mono">{{ (proxiesTabPage - 1) * PROXIES_PER + idx + 1 }}</td><td class="px-3 py-2 text-xs">{{ p.ip }}</td><td class="px-3 py-2 text-xs">{{ p.port }}</td><td class="px-3 py-2 text-xs">{{ p.proxy_type }}</td><td class="px-3 py-2"><span v-if="p.occupied_kit_name" class="badge bg-[#146c2e]/10 text-[#146c2e] text-xs">使用中</span><span v-else class="badge bg-surface-container-high text-on-surface-variant text-xs">可用</span></td><td class="px-3 py-2 text-xs"><span v-if="p.occupied_kit_name">{{ p.occupied_by || '-' }} · {{ p.occupied_kit_name }}</span><span v-else class="text-on-surface-variant">-</span></td></tr></tbody></table>
                                         </div>
                                         <div v-else class="text-center py-6 text-sm text-on-surface-variant">暂无代理</div>
                                 </div>
@@ -4675,7 +4675,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <!-- Deprecated sub-tab -->
                                 <div v-show="fingerprintSubTab === 'deprecated'" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                                     <div v-if="deprecatedProxies.length" class="overflow-x-auto">
-                                        <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">ID</th><th class="px-3 py-2 text-left">IP</th><th class="px-3 py-2 text-left">端口</th><th class="px-3 py-2 text-left">类型</th></tr></thead><tbody class="divide-y"><tr v-for="p in deprecatedProxies" :key="p.id" class="hover:bg-surface-container-low"><td class="px-3 py-2 text-xs font-mono">{{ p.id }}</td><td class="px-3 py-2 text-xs">{{ p.ip }}</td><td class="px-3 py-2 text-xs">{{ p.port }}</td><td class="px-3 py-2 text-xs">{{ p.proxy_type }}</td></tr></tbody></table>
+                                        <table class="w-full text-sm"><thead class="bg-surface-container-low text-xs text-on-surface-variant uppercase"><tr><th class="px-3 py-2 text-left">ID</th><th class="px-3 py-2 text-left">IP</th><th class="px-3 py-2 text-left">端口</th><th class="px-3 py-2 text-left">类型</th></tr></thead><tbody class="divide-y"><tr v-for="(p, idx) in deprecatedProxies" :key="p.id" class="hover:bg-surface-container-low"><td class="px-3 py-2 text-xs font-mono">{{ idx + 1 }}</td><td class="px-3 py-2 text-xs">{{ p.ip }}</td><td class="px-3 py-2 text-xs">{{ p.port }}</td><td class="px-3 py-2 text-xs">{{ p.proxy_type }}</td></tr></tbody></table>
                                     </div>
                                     <div v-else class="text-center py-6 text-sm text-on-surface-variant">暂无弃用代理</div>
                                 </div>
@@ -4719,7 +4719,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     <table class="w-full">
                         <thead class="bg-surface-container-low text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
                             <tr>
-                                <th class="px-4 py-3">ID</th>
+                                <th class="px-4 py-3">#</th>
                                 <th class="px-4 py-3">用户名</th>
                                 <th class="px-4 py-3">角色</th>
                                 <th class="px-4 py-3">服务器环境</th>
@@ -4728,8 +4728,8 @@ pipelineStatuses[siteId].demo_importing = false;
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-outline-variant">
-                            <tr v-for="user in pagedUsers" :key="user.id" class="hover:bg-surface-container-low">
-                                <td class="px-4 py-3 text-sm text-on-surface-variant">#{{ user.id }}</td>
+                            <tr v-for="(user, idx) in pagedUsers" :key="user.id" class="hover:bg-surface-container-low">
+                                <td class="px-4 py-3 text-sm text-on-surface-variant">{{ (usersPage - 1) * USERS_PER + idx + 1 }}</td>
                                 <td class="px-4 py-3 font-medium">{{ user.username }}</td>
                                 <td class="px-4 py-3"><span :class="user.role === 'admin' ? 'bg-blue-100 text-primary' : 'bg-blue-100 text-primary'" class="badge">{{ user.role === 'admin' ? '管理员' : '运营' }}</span></td>
                                 <td class="px-4 py-3 text-xs text-on-surface-variant">{{ user.panel_env_name || '—' }}</td>
