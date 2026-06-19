@@ -4830,7 +4830,6 @@ pipelineStatuses[siteId].demo_importing = false;
                         </div>
                     </div>
                 </div>
-            </div>
 
             <!-- Brand Kits List -->
             <div v-if="currentPage === 'brand-kits'" class="fade-in max-w-[1440px] mx-auto px-lg">
