@@ -2982,14 +2982,14 @@ def register_routes(app):
         xml_str = '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(rss, encoding="unicode")
         size_bytes = len(xml_str.encode("utf-8"))
 
-        # Upload to 1Panel
-        nginx_alias = site.get("nginx_alias", "")
+        # Upload via SSH
         site_dir = site.get("static_dir", "")
         env = get_user_panel_environment(site.get("created_by") or 1)
-        if env and nginx_alias:
-            pc = OnePanelClient(host=env["host"], port=env["port"], api_key=env["api_key"])
-            pc.upload_static_site_files(alias=nginx_alias, files={"feed.xml": xml_str}, website_dir=site_dir)
-            pc.reload_openresty()
+        if env and site_dir:
+            from ssh_client import get_ssh_client
+            ssh = get_ssh_client(env["host"], 22, env.get("ssh_password", ""))
+            ssh.write_file(f"{site_dir}/feed.xml", xml_str)
+            ssh.reload_nginx()
 
         feed_url = f"https://{domain}/feed.xml"
         update_site(site["id"], {"google_feed_url": feed_url})
@@ -2999,24 +2999,14 @@ def register_routes(app):
         })
 
     def _clean_feed_from_static_site(site):
-        """Remove feed.xml from 1Panel static site directory."""
-        import xml.etree.ElementTree as ET
-        domain = site["url"]
-        ns_g = "http://base.google.com/ns/1.0"
-        rss = ET.Element("rss", {"version": "2.0", "xmlns:g": ns_g})
-        channel = ET.SubElement(rss, "channel")
-        ET.SubElement(channel, "title").text = site.get("site_name") or domain
-        ET.SubElement(channel, "link").text = f"https://{domain}"
-        ET.SubElement(channel, "description").text = "Google Shopping Product Feed"
-        empty_xml = '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(rss, encoding="unicode")
-
-        nginx_alias = site.get("nginx_alias", "")
+        """Remove feed.xml from static site directory via SSH."""
         site_dir = site.get("static_dir", "")
         env = get_user_panel_environment(site.get("created_by") or 1)
-        if env and nginx_alias:
-            pc = OnePanelClient(host=env["host"], port=env["port"], api_key=env["api_key"])
-            pc.upload_static_site_files(alias=nginx_alias, files={"feed.xml": empty_xml}, website_dir=site_dir)
-            pc.reload_openresty()
+        if env and site_dir:
+            from ssh_client import get_ssh_client
+            ssh = get_ssh_client(env["host"], 22, env.get("ssh_password", ""))
+            ssh.delete_file(f"{site_dir}/feed.xml")
+            ssh.reload_nginx()
             update_site(site["id"], {"google_feed_url": ""})
             return True
         return False
