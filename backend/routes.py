@@ -3135,20 +3135,20 @@ def register_routes(app):
 # _generate_brand_pages removed — replaced by static_store_engine.render_site()
 
     def _bg_deploy_static(task_id, site_id, alias, domain,
-                         brand_kit=None, panel_host="", panel_port=3500, panel_api_key=""):
-        """Deploy static site: 1. create website  2. design (Stitch/built-in)  3. upload  4. activate."""
-        import io as _io
-        _get_pc = lambda: OnePanelClient(host=panel_host, port=panel_port, api_key=panel_api_key)
+                         brand_kit=None, panel_host="", panel_port=22, panel_api_key=""):
+        """Deploy static site via SSH: 1. create dir  2. design  3. upload  4. activate."""
+        from ssh_client import get_ssh_client
+        site_dir = f"/www/sites/{alias}/index"
+        nginx_conf = f"/www/conf.d/{alias}.conf"
         total_files = 0
 
         try:
-            # ── Step 1: Create website on 1Panel ──
-            update_bg_task(task_id, status="deploying", message="正在1Panel创建网站...")
-            site_resp = _get_pc().create_static_website(domain=domain, alias=alias)
-            site_data = site_resp.get("data", {}) if site_resp.get("code") == 200 else {}
-            site_dir_1panel = site_data.get("site_dir", f"/opt/1panel/apps/openresty/openresty/www/sites/{alias}/index")
+            # ── Step 1: Create site directory via SSH ──
+            update_bg_task(task_id, status="deploying", message="正在创建站点目录...")
+            ssh = get_ssh_client(panel_host, panel_port, panel_api_key)
+            ssh.mkdir_p(site_dir)
             update_site_fields(site_id, {"stitch_design_status": "pending"})
-            logger.info(f"Deploy static site: domain={domain} site_dir_1panel={site_dir_1panel} website_id={site_data.get('website_id')}")
+            logger.info(f"Deploy static site: domain={domain} site_dir={site_dir}")
 
             # ── Step 2: Generate page designs ──
             update_bg_task(task_id, status="deploying", message="正在生成商城页面...")
@@ -3173,45 +3173,41 @@ def register_routes(app):
             update_bg_task(task_id, status="deploying",
                           message=f"页面生成完成（{page_count} 个文件）{stitch_msg}")
 
-            # ── Step 3: Upload files to 1Panel ──
-            pc = _get_pc()
+            # ── Step 3: Upload files via SSH ──
             uploaded = 0
-            pending = [r for r in files if not r.endswith(".css") and not r.endswith(".js")]
-            total_files = len(pending)
-            created_dirs = set()
+            total_files = len([r for r in files if not r.endswith(".css") and not r.endswith(".js")])
 
             for rel_path, content in files.items():
                 if rel_path.endswith(".css") or rel_path.endswith(".js"):
                     continue
-                remote_path = f"{site_dir_1panel}/{rel_path}"
-                parent_dir = os.path.dirname(remote_path)
-
-                # Ensure parent dir
-                if parent_dir not in created_dirs:
-                    result = pc.create_file(parent_dir, is_dir=True)
-                    if result.get("code") in (200, 500):
-                        created_dirs.add(parent_dir)
-
-                # Delete old, create new, save content
-                pc.delete_file(remote_path)
-                pc.create_file(remote_path, is_dir=False)
-                save_res = pc.save_file(remote_path, content)
-                if save_res.get("code") == 200:
-                    uploaded += 1
-
-                # Progress every 3 files
+                remote_path = f"{site_dir}/{rel_path}"
+                ssh.write_file(remote_path, content)
+                uploaded += 1
                 if uploaded % 3 == 0 or uploaded == total_files:
                     update_bg_task(task_id, status="deploying",
                                   message=f"正在上传文件... ({uploaded}/{total_files})")
 
-            pc.reload_openresty()
-            logger.info(f"Uploaded {uploaded}/{total_files} files to 1Panel for {domain}")
+            # Create nginx config for this site
+            nginx_conf_content = f"""server {{
+    listen 80;
+    server_name {domain};
+
+    root {site_dir};
+    index index.html;
+
+    location / {{
+        try_files $uri $uri/ /index.html;
+    }}
+}}
+"""
+            ssh.write_file(nginx_conf, nginx_conf_content)
+            ssh.reload_nginx()
+            logger.info(f"Uploaded {uploaded}/{total_files} files for {domain}")
 
             # ── Step 4: Activate site ──
             update_site_fields(site_id, {
                 "status": "active",
-                "static_dir": site_dir_1panel,
-                "panel_website_id": site_data.get("website_id"),
+                "static_dir": site_dir,
             })
             design_label = "Stitch设计" if stitch_used else "标准设计"
             update_bg_task(task_id, status="completed",
@@ -3333,6 +3329,7 @@ def register_routes(app):
                     "brand_kit_id": dom_brand_kit_id,
                     "nginx_alias": alias,
                     "created_by": user_id,
+                    "panel_environment_id": panel_env.get("id") if panel_env else None,
                     "cloakbrowser_profile_name": dom_brand_kit.get("cloakbrowser_profile_name") if dom_brand_kit else None,
                 }
                 site = create_site(site_data)
@@ -3425,8 +3422,8 @@ def register_routes(app):
                 bg_task_id = create_bg_task(site_id, "deploy_static", status="queued", message="排队等待部署...")
 
                 panel_host = panel_env.get("host") if panel_env else ""
-                panel_port = panel_env.get("port", 3500) if panel_env else 3500
-                panel_key = panel_env.get("api_key", "") if panel_env else ""
+                panel_port = 22  # SSH port
+                panel_key = panel_env.get("ssh_password", "") if panel_env else ""
 
                 thread = threading.Thread(
                     target=_bg_deploy_static,
