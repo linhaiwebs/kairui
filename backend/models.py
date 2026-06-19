@@ -1063,7 +1063,7 @@ def create_site(data):
                 port, nginx_alias, db_name, db_service,
                 status, created_by, cloakbrowser_profile_name,
                 site_type, static_dir, brand_kit_id, panel_environment_id, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("site_name", ""),
                 data.get("url", ""),
@@ -2540,7 +2540,7 @@ def create_brand_kit(data: dict) -> dict:
                 html_site, static_style, design_system,
                 created_by, cloakbrowser_profile_name, proxy, proxy_id,
                 google_account_id, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("name", ""),
                 data.get("brand_name", ""),
