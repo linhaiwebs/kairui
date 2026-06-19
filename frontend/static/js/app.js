@@ -3336,7 +3336,7 @@ pipelineStatuses[siteId].demo_importing = false;
                         <div class="flex items-center gap-3">
                             <!-- Site name -->
                             <div class="w-32 flex-shrink-0">
-                                <div class="font-medium text-on-surface text-sm truncate">{{ site.site_name }}</div>
+                                <a :href="'https://' + site.url" target="_blank" class="font-medium text-primary text-sm truncate hover:underline" :title="'打开 ' + site.site_name">{{ site.site_name }} <span class="material-symbols-outlined text-[12px]">open_in_new</span></a>
                                 <div class="text-xs text-on-surface-variant">{{ site.site_type === 'static' ? '静态站点' : 'WordPress' }}</div>
                             </div>
                             <!-- Server Status -->
