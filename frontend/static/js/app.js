@@ -2114,7 +2114,7 @@ pipelineStatuses[siteId].demo_importing = false;
         // ---- Delete ----
         function confirmDelete(site) {
             modal.loading = false; modal.progress = '';
-            showModal('删除站点', `确定要删除 "${site.site_name}" 吗？${site.panel_website_id ? '将同时从服务器删除关联的网站、应用和数据库。' : ''}此操作不可撤销。`,
+            showModal('删除站点', `确定要删除 "${site.site_name}" 吗？${site.panel_environment_id ? '将同时从服务器删除站点文件和nginx配置。' : ''}此操作不可撤销。`,
                 async () => {
                     modal.loading = true;
                     try {
@@ -3341,7 +3341,7 @@ pipelineStatuses[siteId].demo_importing = false;
                             </div>
                             <!-- Server Status -->
                             <div class="w-16 flex-shrink-0 text-center">
-                                <span v-if="site.panel_website_id" class="inline-flex items-center gap-1 text-xs text-[#146c2e]"><span class="material-symbols-outlined text-[14px]">check_circle</span>已关联</span>
+                                <span v-if="site.panel_environment_id" class="inline-flex items-center gap-1 text-xs text-[#146c2e]"><span class="material-symbols-outlined text-[14px]">check_circle</span>已关联</span>
                                 <span v-else class="text-xs text-on-surface-variant">未关联</span>
                             </div>
                             <!-- DNS Status -->
