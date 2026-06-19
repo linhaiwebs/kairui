@@ -1707,15 +1707,10 @@ pipelineStatuses[siteId].demo_importing = false;
             createProgress.show = false; createProgress.results = [];
             wizardBrandKitId.value = null;
             profileTestState.value = { testing: false, result: null, message: '' };
+            await resolveOperatorCfAccount();
+            await loadBrandKitsForWizard();
             if (mode === 'batch') {
-                await resolveOperatorCfAccount();
-                await loadBrandKitsForWizard();
                 initBatchRows(3);
-            } else {
-                await loadCfAccounts();
-                await loadBrandKitsForWizard();
-                if (cfAccounts.value.length > 0) { cfSelectedAccountId.value = cfAccounts.value[0].id; }
-                else { cfSelectedAccountId.value = ''; }
             }
             wizardOpen.value = true;
         }
@@ -5358,16 +5353,10 @@ pipelineStatuses[siteId].demo_importing = false;
                         <p class="text-xs text-on-surface-variant mt-2">Cloudflare控制台 → My Profile → API Tokens → 创建Token（需Zone:DNS:Edit权限）</p>
                     </div>
                     <div v-else class="space-y-4">
-                        <!-- Batch mode: CF account locked -->
-                        <div v-if="wizardMode === 'batch'" class="bg-blue-50 border border-primary-container/20 rounded-lg p-4">
+                        <!-- CF account locked to operator's environment -->
+                        <div class="bg-blue-50 border border-primary-container/20 rounded-lg p-4">
                             <p class="text-sm text-primary"><i class="fas fa-lock mr-2"></i>Cloudflare账号已自动绑定: <strong>{{ operatorCfAccountName || '解析中...' }}</strong></p>
                             <p class="text-xs text-on-surface-variant mt-1">该账号关联自您的服务器运营环境，不可更改</p>
-                        </div>
-                        <!-- Single mode: dropdown -->
-                        <div v-else>
-                            <div class="bg-[#146c2e]/5 border border-[#146c2e]/20 rounded-lg p-4"><p class="text-[#146c2e] text-sm"><i class="fab fa-cloudflare mr-2"></i>Cloudflare已连接 — DNS将在创建站点时自动配置</p></div>
-                            <div v-if="cfAccounts.length"><label class="block text-sm font-medium text-on-surface mb-1">选择Cloudflare账号</label><select v-model="cfSelectedAccountId" class="w-full px-4 py-3 border rounded-lg focus:border-primary"><option value="">默认账号</option><option v-for="acc in cfAccounts" :key="acc.id" :value="acc.id">{{ acc.name }}<span v-if="acc.is_default" class="text-xs text-tertiary">（默认）</span><span v-if="acc.notes" class="text-xs text-on-surface-variant"> — {{ acc.notes }}</span></option></select><p class="text-xs text-on-surface-variant mt-1">DNS解析将使用所选账号自动创建</p></div>
-                            <div v-else class="bg-surface-container-low rounded-lg p-4 text-center text-on-surface-variant"><p>暂无已保存的Cloudflare账号</p></div>
                         </div>
                     </div>
 
