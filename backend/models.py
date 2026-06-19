@@ -1062,7 +1062,7 @@ def create_site(data):
                 panel_website_id, panel_app_install_id, panel_app_detail_id,
                 port, nginx_alias, db_name, db_service,
                 status, created_by, cloakbrowser_profile_name,
-                site_type, static_dir, brand_kit_id, created_at, updated_at)
+                site_type, static_dir, brand_kit_id, panel_environment_id, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("site_name", ""),
@@ -1088,6 +1088,7 @@ def create_site(data):
                 data.get("site_type", "static"),
                 data.get("static_dir", ""),
                 data.get("brand_kit_id"),
+                data.get("panel_environment_id"),
                 now,
                 now,
             ),
