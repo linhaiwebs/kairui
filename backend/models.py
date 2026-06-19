@@ -652,6 +652,16 @@ def _migrate_add_columns(conn):
     except Exception:
         pass
 
+    # Add SSH columns to panel_environments (replaces 1Panel API)
+    try:
+        pe_cols = [row[1] for row in conn.execute("PRAGMA table_info(panel_environments)").fetchall()]
+        if "ssh_password" not in pe_cols:
+            conn.execute("ALTER TABLE panel_environments ADD COLUMN ssh_password TEXT DEFAULT ''")
+        if "ssh_initialized" not in pe_cols:
+            conn.execute("ALTER TABLE panel_environments ADD COLUMN ssh_initialized INTEGER DEFAULT 0")
+    except Exception:
+        pass
+
     # Add proxy_type column to proxies table (distinguish socks5/decodo from http/okkproxy)
     try:
         proxy_cols = [row[1] for row in conn.execute("PRAGMA table_info(proxies)").fetchall()]

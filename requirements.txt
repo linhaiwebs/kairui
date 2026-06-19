@@ -33,3 +33,5 @@ opencv-python-headless>=4.8,<5.0
 # WebSocket proxy for noVNC (VNC → WebSocket bridge)
 websockify>=0.12,<1.0
 
+# SSH client for direct server file operations
+paramiko>=3.4.0
