@@ -467,7 +467,7 @@ const app = createApp({
         const settingsActiveTab = ref('wordpress');
         const settingsTabs = [
             { key: 'wordpress', label: 'WordPress 默认' },
-            { key: 'panel', label: '1Panel 环境' },
+            { key: 'panel', label: '服务器环境' },
             { key: 'deepseek', label: 'DeepSeek API' },
             { key: 'crawlbase', label: 'Crawlbase' },
             { key: 'cloudflare', label: 'Cloudflare' },
@@ -3243,7 +3243,7 @@ pipelineStatuses[siteId].demo_importing = false;
 <!-- Main Content -->
         <div class="mb-lg">
                 <h1 class="page-title">{{ currentPage === 'dashboard' ? '概览' : currentPage === 'sites' ? '站点概览' : currentPage === 'brand-kits' ? '品牌套件' : currentPage === 'brand-kits-detail' ? '品牌套件详情' : currentPage === 'shai-pin-dashboard' ? '筛品' : currentPage === 'shai-pin-source' ? '产品来源' : currentPage === 'shai-pin-feed' ? '数据源生成' : currentPage === 'woocommerce-products' ? '网站产品' : currentPage === 'woo-stats' ? '销售统计' : currentPage === 'mc-automation' ? 'Google MC' : currentPage === 'users' ? '用户管理' : '系统设置' }}</h1>
-                <p class="font-body-md text-on-surface-variant mt-xs"><span :class="panelConnected ? 'text-[#146c2e]' : 'text-error'"><span class="material-symbols-outlined text-[10px] mr-1">circle</span>{{ panelConnected ? '1Panel 已连接' : '1Panel 未连接' }}</span></p>
+                <p class="font-body-md text-on-surface-variant mt-xs"><span class="text-[#146c2e]"><span class="material-symbols-outlined text-[10px] mr-1">dns</span>{{ panelEnvironments.length || 0 }} 台服务器</span></p>
                 <div class="flex gap-sm mt-md">
                     <button v-if="currentPage === 'settings'" @click="exportSystemData" class="flex items-center gap-sm px-md py-sm bg-primary-container text-on-primary rounded-lg hover:bg-primary transition-colors font-label-md text-label-md shadow-level-1" title="导出所有配置和数据"><span class="material-symbols-outlined text-[18px]">download</span>导出配置</button>
                     <button v-if="currentPage === 'settings'" @click="importSystemData" class="flex items-center gap-sm px-md py-sm bg-surface-container-low border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container-high transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]">upload</span>导入配置</button>
@@ -3371,7 +3371,7 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- Sites List -->
-            <div v-if="currentPage === 'sites'" class="fade-in">
+            <div v-if="currentPage === 'sites'" class="fade-in mt-lg">
                 <div class="flex items-center justify-between mb-6">
                     <div class="relative"><i class="fas fa-search absolute left-3 top-3 text-on-surface-variant"></i><input v-model="searchQuery" type="text" placeholder="搜索站点..." class="pl-10 pr-4 py-2 border rounded-lg focus:border-primary w-64"></div>
                     <div class="flex gap-3"><button @click="openWizard('single')" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><span class="material-symbols-outlined text-[18px]">add_circle</span>创建站点</button><button @click="openWizard('batch')" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><span class="material-symbols-outlined text-[18px]">layers</span>批量创建</button><button @click="showMirrorModal = true" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><span class="material-symbols-outlined text-[18px]">flip</span>镜像向导</button><button @click="exportCSV" class="btn btn-secondary text-sm"><i class="fas fa-download mr-2"></i>导出CSV</button></div>
@@ -3519,8 +3519,8 @@ pipelineStatuses[siteId].demo_importing = false;
             <!-- Environment Selection Modal (operator login) -->
             <div v-if="envSelectModal.show" class="modal-overlay modal-overlay">
                 <div class="bg-surface-container-lowest rounded-2xl shadow-level-3 w-full max-w-lg mx-4 p-6 fade-in">
-                    <h3 class="text-lg font-bold mb-2"><span class="material-symbols-outlined">dns</span>选择 1Panel 环境</h3>
-                    <p class="text-sm text-on-surface-variant mb-4">请选择你管理的 1Panel 服务器环境</p>
+                    <h3 class="text-lg font-bold mb-2"><span class="material-symbols-outlined">dns</span>选择服务器环境</h3>
+                    <p class="text-sm text-on-surface-variant mb-4">请选择你管理的服务器环境</p>
 
                     <div v-if="envSelectModal.loading" class="text-center py-12 text-on-surface-variant">
                         <span class="spinner w-4 h-4 inline-block"></span><p>加载环境列表...</p>
@@ -4465,7 +4465,7 @@ pipelineStatuses[siteId].demo_importing = false;
                             <!-- Tab: 1Panel 环境 -->
                             <div v-else-if="settingsActiveTab === 'panel'" @vue:mounted="loadPanelEnvironments()">
                                 <div class="flex items-center justify-between mb-4">
-                                    <h4 class="text-sm font-semibold text-on-surface"><span class="material-symbols-outlined">dns</span>已保存的 1Panel 环境</h4>
+                                    <h4 class="text-sm font-semibold text-on-surface"><span class="material-symbols-outlined">dns</span>已保存的服务器环境</h4>
                                     <button @click="openPanelEnvModal(null)" class="btn-primary text-on-primary px-3 py-1.5 rounded-lg text-sm"><i class="fas fa-plus mr-1"></i>添加环境</button>
                                 </div>
                                 <div v-if="!panelEnvironments.length" class="text-center py-8 text-sm text-on-surface-variant">
@@ -4491,9 +4491,9 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <!-- Panel Env Modal -->
                                 <div v-if="showPanelEnvModal" class="modal-overlay modal-overlay" @click.self="closePanelEnvModal">
                                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 w-full max-w-md p-6 fade-in">
-                                        <h3 class="text-lg font-semibold text-on-surface mb-4">{{ panelEnvEditId ? '编辑环境' : '添加 1Panel 环境' }}</h3>
+                                        <h3 class="text-lg font-semibold text-on-surface mb-4">{{ panelEnvEditId ? '编辑环境' : '添加服务器环境' }}</h3>
                                         <div class="space-y-4">
-                                            <div><label class="block text-sm font-medium text-on-surface mb-1">环境名称</label><input v-model="panelEnvForm.name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="如：美国1Panel"></div>
+                                            <div><label class="block text-sm font-medium text-on-surface mb-1">环境名称</label><input v-model="panelEnvForm.name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="如：美国服务器"></div>
                                             <div><label class="block text-sm font-medium text-on-surface mb-1">主机地址</label><input v-model="panelEnvForm.host" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="如：192.168.1.1"></div>
                                             <div><label class="block text-sm font-medium text-on-surface mb-1">端口</label><input v-model.number="panelEnvForm.port" type="number" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="3500"></div>
                                             <div><label class="block text-sm font-medium text-on-surface mb-1">API Key</label><input v-model="panelEnvForm.api_key" type="password" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="1Panel API Key"></div>
@@ -4724,7 +4724,7 @@ pipelineStatuses[siteId].demo_importing = false;
                             </div>
                         </div>
                     </div>
-                    <button @click="saveGlobalConfig" :disabled="loading" class="w-full btn-primary text-on-primary py-3 rounded-lg font-semibold mt-4"><i class="fas fa-save mr-2"></i>保存设置</button>
+                    <div class="flex justify-center mt-4"><button @click="saveGlobalConfig" :disabled="loading" class="btn-primary text-on-primary px-8 py-3 rounded-lg font-semibold"><i class="fas fa-save mr-2"></i>保存设置</button></div>
                 </div>
             </div>
 
@@ -4764,7 +4764,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <th class="px-4 py-3">ID</th>
                                 <th class="px-4 py-3">用户名</th>
                                 <th class="px-4 py-3">角色</th>
-                                <th class="px-4 py-3">1Panel 环境</th>
+                                <th class="px-4 py-3">服务器环境</th>
                                 <th class="px-4 py-3">创建时间</th>
                                 <th class="px-4 py-3 w-32">操作</th>
                             </tr>
