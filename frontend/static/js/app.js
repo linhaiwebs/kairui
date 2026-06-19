@@ -218,6 +218,29 @@ const app = createApp({
         const amazonSearchError = ref('');
         const amazonSelectedIndices = ref(new Set());
         const amazonSearchProgress = ref('');
+        const hotnessQuerying = ref(false);
+        async function queryGoogleHotness() {
+            if (!amazonSelectedIndices.value.size) return;
+            hotnessQuerying.value = true;
+            try {
+                const ids = Array.from(amazonSelectedIndices.value).map(i => amazonSearchResults.value[i]?.id).filter(Boolean);
+                const r = await API.request('POST', '/api/shai-pin/amazon/google-hotness', { product_ids: ids });
+                if (r.code === 200) {
+                    const byId = {};
+                    (r.data.results || []).forEach(x => { byId[x.id] = x; });
+                    amazonSearchResults.value.forEach((p, i) => {
+                        if (byId[p.id]) {
+                            p.search_volume = byId[p.id].search_volume;
+                            p.competition = byId[p.id].competition;
+                            p.cpc = byId[p.id].cpc;
+                            p.hotness_score = byId[p.id].hotness_score;
+                        }
+                    });
+                    showToast(r.message);
+                } else showToast(r.message || '查询失败', 'error');
+            } catch (e) { showToast('查询失败', 'error'); }
+            hotnessQuerying.value = false;
+        }
         const showAmazonImportModal = ref(false);
         const amazonImportModalText = ref('');
         const showAmazonUrlModal = ref(false);
@@ -448,6 +471,7 @@ const app = createApp({
             { key: 'deepseek', label: 'DeepSeek API' },
             { key: 'crawlbase', label: 'Crawlbase' },
             { key: 'cloudflare', label: 'Cloudflare' },
+            { key: 'dataforseo', label: 'DataForSEO' },
             { key: 'google_account', label: '谷歌账户' },
             { key: 'fingerprint', label: '指纹环境' },
         ];
@@ -2927,7 +2951,7 @@ pipelineStatuses[siteId].demo_importing = false;
             walmartCategories, walmartSelectedCategory, walmartProducts, walmartLoading, walmartError, walmartFetchLimit,
             walmartEnriching, walmartEnrichProgress, generatedFeed,
             walmartPage, walmartPerPage, walmartPagedProducts, walmartTotalPages,
-            amazonSearchResults, amazonSearchLoading, amazonSearchError, amazonSelectedIndices,
+            amazonSearchResults, amazonSearchLoading, amazonSearchError, amazonSelectedIndices, hotnessQuerying, queryGoogleHotness,
             amazonSearchProgress, showAmazonImportModal, amazonImportModalText,
             showAmazonUrlModal, amazonUrlModalText,
             showConvertLogModal, convertLogLines, convertLogProgress, converting,
@@ -3947,6 +3971,11 @@ pipelineStatuses[siteId].demo_importing = false;
                                     class="px-4 py-1.5 bg-error text-on-primary rounded text-xs font-medium hover:bg-error disabled:opacity-50 transition">
                                     <i class="fas fa-trash mr-1"></i>删除 ({{ amazonSelectedIndices.size }})
                                 </button>
+                                <button @click="queryGoogleHotness" :disabled="!amazonSelectedIndices.size || hotnessQuerying"
+                                    class="px-4 py-1.5 bg-tertiary-container text-on-primary rounded text-xs font-medium hover:bg-tertiary disabled:opacity-50 transition">
+                                    <i v-if="hotnessQuerying" class="fas fa-spinner fa-spin mr-1"></i>
+                                    <i v-else class="fas fa-fire mr-1"></i>查询热度 ({{ amazonSelectedIndices.size }})
+                                </button>
                             </div>
                         </div>
                         <div class="overflow-x-auto">
@@ -3960,6 +3989,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                         <th class="px-3 py-3 w-16">Prime</th>
                                         <th class="px-3 py-3 w-16">评分</th>
                                         <th class="px-3 py-3 w-20">评论数</th>
+                                        <th class="px-3 py-3 w-20">Google热度</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y">
@@ -4177,9 +4207,18 @@ pipelineStatuses[siteId].demo_importing = false;
                                         </div>
                                         <span v-else class="text-on-surface-variant text-xs">-</span>
                                     </td>
+                                    <td class="px-3 py-3 text-center">
+                                        <span v-if="p.search_volume !== null && p.search_volume !== undefined"
+                                            :class="['text-xs font-bold', p.hotness_score >= 70 ? 'text-error' : p.hotness_score >= 40 ? 'text-tertiary' : 'text-on-surface-variant']"
+                                            :title="'搜索量: ' + (p.search_volume || 0).toLocaleString() + ' | 竞争度: ' + ((p.competition || 0) * 100).toFixed(0) + '% | CPC: $' + (p.cpc || 0).toFixed(2)">
+                                            {{ p.hotness_score >= 70 ? '🔥' : p.hotness_score >= 40 ? '⭐' : '' }} {{ p.hotness_score || 0 }}
+                                        </span>
+                                        <span v-else class="text-on-surface-variant text-xs">-</span>
+                                    </td>
                                 </tr>
                             </tbody>
                         </table>
+                    </div>
                     </div>
                     <!-- Pagination -->
                     <div class="px-6 py-3 bg-surface-container-low border-t flex items-center justify-between text-xs text-on-surface-variant">
@@ -4541,6 +4580,15 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <div class="flex gap-2"><input v-model="cfToken" type="password" placeholder="输入Cloudflare API Token" class="flex-1 px-4 py-2 border rounded-lg focus:border-primary"><button @click="cfVerify" :disabled="loading" class="btn-primary text-on-primary px-4 py-2 rounded-lg"><i class="fas fa-check mr-2"></i>验证并保存</button></div>
                                 <label class="block text-sm font-medium text-on-surface mb-1 mt-3">备注</label>
                                 <input v-model="cfNote" placeholder="例如：kairui-yuan 专用" class="w-full px-4 py-2 border rounded-lg focus:border-primary text-sm">
+                            </div>
+                            <!-- Tab: DataForSEO -->
+                            <div v-else-if="settingsActiveTab === 'dataforseo'">
+                                <h4 class="text-sm font-semibold text-on-surface mb-3"><i class="fas fa-chart-line mr-2 text-primary"></i>DataForSEO API</h4>
+                                <p class="text-xs text-on-surface-variant mb-4">用于查询产品的谷歌搜索量、竞争度、CPC。凭据格式为 API Login : API Password。</p>
+                                <div class="space-y-3">
+                                    <div><label class="block text-sm font-medium text-on-surface mb-1">API Login</label><input v-model="globalConfig.dataforseo_login" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary text-sm" placeholder="DataForSEO API Login"></div>
+                                    <div><label class="block text-sm font-medium text-on-surface mb-1">API Password</label><input v-model="globalConfig.dataforseo_password" type="password" class="w-full px-4 py-2 border rounded-lg focus:border-primary text-sm" placeholder="DataForSEO API Password"></div>
+                                </div>
                             </div>
                             <!-- Tab: 谷歌账户 -->
                             <div v-else-if="settingsActiveTab === 'google_account'" @vue:mounted="loadGoogleAccounts()">

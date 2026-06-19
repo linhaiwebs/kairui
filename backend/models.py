@@ -507,6 +507,14 @@ def _migrate_add_columns(conn):
             conn.execute("ALTER TABLE amazon_search_results ADD COLUMN is_prime INTEGER DEFAULT 0")
         if "delivery" not in asr_cols:
             conn.execute("ALTER TABLE amazon_search_results ADD COLUMN delivery TEXT DEFAULT ''")
+        if "search_volume" not in asr_cols:
+            conn.execute("ALTER TABLE amazon_search_results ADD COLUMN search_volume INTEGER DEFAULT NULL")
+        if "competition" not in asr_cols:
+            conn.execute("ALTER TABLE amazon_search_results ADD COLUMN competition REAL DEFAULT NULL")
+        if "cpc" not in asr_cols:
+            conn.execute("ALTER TABLE amazon_search_results ADD COLUMN cpc REAL DEFAULT NULL")
+        if "hotness_score" not in asr_cols:
+            conn.execute("ALTER TABLE amazon_search_results ADD COLUMN hotness_score INTEGER DEFAULT NULL")
     except Exception:
         pass
 

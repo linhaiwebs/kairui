@@ -8306,6 +8306,58 @@ Respond with strict JSON only (no markdown code blocks):
             logger.error(f"Amazon delete search results error: {e}")
             return jsonify({"code": 500, "message": str(e)[:100]}), 500
 
+    @app.route("/api/shai-pin/amazon/google-hotness", methods=["POST"])
+    @jwt_required()
+    def amazon_google_hotness():
+        """Batch query Google search volume via DataForSEO for selected products."""
+        data = request.get_json(silent=True) or {}
+        product_ids = data.get("product_ids") or []
+        if not product_ids:
+            return jsonify({"code": 400, "message": "请选择产品"}), 400
+        cfg = get_global_config()
+        dfs_login = cfg.get("dataforseo_login", "")
+        dfs_pass = cfg.get("dataforseo_password", "")
+        if not dfs_login or not dfs_pass:
+            return jsonify({"code": 400, "message": "DataForSEO API未配置"}), 400
+        try:
+            from dataforseo_client import DataForSEOClient, compute_hotness
+            client = DataForSEOClient(dfs_login, dfs_pass)
+            from models import get_db
+            db = get_db()
+            results = []
+            placeholders = ",".join("?" * len(product_ids))
+            rows = db.execute(
+                f"SELECT id, product_name FROM amazon_search_results WHERE id IN ({placeholders})",
+                [int(i) for i in product_ids],
+            ).fetchall()
+            if not rows:
+                return jsonify({"code": 200, "data": {"results": [], "message": "无产品"}})
+            name_to_id = {}
+            keywords = []
+            for r in rows:
+                kw = (r["product_name"] or "")[:80].strip()
+                if kw:
+                    keywords.append(kw)
+                    name_to_id.setdefault(kw, []).append(r["id"])
+            vol_data = client.search_volume(keywords)
+            for kw, info in vol_data.items():
+                score = compute_hotness(info["search_volume"], info["competition"], info["cpc"])
+                for pid in name_to_id.get(kw, []):
+                    db.execute(
+                        "UPDATE amazon_search_results SET search_volume=?, competition=?, cpc=?, hotness_score=? WHERE id=?",
+                        (info["search_volume"], info["competition"], info["cpc"], score, pid),
+                    )
+                    results.append({
+                        "id": pid, "search_volume": info["search_volume"],
+                        "competition": info["competition"], "cpc": info["cpc"],
+                        "hotness_score": score,
+                    })
+            db.commit()
+            return jsonify({"code": 200, "data": {"results": results}, "message": f"已查询 {len(results)} 件产品"})
+        except Exception as e:
+            logger.error(f"Google hotness query failed: {e}")
+            return jsonify({"code": 500, "message": str(e)[:200]}), 500
+
     @app.route("/api/shai-pin/amazon/convert", methods=["POST"])
     @jwt_required()
     def amazon_convert_to_feed():
