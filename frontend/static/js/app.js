@@ -444,7 +444,7 @@ const app = createApp({
         const settingsActiveTab = ref('wordpress');
         const settingsTabs = [
             { key: 'wordpress', label: 'WordPress 默认' },
-            { key: 'panel', label: '1Panel 环境' },
+            { key: 'panel', label: '服务器环境' },
             { key: 'deepseek', label: 'DeepSeek API' },
             { key: 'crawlbase', label: 'Crawlbase' },
             { key: 'cloudflare', label: 'Cloudflare' },
@@ -2798,7 +2798,7 @@ pipelineStatuses[siteId].demo_importing = false;
             panelEnvFormError.value = '';
             if (!panelEnvForm.name || !panelEnvForm.host || !panelEnvForm.api_key) { panelEnvFormError.value = '请填写所有必填字段'; return; }
             try {
-                const data = { name: panelEnvForm.name, host: panelEnvForm.host, port: panelEnvForm.port, api_key: panelEnvForm.api_key, cf_account_id: panelEnvForm.cf_account_id || null };
+                const data = { name: panelEnvForm.name, host: panelEnvForm.host, port: panelEnvForm.port, api_key: panelEnvForm.api_key, ssh_password: panelEnvForm.api_key, cf_account_id: panelEnvForm.cf_account_id || null };
                 let resp;
                 if (panelEnvEditId.value) {
                     resp = await API.updatePanelEnvironment(panelEnvEditId.value, data);
@@ -2828,6 +2828,22 @@ pipelineStatuses[siteId].demo_importing = false;
                 if (resp.code === 200) { showToast('已设为默认'); loadPanelEnvironments(); }
                 else { showToast(resp.message || '设置失败', 'error'); }
             } catch (e) { showToast('设置失败', 'error'); }
+        }
+        async function handleServerInit(env) {
+            if (!confirm(`将在 ${env.host} 上安装 OpenResty 并配置站点环境，继续？`)) return;
+            loading.value = true;
+            try {
+                const r = await API.request('POST', '/api/server/init/' + env.id);
+                if (r.code === 200) { showToast('初始化完成'); await loadPanelEnvironments(); }
+                else showToast(r.message, 'error');
+            } catch (e) { showToast('初始化失败: ' + (e.message || 'error'), 'error'); }
+            loading.value = false;
+        }
+        async function handleServerTest(env) {
+            try {
+                const r = await API.request('POST', '/api/server/test/' + env.id);
+                showToast(r.code === 200 ? '连接成功: ' + (r.data?.result || 'OK') : r.message, r.code === 200 ? 'success' : 'error');
+            } catch (e) { showToast('测试失败: ' + (e.message || 'error'), 'error'); }
         }
 
         // ---- Fingerprint Categories & Profile Mapping ----
@@ -3022,7 +3038,7 @@ pipelineStatuses[siteId].demo_importing = false;
 
             exportSystemData, importSystemData, handleImportFile, importFileInput,            panelEnvironments, showPanelEnvModal, panelEnvEditId, panelEnvForm, panelEnvFormError,
             loadPanelEnvironments, openPanelEnvModal, closePanelEnvModal, handleSavePanelEnv,
-            handleDeletePanelEnv, handleSetDefaultPanelEnv,
+            handleDeletePanelEnv, handleSetDefaultPanelEnv, handleServerInit, handleServerTest,
             showToast, showModal,
         };
     },
@@ -3219,12 +3235,11 @@ pipelineStatuses[siteId].demo_importing = false;
 <!-- Main Content -->
         <div class="mb-lg">
                 <h1 class="page-title">{{ currentPage === 'dashboard' ? '概览' : currentPage === 'sites' ? '站点概览' : currentPage === 'brand-kits' ? '品牌套件' : currentPage === 'brand-kits-detail' ? '品牌套件详情' : currentPage === 'shai-pin-dashboard' ? '筛品' : currentPage === 'shai-pin-source' ? '产品来源' : currentPage === 'shai-pin-feed' ? '数据源生成' : currentPage === 'woocommerce-products' ? '网站产品' : currentPage === 'woo-stats' ? '销售统计' : currentPage === 'mc-automation' ? 'Google MC' : currentPage === 'users' ? '用户管理' : '系统设置' }}</h1>
-                <p class="font-body-md text-on-surface-variant mt-xs"><span :class="panelConnected ? 'text-[#146c2e]' : 'text-error'"><span class="material-symbols-outlined text-[10px] mr-1">circle</span>{{ panelConnected ? '1Panel 已连接' : '1Panel 未连接' }}</span></p>
+                <p class="font-body-md text-on-surface-variant mt-xs"><span class="text-[#146c2e]"><span class="material-symbols-outlined text-[10px] mr-1">dns</span>{{ panelEnvironments.length || 0 }} 台服务器</span></p>
                 <div class="flex gap-sm mt-md">
                     <button v-if="currentPage === 'settings'" @click="exportSystemData" class="flex items-center gap-sm px-md py-sm bg-primary-container text-on-primary rounded-lg hover:bg-primary transition-colors font-label-md text-label-md shadow-level-1" title="导出所有配置和数据"><span class="material-symbols-outlined text-[18px]">download</span>导出配置</button>
                     <button v-if="currentPage === 'settings'" @click="importSystemData" class="flex items-center gap-sm px-md py-sm bg-surface-container-low border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container-high transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]">upload</span>导入配置</button>
                     <input v-if="currentPage === 'settings'" type="file" ref="importFileInput" @change="handleImportFile" accept=".json" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden">
-                    <button v-if="currentPage === 'sites'" @click="syncWithPanel" class="flex items-center gap-sm px-md py-sm bg-primary-container text-on-primary rounded-lg hover:bg-primary transition-colors font-label-md text-label-md shadow-level-1" title="从1Panel同步数据"><span class="material-symbols-outlined text-[18px]">sync</span>同步1Panel</button>
                     <button v-if="currentPage === 'sites'" @click="refreshSites" class="flex items-center gap-sm px-md py-sm bg-surface-container-low border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container-high transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]" :class="loading ? 'animate-spin' : ''">refresh</span>刷新</button>
                 </div>
 
@@ -4438,11 +4453,15 @@ pipelineStatuses[siteId].demo_importing = false;
                                             <div class="flex items-center gap-2">
                                                 <span class="font-medium text-on-surface">{{ env.name }}</span>
                                                 <span v-if="env.is_default" class="text-xs bg-blue-100 text-primary px-2 py-0.5 rounded-full">默认</span>
+                                                <span v-if="env.ssh_initialized" class="text-xs bg-green-100 text-[#146c2e] px-2 py-0.5 rounded-full">已就绪</span>
+                                                <span v-else class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">未初始化</span>
                                             </div>
-                                            <p class="text-xs text-on-surface-variant mt-1">{{ env.host }}:{{ env.port }}</p>
+                                            <p class="text-xs text-on-surface-variant mt-1">{{ env.host }}:{{ env.port || 22 }}</p>
                                             <p v-if="env.cf_account_id" class="text-xs text-primary mt-0.5">CF: {{ (cfAccounts.find(a => a.id === env.cf_account_id) || {}).name || env.cf_account_id }}<span v-if="(cfAccounts.find(a => a.id === env.cf_account_id) || {}).notes" class="text-on-surface-variant"> — {{ (cfAccounts.find(a => a.id === env.cf_account_id) || {}).notes }}</span></p>
                                         </div>
-                                        <div class="flex gap-1">
+                                        <div class="flex gap-1 flex-wrap">
+                                            <button v-if="!env.ssh_initialized" @click="handleServerInit(env)" class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200" title="初始化服务器"><i class="fas fa-rocket mr-1"></i>初始化</button>
+                                            <button @click="handleServerTest(env)" class="text-xs text-primary hover:text-primary px-2 py-1" title="测试连接"><i class="fas fa-plug mr-1"></i>测试</button>
                                             <button v-if="!env.is_default" @click="handleSetDefaultPanelEnv(env)" class="text-xs text-on-surface-variant hover:text-primary px-2 py-1" title="设为默认"><i class="fas fa-star"></i></button>
                                             <button @click="openPanelEnvModal(env)" class="text-xs text-on-surface-variant hover:text-primary px-2 py-1" title="编辑"><span class="material-symbols-outlined">edit</span></button>
                                             <button @click="handleDeletePanelEnv(env)" class="text-xs text-on-surface-variant hover:text-error px-2 py-1" title="删除"><span class="material-symbols-outlined">delete</span></button>
@@ -4452,12 +4471,12 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <!-- Panel Env Modal -->
                                 <div v-if="showPanelEnvModal" class="modal-overlay modal-overlay" @click.self="closePanelEnvModal">
                                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 w-full max-w-md p-6 fade-in">
-                                        <h3 class="text-lg font-semibold text-on-surface mb-4">{{ panelEnvEditId ? '编辑环境' : '添加 1Panel 环境' }}</h3>
+                                        <h3 class="text-lg font-semibold text-on-surface mb-4">{{ panelEnvEditId ? '编辑环境' : '添加服务器环境' }}</h3>
                                         <div class="space-y-4">
                                             <div><label class="block text-sm font-medium text-on-surface mb-1">环境名称</label><input v-model="panelEnvForm.name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="如：美国1Panel"></div>
                                             <div><label class="block text-sm font-medium text-on-surface mb-1">主机地址</label><input v-model="panelEnvForm.host" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="如：192.168.1.1"></div>
-                                            <div><label class="block text-sm font-medium text-on-surface mb-1">端口</label><input v-model.number="panelEnvForm.port" type="number" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="3500"></div>
-                                            <div><label class="block text-sm font-medium text-on-surface mb-1">API Key</label><input v-model="panelEnvForm.api_key" type="password" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="1Panel API Key"></div>
+                                            <div><label class="block text-sm font-medium text-on-surface mb-1">SSH 端口</label><input v-model.number="panelEnvForm.port" type="number" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="22"></div>
+                                            <div><label class="block text-sm font-medium text-on-surface mb-1">SSH 密码</label><input v-model="panelEnvForm.api_key" type="password" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="服务器SSH密码"></div>
                                             <div v-if="cfAccounts.length"><label class="block text-sm font-medium text-on-surface mb-1">Cloudflare 账户</label>
                                                 <select v-model="panelEnvForm.cf_account_id" class="w-full px-4 py-2 border rounded-lg focus:border-primary">
                                                     <option :value="null">使用默认账户</option>
@@ -5396,8 +5415,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     </template>
 
                     <!-- 1Panel status hint -->
-                    <div v-if="!panelConnected" class="bg-error-container border border-error/20 rounded-lg p-3"><p class="text-error text-sm"><i class="fas fa-exclamation-triangle mr-2"></i>1Panel未连接，站点将仅保存到本地。</p></div>
-                    <div v-else class="bg-[#146c2e]/5 border border-[#146c2e]/20 rounded-lg p-3"><p class="text-[#146c2e] text-sm"><i class="fas fa-check-circle mr-2"></i>1Panel已连接，将通过API实际安装WordPress。</p></div>
+                    <div class="bg-[#146c2e]/5 border border-[#146c2e]/20 rounded-lg p-3"><p class="text-[#146c2e] text-sm"><i class="fas fa-check-circle mr-2"></i>站点将通过SSH部署到目标服务器。</p></div>
                 </div>
 
                 <!-- Wizard Footer -->
