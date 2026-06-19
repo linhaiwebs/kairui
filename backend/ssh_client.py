@@ -68,35 +68,40 @@ class SSHClient:
         self.connect()
         results = []
 
-        # Install prerequisites
+        # Install prerequisites (apt writes warnings to stderr, ignore those)
         for cmd in [
             "apt update",
             "apt install -y wget gnupg2 ca-certificates curl",
         ]:
-            _, stdout, stderr = self._ssh.exec_command(cmd, timeout=120)
-            err = stderr.read().decode().strip()
-            status = "OK" if not err or "already" in err.lower() or "newest" in err.lower() else "ERR"
-            results.append({"cmd": cmd[:60], "status": status, "error": err[:200] if err else ""})
+            _, stdout, stderr = self._ssh.exec_command(cmd + " 2>&1", timeout=120)
+            out = (stdout.read().decode() + stderr.read().decode()).strip()
+            has_error = "E:" in out and "Unable to" in out
+            results.append({"cmd": cmd[:60], "status": "ERR" if has_error else "OK", "error": out[:200] if has_error else ""})
 
         # Try OpenResty first, fall back to nginx (Debian 13+)
         web_installed = False
         try:
-            # Build OpenResty install command carefully
+            # Build OpenResty install command
             install_cmd = (
                 "wget -qO - https://openresty.org/package/pubkey.gpg | apt-key add - && "
                 "echo 'deb http://openresty.org/package/debian '$(lsb_release -sc)' openresty' "
                 "> /etc/apt/sources.list.d/openresty.list && "
-                "apt update && apt install -y openresty 2>&1"
+                "apt update 2>/dev/null && apt install -y openresty 2>&1"
             )
             _, stdout, stderr = self._ssh.exec_command(install_cmd, timeout=120)
             err = stderr.read().decode().strip()
             out = stdout.read().decode().strip()
-            if "Unable to locate package" in (err + out) or "E:" in err:
-                raise Exception("OpenResty not available")
-            web_installed = True
-            self._web_service = "openresty"
-            results.append({"cmd": "Install OpenResty", "status": "OK"})
+            # Check if openresty was actually installed
+            _, check_out, _ = self._ssh.exec_command("which openresty 2>/dev/null", timeout=10)
+            if check_out.read().decode().strip():
+                web_installed = True
+                self._web_service = "openresty"
+                results.append({"cmd": "Install OpenResty", "status": "OK"})
+            else:
+                raise Exception("OpenResty binary not found after install")
         except Exception as e:
+            # Clean up failed OpenResty repo to avoid apt errors
+            self._ssh.exec_command("rm -f /etc/apt/sources.list.d/openresty.list 2>/dev/null; apt update 2>/dev/null", timeout=30)
             # Fallback to nginx
             _, stdout, stderr = self._ssh.exec_command("apt install -y nginx 2>&1", timeout=120)
             err = stderr.read().decode().strip()
@@ -104,9 +109,14 @@ class SSHClient:
             if "E:" in err and "Unable to locate" in err:
                 results.append({"cmd": "Install nginx", "status": "ERR", "error": err[:200]})
             else:
-                web_installed = True
-                self._web_service = "nginx"
-                results.append({"cmd": "Install nginx (fallback)", "status": "OK"})
+                # Verify nginx installed
+                _, check_out, _ = self._ssh.exec_command("which nginx 2>/dev/null", timeout=10)
+                if check_out.read().decode().strip():
+                    web_installed = True
+                    self._web_service = "nginx"
+                    results.append({"cmd": "Install nginx (fallback)", "status": "OK"})
+                else:
+                    results.append({"cmd": "Install nginx", "status": "ERR", "error": "nginx binary not found"})
 
         if not web_installed:
             results.append({"cmd": "Web server", "status": "ERR", "error": "Neither OpenResty nor nginx could be installed"})
@@ -120,19 +130,16 @@ class SSHClient:
             err = stderr.read().decode().strip()
             results.append({"cmd": cmd[:60], "status": "OK" if not err else "ERR"})
 
-        # Configure nginx to include /www/conf.d
-        if self._web_service == "openresty":
-            nginx_conf = "/usr/local/openresty/nginx/conf/nginx.conf"
-        else:
-            nginx_conf = "/etc/nginx/nginx.conf"
-
-        add_include = (
-            "grep -q '/www/conf.d' " + nginx_conf + " || "
-            "sed -i 's|^http {|http {\\n    include /www/conf.d/*.conf;|' " + nginx_conf
-        )
-        _, stdout, stderr = self._ssh.exec_command(add_include, timeout=10)
-        err = stderr.read().decode().strip()
-        results.append({"cmd": "Configure nginx include", "status": "OK" if not err else "ERR", "error": err[:100] if err else ""})
+        # Configure nginx to include /www/conf.d via drop-in file
+        # Debian nginx auto-includes /etc/nginx/conf.d/*.conf
+        nginx_dropin = "/etc/nginx/conf.d/kairui.conf"
+        dropin_content = "# Auto-generated by kairui server_init\ninclude /www/conf.d/*.conf;\n"
+        try:
+            with self._sftp.open(nginx_dropin, 'w') as f:
+                f.write(dropin_content)
+            results.append({"cmd": "Configure nginx include", "status": "OK"})
+        except Exception as e:
+            results.append({"cmd": "Configure nginx include", "status": "ERR", "error": str(e)[:100]})
 
         # Enable and start service
         svc = self._web_service
