@@ -3203,7 +3203,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 <div class="flex items-center gap-sm">
                     <span :class="['inline-flex items-center gap-xs font-label-sm', panelConnected ? 'text-[#146c2e]' : 'text-error']">
                         <span class="material-symbols-outlined" style="font-size:14px">{{ panelConnected ? 'cloud_done' : 'cloud_off' }}</span>
-                        {{ panelConnected ? '服务器' : '离线' }}
+                        {{ currentPanelEnv ? currentPanelEnv.name : (panelEnvironments.length ? panelEnvironments.length + '台服务器' : '离线') }}
                     </span>
                 </div>
                 <button v-if="currentPage === 'sites'" @click="refreshSites" class="btn btn-primary btn-sm">
@@ -3224,7 +3224,7 @@ pipelineStatuses[siteId].demo_importing = false;
 <!-- Main Content -->
         <div class="mb-lg">
                 <h1 class="page-title">{{ currentPage === 'dashboard' ? '概览' : currentPage === 'sites' ? '站点概览' : currentPage === 'brand-kits' ? '品牌套件' : currentPage === 'brand-kits-detail' ? '品牌套件详情' : currentPage === 'shai-pin-dashboard' ? '筛品' : currentPage === 'shai-pin-source' ? '产品来源' : currentPage === 'shai-pin-feed' ? '数据源生成' : currentPage === 'woocommerce-products' ? '网站产品' : currentPage === 'woo-stats' ? '销售统计' : currentPage === 'mc-automation' ? 'Google MC' : currentPage === 'users' ? '用户管理' : '系统设置' }}</h1>
-                <p class="font-body-md text-on-surface-variant mt-xs"><span class="text-[#146c2e]"><span class="material-symbols-outlined text-[10px] mr-1">dns</span>{{ panelEnvironments.length || 0 }} 台服务器</span></p>
+                <p class="font-body-md text-on-surface-variant mt-xs"><span class="text-[#146c2e]"><span class="material-symbols-outlined text-[10px] mr-1">dns</span>{{ currentPanelEnv ? currentPanelEnv.name + ' (' + currentPanelEnv.host + ')' : (panelEnvironments.length || 0) + ' 台服务器' }}</span></p>
                 <div class="flex gap-sm mt-md">
                     <button v-if="currentPage === 'settings'" @click="exportSystemData" class="flex items-center gap-sm px-md py-sm bg-primary-container text-on-primary rounded-lg hover:bg-primary transition-colors font-label-md text-label-md shadow-level-1" title="导出所有配置和数据"><span class="material-symbols-outlined text-[18px]">download</span>导出配置</button>
                     <button v-if="currentPage === 'settings'" @click="importSystemData" class="flex items-center gap-sm px-md py-sm bg-surface-container-low border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container-high transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]">upload</span>导入配置</button>
@@ -3239,7 +3239,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5"><div class="flex items-center justify-between"><div><p class="text-xs text-on-surface-variant">站点总数</p><p class="text-3xl font-bold text-on-surface mt-1">{{ sites.length }}</p></div><div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center"><i class="fas fa-globe text-blue-600 text-lg"></i></div></div><div class="mt-3 text-xs text-on-surface-variant">静态 {{ sites.filter(s=>s.site_type==='static').length }} · WP {{ sites.filter(s=>s.site_type!=='static').length }}</div></div>
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5"><div class="flex items-center justify-between"><div><p class="text-xs text-on-surface-variant">产品总数</p><p class="text-3xl font-bold text-on-surface mt-1">{{ wooProducts.length + generatedFeed.length }}</p></div><div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center"><i class="fas fa-shopping-cart text-green-600 text-lg"></i></div></div><div class="mt-3 text-xs text-on-surface-variant">网站产品 {{ wooProducts.length }} · Feed {{ generatedFeed.length }}</div></div>
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5"><div class="flex items-center justify-between"><div><p class="text-xs text-on-surface-variant">品牌套件</p><p class="text-3xl font-bold text-on-surface mt-1">{{ brandKits.length }}</p></div><div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center"><i class="fas fa-palette text-purple-600 text-lg"></i></div></div><div class="mt-3 text-xs text-on-surface-variant">Google账户 {{ googleAccounts.length }}</div></div>
-                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5"><div class="flex items-center justify-between"><div><p class="text-xs text-on-surface-variant">服务器</p><p class="text-3xl font-bold mt-1" :class="panelConnected ? 'text-[#146c2e]' : 'text-error'">{{ panelConnected ? '在线' : '离线' }}</p></div><div class="w-10 h-10 rounded-lg flex items-center justify-center" :class="panelConnected ? 'bg-green-100' : 'bg-red-100'"><i class="fas fa-server text-lg" :class="panelConnected ? 'text-green-600' : 'text-red-500'"></i></div></div><div class="mt-3 text-xs text-on-surface-variant">指纹环境 {{ cloakbrowserProfiles.length }}</div></div>
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5"><div class="flex items-center justify-between"><div><p class="text-xs text-on-surface-variant">{{ currentPanelEnv ? currentPanelEnv.name : '服务器' }}</p><p class="text-3xl font-bold mt-1" :class="panelConnected ? 'text-[#146c2e]' : 'text-error'">{{ panelConnected ? (currentPanelEnv ? currentPanelEnv.host : '在线') : '离线' }}</p></div><div class="w-10 h-10 rounded-lg flex items-center justify-center" :class="panelConnected ? 'bg-green-100' : 'bg-red-100'"><i class="fas fa-server text-lg" :class="panelConnected ? 'text-green-600' : 'text-red-500'"></i></div></div><div class="mt-3 text-xs text-on-surface-variant">指纹环境 {{ cloakbrowserProfiles.length }}</div></div>
                 </div>
                 <!-- Charts Row -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -5428,7 +5428,7 @@ pipelineStatuses[siteId].demo_importing = false;
 
                     <!-- 服务器状态提示 -->
                     <div v-if="!panelConnected" class="bg-error-container border border-error/20 rounded-lg p-3"><p class="text-error text-sm"><i class="fas fa-exclamation-triangle mr-2"></i>服务器未连接，站点将仅保存到本地。</p></div>
-                    <div v-else class="bg-[#146c2e]/5 border border-[#146c2e]/20 rounded-lg p-3"><p class="text-[#146c2e] text-sm"><i class="fas fa-check-circle mr-2"></i>服务器已连接，将通过API实际安装WordPress。</p></div>
+                    <div v-else class="bg-[#146c2e]/5 border border-[#146c2e]/20 rounded-lg p-3"><p class="text-[#146c2e] text-sm"><i class="fas fa-check-circle mr-2"></i>已连接 {{ currentPanelEnv ? currentPanelEnv.name + ' (' + currentPanelEnv.host + ')' : '服务器' }}，将部署到该服务器。</p></div>
                 </div>
 
                 <!-- Wizard Footer -->
