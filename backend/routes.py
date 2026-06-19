@@ -2502,16 +2502,19 @@ def register_routes(app):
                     logger.warning(msg)
                     cleanup_errors.append(msg)
 
-            # ---- Step 3: WordPress manual nginx proxy config cleanup ----
-            # WordPress sites have an extra nginx proxy config at /opt/1panel/www/
-            # that is NOT managed by 1Panel's website API. Only applies to WP sites.
-            if site.get("site_type") != "static" and alias:
-                try:
-                    result = _get_panel_client().delete_nginx_proxy_config(alias, domain)
-                    if result.get("code") == 200:
-                        logger.info(f"Cleaned up nginx proxy config for {alias}")
-                except Exception as e:
-                    logger.warning(f"nginx配置清理失败: {e}")
+            # ---- Step 3: SSH cleanup for static sites ----
+            if site.get("site_type") == "static" and alias:
+                env = get_user_panel_environment(site.get("created_by") or 1)
+                if env:
+                    try:
+                        from ssh_client import get_ssh_client
+                        ssh = get_ssh_client(env["host"], 22, env.get("ssh_password", ""))
+                        ssh.delete_file(f"/www/sites/{alias}")
+                        ssh.delete_file(f"/www/conf.d/{alias}.conf")
+                        ssh.reload_nginx()
+                        logger.info(f"SSH: removed site files for {domain}")
+                    except Exception as e:
+                        logger.warning(f"SSH cleanup failed: {e}")
 
             # ---- Step 4: Static site local temp cleanup ----
             if site.get("site_type") == "static":
@@ -2926,6 +2929,50 @@ def register_routes(app):
             return jsonify({"code": 200, "message": "已删除"})
         except Exception as e:
             return jsonify({"code": 500, "message": str(e)[:200]}), 500
+
+    @app.route("/api/server/init/<int:env_id>", methods=["POST"])
+    @jwt_required()
+    def server_init(env_id):
+        """Initialize Debian server: install OpenResty + configure."""
+        claims = get_jwt()
+        if claims.get("role") != "admin":
+            return jsonify({"code": 403, "message": "仅管理员可操作"}), 403
+        env = get_panel_environment(env_id)
+        if not env:
+            return jsonify({"code": 404, "message": "环境不存在"}), 404
+        pw = env.get("ssh_password", "")
+        if not pw:
+            return jsonify({"code": 400, "message": "请先设置SSH密码"}), 400
+        try:
+            from ssh_client import SSHClient
+            ssh = SSHClient(env["host"], env.get("port", 22), 'root', pw)
+            results = ssh.server_init()
+            update_panel_environment(env_id, {"ssh_initialized": 1})
+            # Also update port to 22 if not set
+            if not env.get("port"):
+                update_panel_environment(env_id, {"port": 22})
+            ssh.close()
+            return jsonify({"code": 200, "data": {"results": results}, "message": "服务器初始化完成"})
+        except Exception as e:
+            logger.error(f"Server init failed: {e}")
+            return jsonify({"code": 500, "message": f"初始化失败: {str(e)[:200]}"}), 500
+
+    @app.route("/api/server/test/<int:env_id>", methods=["POST"])
+    @jwt_required()
+    def server_test(env_id):
+        """Test SSH connection to a server."""
+        env = get_panel_environment(env_id)
+        if not env:
+            return jsonify({"code": 404, "message": "环境不存在"}), 404
+        pw = env.get("ssh_password", "")
+        try:
+            from ssh_client import SSHClient
+            ssh = SSHClient(env["host"], env.get("port", 22), 'root', pw)
+            result = ssh.test_connection()
+            ssh.close()
+            return jsonify({"code": 200, "data": {"result": result}, "message": "连接成功"})
+        except Exception as e:
+            return jsonify({"code": 500, "message": f"连接失败: {str(e)[:200]}"}), 500
 
     @app.route("/api/panel/environments/<int:env_id>/default", methods=["PUT"])
     @jwt_required()
