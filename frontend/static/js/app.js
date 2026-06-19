@@ -2820,7 +2820,7 @@ pipelineStatuses[siteId].demo_importing = false;
         function closePanelEnvModal() { showPanelEnvModal.value = false; }
         async function handleSavePanelEnv() {
             panelEnvFormError.value = '';
-            if (!panelEnvForm.name || !panelEnvForm.host || !panelEnvForm.api_key) { panelEnvFormError.value = '请填写所有必填字段'; return; }
+            if (!panelEnvForm.name || !panelEnvForm.host) { panelEnvFormError.value = '请填写名称和主机地址'; return; }
             try {
                 const data = { name: panelEnvForm.name, host: panelEnvForm.host, port: panelEnvForm.port, api_key: panelEnvForm.api_key, ssh_password: panelEnvForm.api_key, cf_account_id: panelEnvForm.cf_account_id || null };
                 let resp;
@@ -4516,7 +4516,8 @@ pipelineStatuses[siteId].demo_importing = false;
                                             <div><label class="block text-sm font-medium text-on-surface mb-1">环境名称</label><input v-model="panelEnvForm.name" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="如：美国服务器"></div>
                                             <div><label class="block text-sm font-medium text-on-surface mb-1">主机地址</label><input v-model="panelEnvForm.host" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="如：192.168.1.1"></div>
                                             <div><label class="block text-sm font-medium text-on-surface mb-1">SSH 端口</label><input v-model.number="panelEnvForm.port" type="number" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="22"></div>
-                                            <div><label class="block text-sm font-medium text-on-surface mb-1">SSH 密码</label><input v-model="panelEnvForm.api_key" type="password" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="服务器SSH密码"></div>
+                                            <div><label class="block text-sm font-medium text-on-surface mb-1">SSH 密码（可选）</label><input v-model="panelEnvForm.api_key" type="password" class="w-full px-4 py-2 border rounded-lg focus:border-primary" placeholder="留空使用SSH密钥认证"></div>
+                                            <p class="text-xs text-on-surface-variant mt-1">DigitalOcean Droplet 默认使用 SSH 密钥登录，无需填写密码</p>
                                             <div v-if="cfAccounts.length"><label class="block text-sm font-medium text-on-surface mb-1">Cloudflare 账户</label>
                                                 <select v-model="panelEnvForm.cf_account_id" class="w-full px-4 py-2 border rounded-lg focus:border-primary">
                                                     <option :value="null">使用默认账户</option>

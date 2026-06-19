@@ -2937,12 +2937,9 @@ def register_routes(app):
         env = get_panel_environment(env_id)
         if not env:
             return jsonify({"code": 404, "message": "环境不存在"}), 404
-        pw = env.get("ssh_password", "")
-        if not pw:
-            return jsonify({"code": 400, "message": "请先设置SSH密码"}), 400
         try:
             from ssh_client import SSHClient
-            ssh = SSHClient(env["host"], env.get("port", 22), 'root', pw)
+            ssh = SSHClient(env["host"], env.get("port", 22), 'root', env.get("ssh_password", ""))
             results = ssh.server_init()
             update_panel_environment(env_id, {"ssh_initialized": 1})
             if not env.get("port"):

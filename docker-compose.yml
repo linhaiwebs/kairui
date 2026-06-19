@@ -18,6 +18,7 @@ services:
       - SERVER_HOST=${SERVER_HOST:-ads.lhwebs.com}
       - WP_PORT=8011
     volumes:
+      - ~/.ssh:/root/.ssh:ro
       - ./backend:/app/backend
       - ./frontend:/app/frontend
       - wp-brand-kits:/app/backend/brand-kits

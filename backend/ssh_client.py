@@ -5,11 +5,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 class SSHClient:
-    def __init__(self, host, port=22, username='root', password=None):
+    def __init__(self, host, port=22, username='root', password=None, key_file=None):
         self.host = host
         self.port = port
         self.username = username
         self.password = password
+        self.key_file = key_file or '/root/.ssh/id_ed25519'
         self._ssh = None
         self._sftp = None
 
@@ -17,7 +18,23 @@ class SSHClient:
         if self._ssh: return
         self._ssh = paramiko.SSHClient()
         self._ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        self._ssh.connect(self.host, self.port, self.username, self.password, timeout=15)
+        import os
+        if os.path.isfile(self.key_file):
+            try:
+                k = paramiko.Ed25519Key.from_private_key_file(self.key_file)
+                self._ssh.connect(self.host, self.port, self.username, pkey=k, timeout=15, look_for_keys=False, allow_agent=False)
+            except Exception:
+                # Fallback: try RSA key
+                try:
+                    k = paramiko.RSAKey.from_private_key_file(self.key_file)
+                    self._ssh.connect(self.host, self.port, self.username, pkey=k, timeout=15, look_for_keys=False, allow_agent=False)
+                except Exception:
+                    raise
+        elif self.password:
+            self._ssh.connect(self.host, self.port, self.username, self.password, timeout=15)
+        else:
+            # Try system SSH agent
+            self._ssh.connect(self.host, self.port, self.username, timeout=15)
         self._sftp = self._ssh.open_sftp()
 
     def close(self):
