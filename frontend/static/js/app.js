@@ -523,7 +523,11 @@ const app = createApp({
                     currentPanelEnv.value = resp.data.panel_environment || null;
                     showToast('登录成功');
                     if (resp.data.role === 'operator') {
-                        openEnvSelectModal();
+                        if (resp.data.panel_environment) {
+                            loadInitialData();
+                        } else {
+                            openEnvSelectModal();
+                        }
                     } else {
                         loadInitialData();
                     }
