@@ -410,14 +410,6 @@ const app = createApp({
             get: () => globalConfig.fingerprint_enabled === 'true',
             set: (val) => { globalConfig.fingerprint_enabled = val ? 'true' : 'false'; }
         });
-        // 环境测试未完成时禁用创建按钮
-        const envTestBlocking = computed(() => {
-            if (!wizardBrandKitId.value) return false;
-            const kit = brandKitsForWizard.value.find(k => k.id === wizardBrandKitId.value);
-            if (!kit || !kit.cloakbrowser_profile_name) return false;
-            return profileTestState.value.testing || profileTestState.value.result !== true;
-        });
-
         // Brand Kits
         const brandKits = ref([]);
         const brandKitsLoading = ref(false);
@@ -1706,7 +1698,6 @@ pipelineStatuses[siteId].demo_importing = false;
             try { const r = await API.getNextPort(); if (r.code === 200 && r.data) createForm.base_port = r.data.next_port; } catch (e) {}
             createProgress.show = false; createProgress.results = [];
             wizardBrandKitId.value = null;
-            profileTestState.value = { testing: false, result: null, message: '' };
             await resolveOperatorCfAccount();
             await loadBrandKitsForWizard();
             if (mode === 'batch') {
@@ -1720,25 +1711,7 @@ pipelineStatuses[siteId].demo_importing = false;
             if (g && g.name) createForm.tag = g.name;
         }
 
-        async function testProfileForWizard() {
-            const kit = brandKitsForWizard.value.find(k => k.id === wizardBrandKitId.value);
-            const profileName = kit?.cloakbrowser_profile_name;
-            if (!profileName) { showToast('该套件暂未关联指纹环境', 'error'); return; }
-            profileTestState.value = { testing: true, result: null, message: '正在测试...' };
-            try {
-                const resp = await API.testCloakbrowserProfile(profileName);
-                if (resp.code === 200) {
-                    profileTestState.value = { testing: false, result: true, message: resp.message || 'Profile 可用' };
-                    showToast('指纹环境测试通过');
-                } else {
-                    profileTestState.value = { testing: false, result: false, message: resp.message || '测试失败' };
-                    showToast(resp.message || '指纹环境测试失败', 'error');
-                }
-            } catch (e) {
-                profileTestState.value = { testing: false, result: false, message: '测试请求失败' };
-                showToast('测试请求失败', 'error');
-            }
-        }
+        // testProfileForWizard removed — fingerprint check moved to GMC automation
         // Pipeline status polling when on sites page
         let pipelinePollTimer = null;
         watch(currentPage, (page) => {
@@ -1799,18 +1772,6 @@ pipelineStatuses[siteId].demo_importing = false;
             } else {
                 if (pipelinePollTimer) { clearInterval(pipelinePollTimer); pipelinePollTimer = null; }
             }
-        });
-
-        // Watch brand kit selection → auto-test environment
-        watch(wizardBrandKitId, async (newVal) => {
-            profileTestState.value = { testing: false, result: null, message: '' };
-            if (!newVal) return;
-            const kit = brandKitsForWizard.value.find(k => k.id === newVal);
-            if (!kit || !kit.cloakbrowser_profile_name) {
-                profileTestState.value.result = true;
-                return;
-            }
-            await testProfileForWizard();
         });
 
         // Step 4: Create site(s)
@@ -2274,7 +2235,25 @@ pipelineStatuses[siteId].demo_importing = false;
             if (!profileDir) { showToast('请先关联 CloakBrowser Profile', 'error'); return; }
             if (mcRegistering.value[site.id]) return;
 
+            // Pre-check: test fingerprint environment before GMC registration
             taskLogTitle.value = `注册 MC — ${site.site_name}`;
+            taskLogLines.value = [{ i: 0, t: new Date().toLocaleTimeString(), level: 'info', msg: '正在测试指纹环境...', step: 'check' }];
+            taskLogStatus.value = 'running';
+            taskLogVisible.value = true;
+            try {
+                const testResp = await API.testCloakbrowserProfile(profileDir);
+                if (testResp.code !== 200) {
+                    taskLogLines.value.push({ i: 1, t: new Date().toLocaleTimeString(), level: 'error', msg: '指纹环境测试失败: ' + (testResp.message || '未知错误'), step: 'check' });
+                    taskLogStatus.value = 'failed';
+                    return;
+                }
+                taskLogLines.value.push({ i: 1, t: new Date().toLocaleTimeString(), level: 'info', msg: '指纹环境测试通过: ' + (testResp.message || 'OK'), step: 'check' });
+            } catch (e) {
+                taskLogLines.value.push({ i: 1, t: new Date().toLocaleTimeString(), level: 'error', msg: '指纹环境测试异常: ' + (e.message || e), step: 'check' });
+                taskLogStatus.value = 'failed';
+                return;
+            }
+
             try {
                 const resp = await API.taskRegisterMC(site.id, profileDir, '');
                 if (resp.code === 200 && resp.data?.task_id) {
@@ -2952,7 +2931,7 @@ pipelineStatuses[siteId].demo_importing = false;
             crawlbaseApiKeys, crawlbaseVisibleKeys, crawlbaseKeyErrors, crawlbaseConnected, crawlbaseVerify,
             cloakbrowserProfiles, loadCloakbrowserProfiles, deprecatedProxies, showDeprecatedProxies, loadDeprecatedProxies,
             mcRegistering, mcFeedUrls, mcProfileDir,
-            fingerprintEnabled, envTestBlocking,
+            fingerprintEnabled,
             taskLogVisible, taskLogTitle, taskLogLines, taskLogStatus, taskLogResult, taskLogRef, taskLogSilent, muteTaskLog,
             closeTaskLog,
             mcBatchImportText, mcBatchImporting, mcBatchResult,
@@ -2983,7 +2962,7 @@ pipelineStatuses[siteId].demo_importing = false;
             brandKitApplyStatus, brandKitApplying, applyBrandKitForm, brandKitsForSelect,
             loadBrandKitsForSelect,
             handleLogin, handleLogout, refreshSites,
-            openWizard, closeWizard, onWizardGroupChange, wizardCreateSite, testProfileForWizard, profileTestState,
+            openWizard, closeWizard, onWizardGroupChange, wizardCreateSite,
             brandKitsPage, BRAND_KITS_PER, pagedBrandKits, brandKitsTotal,
             usersPage, USERS_PER, pagedUsers, usersTotal,
             mcPage, MC_PER, pagedMcSites, mcTotal,
@@ -5400,14 +5379,6 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <option v-for="k in brandKitsForWizard" :key="k.id" :value="k.id">{{ k.name }}{{ k.brand_name ? ' (' + k.brand_name + ')' : '' }}<span v-if="k.industry"> · {{ k.industry }}</span></option>
                             </select>
                             <p class="text-xs text-on-surface-variant mt-1">选择后将自动使用套件的品牌名、网站产品和页脚配置</p>
-                            <div v-if="fingerprintEnabled && wizardBrandKitId" class="mt-2 bg-blue-50 border border-primary-container/20 rounded-lg p-3">
-                                <div class="flex items-center justify-between">
-                                    <p class="text-sm text-primary"><i class="fas fa-fingerprint mr-1"></i><span v-if="brandKitsForWizard.find(k=>k.id===wizardBrandKitId)?.cloakbrowser_profile_name">指纹环境: <strong>{{ brandKitsForWizard.find(k=>k.id===wizardBrandKitId).cloakbrowser_profile_name }}</strong></span><span v-else class="text-primary">该套件暂未关联指纹环境</span></p>
-                                    <button v-if="brandKitsForWizard.find(k=>k.id===wizardBrandKitId)?.cloakbrowser_profile_name" @click="testProfileForWizard" :disabled="profileTestState.testing" class="px-3 py-1 text-xs rounded" :class="profileTestState.result === true ? 'bg-[#146c2e]/10 text-[#146c2e] border border-green-300' : profileTestState.result === false ? 'bg-error-container text-error border border-red-300' : 'bg-blue-100 text-primary border border-blue-300 hover:bg-blue-200'"><i v-if="profileTestState.testing" class="fas fa-spinner fa-spin mr-1"></i><i v-else-if="profileTestState.result === true" class="fas fa-check-circle mr-1"></i><i v-else-if="profileTestState.result === false" class="fas fa-times-circle mr-1"></i><i v-else class="fas fa-play mr-1"></i>{{ profileTestState.testing ? '测试中...' : profileTestState.result === true ? '已通过' : profileTestState.result === false ? '失败' : '测试环境' }}</button>
-                                </div>
-                                <p v-if="profileTestState.result === false" class="mt-2 text-xs text-error">{{ profileTestState.message }}</p>
-                                <p v-if="profileTestState.result === true" class="mt-2 text-xs text-[#146c2e]">{{ profileTestState.message }}</p>
-                            </div>
                         </div>
                         <div class="border-t pt-4 mt-2">
                             <div class="flex items-center gap-2 mb-1"><label class="block text-sm font-medium text-on-surface"><span class="material-symbols-outlined">language</span>域名 / 站点名称</label><span class="text-xs text-on-surface-variant">（标签: 模板独立站）</span></div>
@@ -5423,7 +5394,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 <!-- Wizard Footer -->
                 <div class="p-6 border-t flex gap-3 justify-end">
                     <button @click="closeWizard" class="px-6 py-2 border rounded-lg hover:bg-surface-container-low">取消</button>
-                    <button @click="wizardCreateSite" :disabled="loading || envTestBlocking" class="btn-primary text-on-primary px-6 py-2 rounded-lg" :title="envTestBlocking ? '请等待环境测试完成' : ''">
+                    <button @click="wizardCreateSite" :disabled="loading" class="btn-primary text-on-primary px-6 py-2 rounded-lg">
                         <i v-if="loading" class="fas fa-spinner fa-spin mr-2"></i>
                         <i v-else class="fas fa-rocket mr-2"></i>
                         {{ wizardMode === 'batch' ? '批量创建' : '创建站点' }}
