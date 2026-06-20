@@ -418,6 +418,10 @@ const app = createApp({
         const brandKitForm = reactive({
             name: '', industry: '', style_recipe: '', proxy: '', proxy_id: null, google_account_id: null, cloakbrowser_profile_name: ''
         });
+        const showBatchBrandKitModal = ref(false);
+        const batchBrandKitText = ref('');
+        const batchBrandKitCreating = ref(false);
+        const batchBrandKitResult = ref('');
         // Proxy Pool
         const proxies = ref([]);
         const availableProxies = ref([]);
@@ -2534,6 +2538,28 @@ pipelineStatuses[siteId].demo_importing = false;
             showBrandKitModal.value = true;
         }
         function closeBrandKitModal() { showBrandKitModal.value = false; }
+        async function handleBatchCreateBrandKits() {
+            const text = batchBrandKitText.value.trim();
+            if (!text) { showToast('请输入至少一行', 'error'); return; }
+            batchBrandKitCreating.value = true;
+            batchBrandKitResult.value = '';
+            let created = 0, failed = 0;
+            const lines = text.split('\n').filter(l => l.trim());
+            for (const line of lines) {
+                const parts = line.split(',').map(p => p.trim());
+                const name = parts[0] || '';
+                if (!name) { failed++; continue; }
+                try {
+                    const resp = await API.createBrandKit({ name, industry: parts[1] || '', description: parts[2] || '' });
+                    if (resp.code === 200) created++;
+                    else failed++;
+                } catch (e) { failed++; }
+                batchBrandKitResult.value = `已创建 ${created} 个${failed ? '，失败 ' + failed + ' 个' : ''}`;
+            }
+            batchBrandKitCreating.value = false;
+            batchBrandKitResult.value = `完成！成功 ${created} 个${failed ? '，失败 ' + failed + ' 个' : ''}`;
+            if (created > 0) { await loadBrandKits(); showToast(`创建了 ${created} 个品牌套件`, 'success'); }
+        }
         async function handleSaveBrandKit() {
             if (!brandKitForm.name.trim()) { showToast('请输入套件名称', 'error'); return; }
             if (!brandKitEditId.value && !brandKitForm.proxy_id && !brandKitForm.cloakbrowser_profile_name) { showToast('请选择指纹环境（含代理）或手动指定代理', 'error'); return; }
@@ -2992,7 +3018,8 @@ pipelineStatuses[siteId].demo_importing = false;
             googleAccounts, availableGoogleAccounts, importingGoogleAccounts, googleAccountsText,
             loadGoogleAccounts, handleImportGoogleAccounts, handleDeleteGoogleAccount,
             brandKitWooForm, brandKitFooterForm, brandKitTaxForm, brandKitShippingForm, brandKitConfigSaving,
-            loadBrandKits, openBrandKitModal, closeBrandKitModal, handleSaveBrandKit,
+            loadBrandKits, openBrandKitModal, closeBrandKitModal, handleSaveBrandKit, handleBatchCreateBrandKits,
+            showBatchBrandKitModal, batchBrandKitText, batchBrandKitCreating, batchBrandKitResult,
             selectedProfileProxy, onProfileChange,
             confirmDeleteBrandKit, showDeleteBrandKitModal, deleteBrandKitTarget, openDeleteBrandKitModal, handleGenerateBrandKit, openBrandKitDetail,
             handleDownloadBrandKitFile, loadBrandKitConfigForms, saveBrandKitConfig,
@@ -4773,6 +4800,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 <div class="flex items-center justify-between mb-6">
                     <h3 class="font-semibold text-on-surface"><i class="fas fa-paint-brush mr-2 text-primary"></i>品牌套件</h3>
                     <button @click="openBrandKitModal(null)" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus mr-2"></i>创建套件</button>
+                    <button @click="showBatchBrandKitModal = true" class="btn-secondary px-4 py-2 rounded-lg text-sm"><i class="fas fa-layer-group mr-2"></i>批量创建</button>
                 </div>
 
                 <div v-if="brandKitsLoading" class="text-center py-20"><span class="spinner w-4 h-4 inline-block"></span></div>
@@ -5584,6 +5612,31 @@ pipelineStatuses[siteId].demo_importing = false;
                     <span class="text-on-surface-variant text-xs">{{ taskLogLines.length }} 条日志</span>
                     <button @click="closeTaskLog" :class="['px-4 py-1.5 rounded text-sm font-medium', taskLogStatus === 'running' ? 'bg-surface-container-highest text-on-surface-variant cursor-not-allowed' : 'bg-primary-container text-on-primary hover:bg-primary']" :disabled="taskLogStatus === 'running'">
                         {{ taskLogStatus === 'running' ? '请等待完成...' : '关闭' }}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Batch Create Brand Kits Modal -->
+        <div v-if="showBatchBrandKitModal" class="modal-overlay modal-overlay" @click.self="showBatchBrandKitModal = false">
+            <div class="bg-surface-container-lowest rounded-2xl shadow-level-3 w-full max-w-lg mx-4 fade-in">
+                <div class="p-6 border-b flex items-center justify-between">
+                    <h2 class="text-lg font-bold"><i class="fas fa-layer-group mr-2"></i>批量创建品牌套件</h2>
+                    <button @click="showBatchBrandKitModal = false" class="text-on-surface-variant hover:text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
+                </div>
+                <div class="p-6 space-y-4">
+                    <p class="text-sm text-on-surface-variant">每行一个套件，格式：<code>名称,行业,描述</code>。行业和描述可选。</p>
+                    <textarea v-model="batchBrandKitText" rows="8"
+                        class="w-full px-4 py-3 border rounded-lg text-sm font-mono focus:border-primary"
+                        placeholder="我的品牌1,服装时尚,高品质服装品牌&#10;我的品牌2,电子产品,科技配件&#10;我的品牌3"></textarea>
+                    <p v-if="batchBrandKitResult" class="text-sm" :class="batchBrandKitResult.includes('成功') ? 'text-[#146c2e]' : 'text-on-surface-variant'">{{ batchBrandKitResult }}</p>
+                </div>
+                <div class="p-6 border-t flex gap-3 justify-end">
+                    <button @click="showBatchBrandKitModal = false" class="px-4 py-2 border rounded-lg text-sm hover:bg-surface-container-low">取消</button>
+                    <button @click="handleBatchCreateBrandKits" :disabled="batchBrandKitCreating || !batchBrandKitText.trim()" class="btn-primary text-on-primary px-6 py-2 rounded-lg text-sm">
+                        <i v-if="batchBrandKitCreating" class="fas fa-spinner fa-spin mr-2"></i>
+                        <i v-else class="fas fa-plus mr-2"></i>
+                        {{ batchBrandKitCreating ? '创建中...' : '批量创建' }}
                     </button>
                 </div>
             </div>
