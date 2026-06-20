@@ -7807,20 +7807,24 @@ Respond with strict JSON only (no markdown code blocks):
             name_to_id = {}
             keywords = []
             for r in rows:
-                kw = (r["product_name"] or "").split(",")[0].strip()[:40]
+                # Take first part before comma, trim to 30 chars, clean trailing partial words
+                raw = (r["product_name"] or "").split(",")[0].strip()
+                if len(raw) > 30:
+                    raw = raw[:30].rsplit(" ", 1)[0]  # drop trailing partial word
+                kw = raw
                 if kw:
                     keywords.append(kw)
                     name_to_id.setdefault(kw, []).append(r["id"])
             vol_data = client.search_volume(keywords)
             if not vol_data:
                 return jsonify({"code": 500, "message": "DataForSEO 查询失败，请检查API配置"}), 500
-            # Fallback: retry with shorter keywords for zero-volume ones
+            # Fallback: retry dropping brand name (first word) for zero-volume keywords
             fallback_kws = {}
             for kw, info in list(vol_data.items()):
-                if not info.get("search_volume") and len(kw) > 20:
+                if not info.get("search_volume") and len(kw.split()) >= 3:
                     parts = kw.split()
-                    if len(parts) >= 3:
-                        shorter = " ".join(parts[-3:])  # last 3 words
+                    shorter = " ".join(parts[1:])  # drop first word (likely brand)
+                    if shorter not in fallback_kws:
                         fallback_kws[shorter] = kw
             if fallback_kws:
                 fb_data = client.search_volume(list(fallback_kws.keys()))
