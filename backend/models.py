@@ -2531,6 +2531,15 @@ def create_brand_kit(data: dict) -> dict:
                 proxy_id = auto["id"]
                 proxy_url = auto["proxy_url"]
 
+        # Auto-assign Google account if not provided
+        google_account_id = data.get("google_account_id") or None
+        if not google_account_id:
+            auto_ga = conn.execute(
+                "SELECT id FROM google_accounts WHERE occupied_kit_id IS NULL ORDER BY id LIMIT 1"
+            ).fetchone()
+            if auto_ga:
+                google_account_id = auto_ga["id"]
+
         conn.execute(
             """INSERT INTO brand_kits
                (name, brand_name, description, industry, raw_svg, processed_svg,
@@ -2572,7 +2581,7 @@ def create_brand_kit(data: dict) -> dict:
                 data.get("cloakbrowser_profile_name"),
                 proxy_url,
                 proxy_id,
-                data.get("google_account_id") or None,
+                google_account_id,
                 now, now,
             ),
         )
@@ -2586,8 +2595,7 @@ def create_brand_kit(data: dict) -> dict:
                 (kit_id, kit_name, proxy_id),
             )
 
-        # Mark Google account as occupied
-        google_account_id = data.get("google_account_id") or None
+        # Mark Google account as occupied (google_account_id already resolved above)
         logger.info("create_brand_kit: kit_id=%s google_account_id=%r kit_name=%r", kit_id, google_account_id, data.get("name", ""))
         if google_account_id:
             kit_name = data.get("name", "")
