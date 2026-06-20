@@ -227,15 +227,8 @@ const app = createApp({
                 if (!ids.length) { showToast('未找到产品ID', 'error'); hotnessQuerying.value = false; return; }
                 const r = await API.request('POST', '/api/shai-pin/amazon/google-hotness', { product_ids: ids });
                 if (r.code === 200) {
-                    const byId = {};
-                    (r.data.results || []).forEach(x => { byId[x.id] = x; });
-                    amazonSearchResults.value = amazonSearchResults.value.map(p => {
-                        if (byId[p.id]) {
-                            return { ...p, search_volume: byId[p.id].search_volume, competition: byId[p.id].competition, cpc: byId[p.id].cpc, hotness_score: byId[p.id].hotness_score };
-                        }
-                        return p;
-                    });
                     showToast(r.message);
+                    await loadAmazonSearchResults();
                 } else showToast(r.message || '查询失败', 'error');
             } catch (e) { showToast('查询失败', 'error'); }
             hotnessQuerying.value = false;
