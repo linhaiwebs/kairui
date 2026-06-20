@@ -422,6 +422,8 @@ const app = createApp({
         const batchBrandKitRows = ref([{ name: '', industry: '', cloakbrowser_profile_name: '', google_account_id: null }]);
         const batchBrandKitCreating = ref(false);
         const batchBrandKitResult = ref('');
+        const selectedBrandKitIds = ref(new Set());
+        const batchDeletingKits = ref(false);
         // Proxy Pool
         const proxies = ref([]);
         const availableProxies = ref([]);
@@ -2545,6 +2547,25 @@ pipelineStatuses[siteId].demo_importing = false;
             showBrandKitModal.value = true;
         }
         function closeBrandKitModal() { showBrandKitModal.value = false; }
+        function toggleBrandKitSelect(id) { const s = selectedBrandKitIds.value; s.has(id) ? s.delete(id) : s.add(id); selectedBrandKitIds.value = new Set(s); }
+        function toggleAllBrandKits() {
+            if (selectedBrandKitIds.value.size === pagedBrandKits.value.length) { selectedBrandKitIds.value = new Set(); }
+            else { selectedBrandKitIds.value = new Set(pagedBrandKits.value.map(k => k.id)); }
+        }
+        async function batchDeleteBrandKits() {
+            const ids = [...selectedBrandKitIds.value];
+            if (!ids.length) return;
+            if (!confirm(`确定删除选中的 ${ids.length} 个品牌套件？`)) return;
+            batchDeletingKits.value = true;
+            let ok = 0;
+            for (const id of ids) {
+                try { await API.deleteBrandKit(id, 'release'); ok++; } catch (e) {}
+            }
+            selectedBrandKitIds.value = new Set();
+            batchDeletingKits.value = false;
+            showToast(`已删除 ${ok} 个套件`, 'success');
+            await loadBrandKits(); loadCloakbrowserProfiles(); loadProxies(); loadGoogleAccounts();
+        }
         function addBatchBrandKitRow() { batchBrandKitRows.value.push({ name: '', industry: '', cloakbrowser_profile_name: '', google_account_id: null }); }
         function removeBatchBrandKitRow(idx) { if (batchBrandKitRows.value.length > 1) batchBrandKitRows.value.splice(idx, 1); }
         async function handleBatchCreateBrandKits() {
@@ -3048,6 +3069,7 @@ pipelineStatuses[siteId].demo_importing = false;
             brandKitWooForm, brandKitFooterForm, brandKitTaxForm, brandKitShippingForm, brandKitConfigSaving,
             loadBrandKits, openBrandKitModal, closeBrandKitModal, handleSaveBrandKit, handleBatchCreateBrandKits, addBatchBrandKitRow, removeBatchBrandKitRow,
             showBatchBrandKitModal, batchBrandKitRows, batchBrandKitCreating, batchBrandKitResult,
+            selectedBrandKitIds, batchDeletingKits, toggleBrandKitSelect, toggleAllBrandKits, batchDeleteBrandKits,
             selectedProfileProxy, onProfileChange,
             confirmDeleteBrandKit, showDeleteBrandKitModal, deleteBrandKitTarget, openDeleteBrandKitModal, handleGenerateBrandKit, openBrandKitDetail,
             handleDownloadBrandKitFile, loadBrandKitConfigForms, saveBrandKitConfig,
@@ -4827,8 +4849,11 @@ pipelineStatuses[siteId].demo_importing = false;
             <div v-if="currentPage === 'brand-kits'" class="fade-in max-w-[1440px] mx-auto px-lg">
                 <div class="flex items-center justify-between mb-6">
                     <h3 class="font-semibold text-on-surface"><i class="fas fa-paint-brush mr-2 text-primary"></i>品牌套件</h3>
-                    <button @click="openBrandKitModal(null)" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus mr-2"></i>创建套件</button>
-                    <button @click="showBatchBrandKitModal = true; batchBrandKitRows = [{name:'',industry:'',cloakbrowser_profile_name:'',google_account_id:null}]; batchBrandKitResult=''" class="btn-secondary px-4 py-2 rounded-lg text-sm"><i class="fas fa-layer-group mr-2"></i>批量创建</button>
+                    <div class="flex gap-2">
+                        <button v-if="selectedBrandKitIds.size" @click="batchDeleteBrandKits" :disabled="batchDeletingKits" class="bg-error text-on-primary px-4 py-2 rounded-lg text-sm hover:bg-red-700 transition"><i v-if="batchDeletingKits" class="fas fa-spinner fa-spin mr-2"></i><i v-else class="fas fa-trash mr-2"></i>删除 ({{ selectedBrandKitIds.size }})</button>
+                        <button @click="openBrandKitModal(null)" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus mr-2"></i>创建套件</button>
+                        <button @click="showBatchBrandKitModal = true; batchBrandKitRows = [{name:'',industry:'',cloakbrowser_profile_name:'',google_account_id:null}]; batchBrandKitResult=''" class="btn-secondary px-4 py-2 rounded-lg text-sm"><i class="fas fa-layer-group mr-2"></i>批量创建</button>
+                    </div>
                 </div>
 
                 <div v-if="brandKitGenProgress" class="mb-4 bg-blue-50 border border-primary-container/20 rounded-lg p-4">
@@ -4847,6 +4872,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     <table class="w-full">
                         <thead class="bg-surface-container-low text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
                             <tr>
+                                <th class="px-4 py-3 w-8"><input type="checkbox" @click="toggleAllBrandKits" :checked="selectedBrandKitIds.size === pagedBrandKits.length && pagedBrandKits.length > 0"></th>
                                 <th class="px-4 py-3">logo</th>
                                 <th class="px-4 py-3">套件名称</th>
                                 <th class="px-4 py-3">品牌</th>
@@ -4857,8 +4883,9 @@ pipelineStatuses[siteId].demo_importing = false;
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-outline-variant">
-                            <tr v-for="kit in pagedBrandKits" :key="kit.id" class="hover:bg-surface-container-low transition cursor-pointer" @click="openBrandKitDetail(kit)">
-                                <td class="px-4 py-3">
+                            <tr v-for="kit in pagedBrandKits" :key="kit.id" class="hover:bg-surface-container-low transition">
+                                <td class="px-4 py-3" @click.stop><input type="checkbox" :checked="selectedBrandKitIds.has(kit.id)" @click="toggleBrandKitSelect(kit.id)"></td>
+                                <td class="px-4 py-3 cursor-pointer" @click="openBrandKitDetail(kit)">
                                     <div v-if="kit.processed_svg || kit.raw_svg" v-html="kit.processed_svg || kit.raw_svg" class="w-8 h-8 svg-preview" style="overflow:hidden;max-width:32px;max-height:32px"></div>
                                     <i v-else class="fas fa-paint-brush text-on-surface-variant text-lg"></i>
                                 </td>
