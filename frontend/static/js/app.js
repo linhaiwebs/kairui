@@ -4024,6 +4024,8 @@ pipelineStatuses[siteId].demo_importing = false;
                                         <th class="px-3 py-3 w-16">Prime</th>
                                         <th class="px-3 py-3 w-16">评分</th>
                                         <th class="px-3 py-3 w-20">评论数</th>
+                                        <th class="px-3 py-3 w-12">详情</th>
+                                        <th class="px-3 py-3 w-12">多图</th>
                                         <th class="px-3 py-3 w-20">Google热度</th>
                                     </tr>
                                 </thead>
