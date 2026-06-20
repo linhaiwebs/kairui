@@ -7816,8 +7816,10 @@ Respond with strict JSON only (no markdown code blocks):
                     keywords.append(kw)
                     name_to_id.setdefault(kw, []).append(r["id"])
             vol_data = client.search_volume(keywords)
-            if not vol_data:
-                return jsonify({"code": 500, "message": "DataForSEO 查询失败，请检查API配置"}), 500
+            # Build zero-value entries for keywords that returned no data
+            for kw in keywords:
+                if kw not in vol_data:
+                    vol_data[kw] = {"search_volume": 0, "competition": 0, "cpc": 0}
             # Fallback: progressively drop words from start for zero-volume keywords
             fallback_kws = {}
             for kw, info in list(vol_data.items()):
