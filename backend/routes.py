@@ -2434,13 +2434,14 @@ def register_routes(app):
                     ssh.delete_file(nginx_conf)
                     logger.info(f"SSH: deleted nginx conf {nginx_conf}")
 
-                    # Delete site files
+                    # Delete site files + parent directory
                     site_dir = site.get("static_dir", "")
                     if site_dir:
                         ssh.delete_file(site_dir)
+                        # Also remove parent empty dir
+                        ssh.delete_file(f"/www/sites/{alias}")
                         logger.info(f"SSH: deleted site dir {site_dir}")
                     else:
-                        # Fallback: delete by alias pattern
                         ssh.delete_file(f"/www/sites/{alias}")
                         logger.info(f"SSH: deleted site /www/sites/{alias}")
 
