@@ -7807,7 +7807,7 @@ Respond with strict JSON only (no markdown code blocks):
             name_to_id = {}
             keywords = []
             for r in rows:
-                kw = (r["product_name"] or "")[:80].strip()
+                kw = (r["product_name"] or "").split(",")[0].strip()[:60]
                 if kw:
                     keywords.append(kw)
                     name_to_id.setdefault(kw, []).append(r["id"])
