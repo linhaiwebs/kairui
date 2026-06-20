@@ -7818,14 +7818,17 @@ Respond with strict JSON only (no markdown code blocks):
             vol_data = client.search_volume(keywords)
             if not vol_data:
                 return jsonify({"code": 500, "message": "DataForSEO 查询失败，请检查API配置"}), 500
-            # Fallback: retry dropping brand name (first word) for zero-volume keywords
+            # Fallback: progressively drop words from start for zero-volume keywords
             fallback_kws = {}
             for kw, info in list(vol_data.items()):
                 if not info.get("search_volume") and len(kw.split()) >= 3:
                     parts = kw.split()
-                    shorter = " ".join(parts[1:])  # drop first word (likely brand)
-                    if shorter not in fallback_kws:
-                        fallback_kws[shorter] = kw
+                    # Try dropping 1 then 2 words from the start
+                    for drop in (1, 2):
+                        if len(parts) > drop:
+                            shorter = " ".join(parts[drop:])
+                            if shorter not in fallback_kws:
+                                fallback_kws[shorter] = kw
             if fallback_kws:
                 fb_data = client.search_volume(list(fallback_kws.keys()))
                 for short_kw, info2 in fb_data.items():
