@@ -74,7 +74,9 @@ def create_app():
 
     @app.route("/")
     def index():
-        return send_from_directory(os.path.join(frontend_dir, "templates"), "index.html")
+        resp = send_from_directory(os.path.join(frontend_dir, "templates"), "index.html")
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return resp
 
     @app.route("/<path:path>")
     def static_files(path):
