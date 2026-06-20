@@ -4075,6 +4075,24 @@ pipelineStatuses[siteId].demo_importing = false;
                                             <span v-else class="text-xs text-on-surface-variant">-</span>
                                         </td>
                                         <td class="px-3 py-3 text-on-surface-variant">{{ p.review_count ? p.review_count.toLocaleString() : '-' }}</td>
+                                        <td class="px-3 py-3 text-center">
+                                            <button v-if="p.description || (p.features && p.features.length) || (p.extra_data && Object.keys(p.extra_data).length)"
+                                                @click.stop="showFeedDescription(buildFeedDetailText(p))" class="text-primary hover:text-primary transition" title="查看详情">
+                                                <i class="fas fa-info-circle text-lg"></i>
+                                            </button>
+                                            <span v-else class="text-on-surface-variant">-</span>
+                                        </td>
+                                        <td class="px-3 py-3">
+                                            <div v-if="p.images && p.images.length > 1" class="flex flex-wrap gap-1">
+                                                <img v-for="(img, i) in p.images.slice(0, 4)" :key="i" :src="img" class="w-10 h-10 rounded border object-cover" :alt="(p.product_name||p.title||'') + ' ' + (i+1)">
+                                                <span v-if="p.images.length > 4" class="text-xs text-on-surface-variant self-center">+{{ p.images.length - 4 }}</span>
+                                            </div>
+                                            <span v-else class="text-on-surface-variant text-xs">-</span>
+                                        </td>
+                                        <td class="px-3 py-3 text-center">
+                                            <span v-if="p.search_volume" class="text-xs font-bold" :class="(p.hotness_score||0)>=70?'text-error':(p.hotness_score||0)>=40?'text-tertiary':'text-on-surface-variant'">{{ (p.hotness_score||0)>=70?'🔥':(p.hotness_score||0)>=40?'⭐':'' }} {{ p.hotness_score||0 }}</span>
+                                            <span v-else class="text-xs text-on-surface-variant">-</span>
+                                        </td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -4178,8 +4196,6 @@ pipelineStatuses[siteId].demo_importing = false;
                                     <th class="px-4 py-3 min-w-[220px] max-w-[300px]">产品信息</th>
                                     <th class="px-4 py-3 w-32">品牌/价格</th>
                                     <th class="px-4 py-3 w-28">评分/排名</th>
-                                    <th class="px-4 py-3 w-12">详情</th>
-                                    <th class="px-4 py-3 w-36">更多图片</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y">
