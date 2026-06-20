@@ -232,7 +232,7 @@ const app = createApp({
                     // Force full reload from API
                     const reloaded = await API.loadAmazonSearchResults();
                     if (reloaded.code === 200 && reloaded.data) {
-                        amazonSearchResults.value = [...reloaded.data]; // spread for new reference
+                        amazonSearchResults.value = JSON.parse(JSON.stringify(reloaded.data)); // deep clone
                     }
                 } else showToast(r.message || '查询失败', 'error');
             } catch (e) { showToast('查询失败', 'error'); }
@@ -4240,12 +4240,10 @@ pipelineStatuses[siteId].demo_importing = false;
                                         <span v-else class="text-on-surface-variant text-xs">-</span>
                                     </td>
                                     <td class="px-3 py-3 text-center">
-                                        <span v-if="p.search_volume !== null && p.search_volume !== undefined"
-                                            :class="['text-xs font-bold', p.hotness_score >= 70 ? 'text-error' : p.hotness_score >= 40 ? 'text-tertiary' : 'text-on-surface-variant']"
-                                            :title="'搜索量: ' + (p.search_volume || 0).toLocaleString() + ' | 竞争度: ' + ((p.competition || 0) * 100).toFixed(0) + '% | CPC: $' + (p.cpc || 0).toFixed(2)">
-                                            {{ p.hotness_score >= 70 ? '🔥' : p.hotness_score >= 40 ? '⭐' : '' }} {{ p.hotness_score || 0 }}
+                                        <span :class="['text-xs font-bold', (p.hotness_score||0) >= 70 ? 'text-error' : (p.hotness_score||0) >= 40 ? 'text-tertiary' : 'text-on-surface-variant']"
+                                            :title="'搜索量:' + ((p.search_volume||0).toLocaleString?.() || p.search_volume||0) + ' 竞争度:' + (((p.competition||0)*100).toFixed?.(0) || 0) + '% CPC:$' + ((p.cpc||0).toFixed?.(2) || 0)">
+                                            {{ (p.hotness_score||0) >= 70 ? '🔥' : (p.hotness_score||0) >= 40 ? '⭐' : '' }}{{ p.search_volume > 0 ? ' ' + (p.hotness_score||0) : '-' }}
                                         </span>
-                                        <span v-else class="text-on-surface-variant text-xs">-</span>
                                     </td>
                                 </tr>
                             </tbody>
