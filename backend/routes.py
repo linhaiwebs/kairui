@@ -7829,7 +7829,8 @@ Respond with strict JSON only (no markdown code blocks):
             db.commit()
             return jsonify({"code": 200, "data": {"results": results}, "message": f"已查询 {len(results)} 件产品"})
         except Exception as e:
-            logger.error(f"Google hotness query failed: {e}")
+            import traceback
+            logger.error(f"Google hotness query failed: {e}\n{traceback.format_exc()}")
             return jsonify({"code": 500, "message": str(e)[:200]}), 500
 
     @app.route("/api/shai-pin/amazon/convert", methods=["POST"])

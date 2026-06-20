@@ -32,9 +32,9 @@ class DataForSEOClient:
         for batch in [keywords[i:i + 200] for i in range(0, len(keywords), 200)]:
             body = [{"keyword": k, "location_code": location_code, "language_code": language_code} for k in batch]
             resp = self._post("/keywords_data/google/search_volume/live", body)
-            tasks = resp.get("tasks", [])
-            for task in tasks:
-                for r in task.get("result", []):
+            tasks = resp.get("tasks") or []
+            for task in (tasks or []):
+                for r in (task.get("result") or []):
                     kw = r.get("keyword", "")
                     result[kw] = {
                         "search_volume": r.get("search_volume") or 0,
