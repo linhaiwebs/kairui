@@ -7674,6 +7674,7 @@ Respond with strict JSON only (no markdown code blocks):
                     "original_price": extra.get("originalPrice", ""),
                     "is_prime": extra.get("isPrime", False),
                     "delivery": extra.get("deliveryInfo", ""),
+                    "images": json.dumps(detail.get("images") or []) if detail.get("images") else "",
                 }
                 logger.info(f"[AmazonDirectImport] [{idx+1}/{total}] OK '{product['product_name'][:50]}'")
                 return {"ok": True, "idx": idx, "product": product}

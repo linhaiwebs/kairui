@@ -515,6 +515,8 @@ def _migrate_add_columns(conn):
             conn.execute("ALTER TABLE amazon_search_results ADD COLUMN cpc REAL DEFAULT NULL")
         if "hotness_score" not in asr_cols:
             conn.execute("ALTER TABLE amazon_search_results ADD COLUMN hotness_score INTEGER DEFAULT NULL")
+        if "images" not in asr_cols:
+            conn.execute("ALTER TABLE amazon_search_results ADD COLUMN images TEXT DEFAULT ''")
     except Exception:
         pass
 
@@ -2130,8 +2132,8 @@ def save_amazon_search_results(products: list[dict]) -> int:
                 """INSERT INTO amazon_search_results
                    (product_name, price, source_url, thumbnail, rating_score,
                     review_count, search_query, asin, brand, breadcrumbs,
-                    features, original_price, is_prime, delivery, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    features, original_price, is_prime, delivery, images, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     p.get("product_name", ""),
                     p.get("price", ""),
@@ -2147,6 +2149,7 @@ def save_amazon_search_results(products: list[dict]) -> int:
                     p.get("original_price", ""),
                     1 if p.get("is_prime") else 0,
                     p.get("delivery", ""),
+                    p.get("images", ""),
                     now,
                 ),
             )
@@ -2164,7 +2167,19 @@ def load_amazon_search_results() -> list[dict]:
         rows = conn.execute(
             "SELECT * FROM amazon_search_results ORDER BY id DESC"
         ).fetchall()
-        return [dict(r) for r in rows]
+        results = []
+        for r in rows:
+            d = dict(r)
+            # Parse JSON images field
+            if d.get("images") and isinstance(d["images"], str):
+                try:
+                    d["images"] = json.loads(d["images"])
+                except Exception:
+                    d["images"] = []
+            elif not d.get("images"):
+                d["images"] = []
+            results.append(d)
+        return results
     finally:
         conn.close()
 
