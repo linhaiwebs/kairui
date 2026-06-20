@@ -228,7 +228,8 @@ const app = createApp({
                 const r = await API.request('POST', '/api/shai-pin/amazon/google-hotness', { product_ids: ids });
                 if (r.code === 200) {
                     showToast(r.message);
-                    await loadAmazonSearchResults();
+                    const reloaded = await API.loadAmazonSearchResults();
+                    if (reloaded.code === 200) amazonSearchResults.value = reloaded.data;
                 } else showToast(r.message || '查询失败', 'error');
             } catch (e) { showToast('查询失败', 'error'); }
             hotnessQuerying.value = false;
