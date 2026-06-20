@@ -4,6 +4,7 @@ services:
     image: kairui-wp-manager:latest
     container_name: wp-site-manager
     ports:
+      - "80:8011"
       - "8011:8011"
       - "5900:5900"
       - "6080:6080"
