@@ -4243,10 +4243,10 @@ pipelineStatuses[siteId].demo_importing = false;
                                         <span v-else class="text-on-surface-variant text-xs">-</span>
                                     </td>
                                     <td class="px-3 py-3 text-center">
-                                        <span :class="['text-xs font-bold', (p.hotness_score||0) >= 70 ? 'text-error' : (p.hotness_score||0) >= 40 ? 'text-tertiary' : 'text-on-surface-variant']"
-                                            :title="'搜索量:' + ((p.search_volume||0).toLocaleString?.() || p.search_volume||0) + ' 竞争度:' + (((p.competition||0)*100).toFixed?.(0) || 0) + '% CPC:$' + ((p.cpc||0).toFixed?.(2) || 0)">
-                                            {{ (p.hotness_score||0) >= 70 ? '🔥' : (p.hotness_score||0) >= 40 ? '⭐' : '' }}{{ p.search_volume > 0 ? ' ' + (p.hotness_score||0) : '-' }}
+                                        <span v-if="p.search_volume" class="text-xs font-bold" :class="(p.hotness_score||0)>=70?'text-error':(p.hotness_score||0)>=40?'text-tertiary':'text-on-surface-variant'">
+                                            {{ (p.hotness_score||0)>=70?'🔥':'' }}{{ (p.hotness_score||0)>=40?'⭐':'' }} {{ p.hotness_score||0 }}
                                         </span>
+                                        <span v-else class="text-xs text-on-surface-variant">-</span>
                                     </td>
                                 </tr>
                             </tbody>
