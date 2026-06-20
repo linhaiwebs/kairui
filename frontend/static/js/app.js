@@ -223,8 +223,9 @@ const app = createApp({
             if (!amazonSelectedIndices.value.size) { showToast('请选择产品', 'error'); return; }
             hotnessQuerying.value = true;
             try {
-                const ids = [...amazonSelectedIndices.value].map(i => amazonSearchResults.value[i]?.id).filter(Boolean);
-                if (!ids.length) { showToast('未找到产品ID', 'error'); hotnessQuerying.value = false; return; }
+                const indices = [...amazonSelectedIndices.value];
+                const ids = indices.map(i => amazonSearchResults.value[i]?.id).filter(Boolean);
+                if (!ids.length) { showToast('未找到产品ID (索引:' + indices.join(',') + ', 总数:' + amazonSearchResults.value.length + ')', 'error'); hotnessQuerying.value = false; return; }
                 const r = await API.request('POST', '/api/shai-pin/amazon/google-hotness', { product_ids: ids });
                 if (r.code === 200) {
                     showToast(r.message);
