@@ -229,13 +229,11 @@ const app = createApp({
                 if (r.code === 200) {
                     const byId = {};
                     (r.data.results || []).forEach(x => { byId[x.id] = x; });
-                    amazonSearchResults.value.forEach((p, i) => {
+                    amazonSearchResults.value = amazonSearchResults.value.map(p => {
                         if (byId[p.id]) {
-                            p.search_volume = byId[p.id].search_volume;
-                            p.competition = byId[p.id].competition;
-                            p.cpc = byId[p.id].cpc;
-                            p.hotness_score = byId[p.id].hotness_score;
+                            return { ...p, search_volume: byId[p.id].search_volume, competition: byId[p.id].competition, cpc: byId[p.id].cpc, hotness_score: byId[p.id].hotness_score };
                         }
+                        return p;
                     });
                     showToast(r.message);
                 } else showToast(r.message || '查询失败', 'error');
