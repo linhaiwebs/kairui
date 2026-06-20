@@ -2567,7 +2567,7 @@ pipelineStatuses[siteId].demo_importing = false;
             batchBrandKitCreating.value = false;
             const total = created + failed;
             batchBrandKitResult.value = `创建完成！成功 ${created} 个${failed ? '，失败 ' + failed + ' 个' : ''}。正在自动生成...`;
-            if (created > 0) { batchBrandKitRows.value = [{ name: '', industry: '', cloakbrowser_profile_name: '', google_account_id: null }]; await loadBrandKits(); showToast(`创建了 ${created} 个品牌套件`, 'success'); }
+            if (created > 0) { batchBrandKitRows.value = [{ name: '', industry: '', cloakbrowser_profile_name: '', google_account_id: null }]; await loadBrandKits(); showToast(`创建了 ${created} 个品牌套件`, 'success'); showBatchBrandKitModal.value = false; }
             // Auto-generate all created kits
             if (created > 0) {
                 await loadBrandKits();
