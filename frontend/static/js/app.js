@@ -1116,6 +1116,9 @@ pipelineStatuses[siteId].demo_importing = false;
                                     amazonSearchError.value = '所有链接均导入失败';
                                 } else {
                                     showToast(`成功导入 ${msg.result_count} 件产品`, 'success');
+                                    // Reload from API to get proper DB IDs
+                                    const reloaded = await API.loadAmazonSearchResults();
+                                    if (reloaded.code === 200) amazonSearchResults.value = reloaded.data;
                                 }
                             }
                         } catch (e) { /* skip partial lines */ }
@@ -1199,6 +1202,8 @@ pipelineStatuses[siteId].demo_importing = false;
                                     amazonSearchError.value = '未找到匹配的产品，请尝试其他关键词';
                                 } else {
                                     showToast(`找到 ${msg.result_count} 件产品`, 'success');
+                                    const reloaded = await API.loadAmazonSearchResults();
+                                    if (reloaded.code === 200) amazonSearchResults.value = reloaded.data;
                                 }
                             }
                         } catch (e) { /* skip partial lines */ }
