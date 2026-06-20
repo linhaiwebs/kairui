@@ -436,6 +436,13 @@ const app = createApp({
         const googleAccountsText = ref('');
 
         const brandKitGenerating = reactive({});
+        const brandKitGenProgress = computed(() => {
+            const entries = Object.values(brandKitGenerating).filter(e => e && e.status === 'running');
+            if (!entries.length) return null;
+            let totalSteps = 0, doneSteps = 0;
+            entries.forEach(e => { totalSteps += (e.steps?.length || 6); doneSteps += (e.current || 0); });
+            return { total: entries.length, pct: Math.round(doneSteps / Math.max(1, totalSteps) * 100), doneSteps, totalSteps };
+        });
         // User Management
         const users = ref([]);
         const showUserModal = ref(false);
@@ -2558,8 +2565,18 @@ pipelineStatuses[siteId].demo_importing = false;
                 batchBrandKitResult.value = `已创建 ${created} 个${failed ? '，失败 ' + failed + ' 个' : ''}`;
             }
             batchBrandKitCreating.value = false;
-            batchBrandKitResult.value = `完成！成功 ${created} 个${failed ? '，失败 ' + failed + ' 个' : ''}`;
+            const total = created + failed;
+            batchBrandKitResult.value = `创建完成！成功 ${created} 个${failed ? '，失败 ' + failed + ' 个' : ''}。正在自动生成...`;
             if (created > 0) { batchBrandKitRows.value = [{ name: '', industry: '', cloakbrowser_profile_name: '', google_account_id: null }]; await loadBrandKits(); showToast(`创建了 ${created} 个品牌套件`, 'success'); }
+            // Auto-generate all created kits
+            if (created > 0) {
+                await loadBrandKits();
+                const newKits = brandKits.value.slice(-created).filter(k => k.status === 'draft');
+                for (const k of newKits) {
+                    handleGenerateBrandKit(k);
+                    await new Promise(r => setTimeout(r, 500)); // stagger starts
+                }
+            }
         }
         async function handleSaveBrandKit() {
             if (!brandKitForm.name.trim()) { showToast('请输入套件名称', 'error'); return; }
@@ -2571,7 +2588,17 @@ pipelineStatuses[siteId].demo_importing = false;
                 } else {
                     resp = await API.createBrandKit(brandKitForm);
                 }
-                if (resp.code === 200) { showToast(brandKitEditId.value ? '套件已更新' : '套件已创建'); closeBrandKitModal(); await loadBrandKits(); await loadProxies(); await loadGoogleAccounts(); }
+                if (resp.code === 200) {
+                    const newKitId = resp.data?.id;
+                    closeBrandKitModal(); await loadBrandKits(); await loadProxies(); await loadGoogleAccounts();
+                    if (!brandKitEditId.value && newKitId) {
+                        // Auto-trigger AI generation for new kits
+                        const kit = brandKits.value.find(k => k.id === newKitId);
+                        if (kit) handleGenerateBrandKit(kit);
+                    } else {
+                        showToast(brandKitEditId.value ? '套件已更新' : '套件已创建');
+                    }
+                }
                 else { showToast(resp.message || '操作失败', 'error'); }
             } catch (e) { showToast('操作失败', 'error'); }
         }
@@ -2589,12 +2616,12 @@ pipelineStatuses[siteId].demo_importing = false;
             } catch (e) { showToast('删除失败: ' + (e.message || 'error'), 'error'); }
         }
         async function handleGenerateBrandKit(kit) {
-            brandKitGenerating[kit.id] = { status: 'running', steps: ['AI 生成 SVG Logo', 'AI 生成商家信息', 'SVG 文字转路径', 'SVG 优化', '导出品牌套件', '创建指纹环境'], current: 0 };
+            brandKitGenerating[kit.id] = { status: 'running', steps: ['AI 生成 SVG Logo', 'AI 生成商家信息', 'SVG 文字转路径', 'SVG 优化', '导出品牌套件', '创建指纹环境'], current: 0, name: kit.name };
             try {
                 const resp = await API.generateBrandKit(kit.id);
-                if (resp.code !== 200) { brandKitGenerating[kit.id] = { status: 'failed', error: resp.message }; showToast(resp.message || '生成失败', 'error'); return; }
+                if (resp.code !== 200) { brandKitGenerating[kit.id] = { status: 'failed', error: resp.message, name: kit.name }; showToast(resp.message || '生成失败', 'error'); return; }
                 pollBrandKitStatus(kit.id);
-            } catch (e) { brandKitGenerating[kit.id] = { status: 'failed', error: e.message }; showToast('生成失败', 'error'); }
+            } catch (e) { brandKitGenerating[kit.id] = { status: 'failed', error: e.message, name: kit.name }; }
         }
         function pollBrandKitStatus(kitId) {
             const timer = setInterval(async () => {
@@ -3012,7 +3039,7 @@ pipelineStatuses[siteId].demo_importing = false;
             walmartGoPage,
             cfVerify, loadCfAccounts, handleDeleteCfAccount, handleSetDefaultCfAccount,
             brandKits, brandKitsLoading, showBrandKitModal, brandKitEditId, brandKitForm,
-            brandKitGenerating, showBrandKitDetail, brandKitDetail, brandKitDetailTab,
+            brandKitGenerating, brandKitGenProgress, showBrandKitDetail, brandKitDetail, brandKitDetailTab,
             operatorResourceTab, myGoogleAccounts, myProxies, loadOperatorResources,
             fingerprintSubTab, showGoogleImport, proxies, showProxyPool, availableProxies, importingProxies, importingProxyText, importingProxyType,
             loadProxies, handleImportProxies, handleImportProxyText,
@@ -4804,6 +4831,16 @@ pipelineStatuses[siteId].demo_importing = false;
                     <button @click="showBatchBrandKitModal = true; batchBrandKitRows = [{name:'',industry:'',cloakbrowser_profile_name:'',google_account_id:null}]; batchBrandKitResult=''" class="btn-secondary px-4 py-2 rounded-lg text-sm"><i class="fas fa-layer-group mr-2"></i>批量创建</button>
                 </div>
 
+                <div v-if="brandKitGenProgress" class="mb-4 bg-blue-50 border border-primary-container/20 rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <p class="text-sm text-primary font-medium"><i class="fas fa-magic mr-2 fa-spin"></i>正在生成 {{ brandKitGenProgress.total }} 个品牌套件...</p>
+                        <span class="text-sm font-bold text-primary">{{ brandKitGenProgress.pct }}%</span>
+                    </div>
+                    <div class="w-full bg-surface-container-high rounded-full h-2">
+                        <div class="bg-primary h-2 rounded-full transition-all duration-500" :style="{ width: brandKitGenProgress.pct + '%' }"></div>
+                    </div>
+                    <p class="text-xs text-on-surface-variant mt-1">步骤 {{ brandKitGenProgress.doneSteps }} / {{ brandKitGenProgress.totalSteps }}</p>
+                </div>
                 <div v-if="brandKitsLoading" class="text-center py-20"><span class="spinner w-4 h-4 inline-block"></span></div>
 
                 <div v-else class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
