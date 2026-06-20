@@ -30,7 +30,7 @@ class DataForSEOClient:
         result = {}
         # DataForSEO limits 300 keywords per request
         for batch in [keywords[i:i + 200] for i in range(0, len(keywords), 200)]:
-            body = [{"keyword": k, "location_code": location_code, "language_code": language_code} for k in batch]
+            body = [{"keywords": batch, "location_code": location_code, "language_code": language_code}]
             resp = self._post("/keywords_data/google/search_volume/live", body)
             tasks = resp.get("tasks") or []
             for task in (tasks or []):
