@@ -7807,13 +7807,27 @@ Respond with strict JSON only (no markdown code blocks):
             name_to_id = {}
             keywords = []
             for r in rows:
-                kw = (r["product_name"] or "").split(",")[0].strip()[:60]
+                kw = (r["product_name"] or "").split(",")[0].strip()[:40]
                 if kw:
                     keywords.append(kw)
                     name_to_id.setdefault(kw, []).append(r["id"])
             vol_data = client.search_volume(keywords)
             if not vol_data:
                 return jsonify({"code": 500, "message": "DataForSEO 查询失败，请检查API配置"}), 500
+            # Fallback: retry with shorter keywords for zero-volume ones
+            fallback_kws = {}
+            for kw, info in list(vol_data.items()):
+                if not info.get("search_volume") and len(kw) > 20:
+                    parts = kw.split()
+                    if len(parts) >= 3:
+                        shorter = " ".join(parts[-3:])  # last 3 words
+                        fallback_kws[shorter] = kw
+            if fallback_kws:
+                fb_data = client.search_volume(list(fallback_kws.keys()))
+                for short_kw, info2 in fb_data.items():
+                    orig_kw = fallback_kws.get(short_kw)
+                    if info2.get("search_volume"):
+                        vol_data[orig_kw] = info2
             for kw, info in vol_data.items():
                 score = compute_hotness(info["search_volume"], info["competition"], info["cpc"])
                 for pid in name_to_id.get(kw, []):
