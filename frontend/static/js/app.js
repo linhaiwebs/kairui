@@ -214,6 +214,7 @@ const app = createApp({
 
         // 筛品 - 爆品导入 tab state
         const amazonSearchResults = ref([]);
+        const amazonSearchVersion = ref(0);
         const amazonSearchLoading = ref(false);
         const amazonSearchError = ref('');
         const amazonSelectedIndices = ref(new Set());
@@ -232,7 +233,8 @@ const app = createApp({
                     // Force full reload from API
                     const reloaded = await API.loadAmazonSearchResults();
                     if (reloaded.code === 200 && reloaded.data) {
-                        amazonSearchResults.value = JSON.parse(JSON.stringify(reloaded.data)); // deep clone
+                        amazonSearchResults.value = JSON.parse(JSON.stringify(reloaded.data));
+                        amazonSearchVersion.value++;
                     }
                 } else showToast(r.message || '查询失败', 'error');
             } catch (e) { showToast('查询失败', 'error'); }
@@ -1007,7 +1009,8 @@ pipelineStatuses[siteId].demo_importing = false;
             try {
                 const resp = await API.loadAmazonSearchResults();
                 if (resp.code === 200 && resp.data && resp.data.length) {
-                    amazonSearchResults.value = resp.data;
+                    amazonSearchResults.value = JSON.parse(JSON.stringify(resp.data));
+                    amazonSearchVersion.value++;
                     amazonSearchProgress.value = `已加载 ${resp.data.length} 件历史产品`;
                 }
             } catch (e) { /* silent */ }
@@ -2986,7 +2989,7 @@ pipelineStatuses[siteId].demo_importing = false;
             walmartCategories, walmartSelectedCategory, walmartProducts, walmartLoading, walmartError, walmartFetchLimit,
             walmartEnriching, walmartEnrichProgress, generatedFeed,
             walmartPage, walmartPerPage, walmartPagedProducts, walmartTotalPages,
-            amazonSearchResults, amazonSearchLoading, amazonSearchError, amazonSelectedIndices, hotnessQuerying, queryGoogleHotness,
+            amazonSearchResults, amazonSearchVersion, amazonSearchLoading, amazonSearchError, amazonSelectedIndices, hotnessQuerying, queryGoogleHotness,
             amazonSearchProgress, showAmazonImportModal, amazonImportModalText,
             showAmazonUrlModal, amazonUrlModalText,
             showConvertLogModal, convertLogLines, convertLogProgress, converting,
@@ -3989,7 +3992,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     <!-- Results -->
                     <div v-if="amazonSearchResults.length">
                         <div class="px-6 py-3 bg-surface-container-low border-b flex items-center justify-between text-xs text-on-surface-variant">
-                            <span>共 {{ amazonSearchResults.length }} 件产品</span>
+                            <span>共 {{ amazonSearchResults.length }} 件产品 (v{{ amazonSearchVersion }})</span>
                             <div class="flex items-center gap-3">
                                 <label class="flex items-center gap-1 cursor-pointer hover:text-on-surface">
                                     <input type="checkbox" :checked="amazonSelectedIndices.size === amazonSearchResults.length" @change="selectAllAmazon" class="accent-red-500">
