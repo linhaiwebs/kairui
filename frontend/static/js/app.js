@@ -4797,23 +4797,20 @@ pipelineStatuses[siteId].demo_importing = false;
                                         <img v-else-if="p.images && p.images.length" :src="p.images[0]" class="w-12 h-12 rounded border object-cover" :alt="p.title">
                                         <div v-else class="w-12 h-12 bg-surface-container rounded border flex items-center justify-center"><i class="fas fa-image text-on-surface-variant text-xs"></i></div>
                                     </td>
-                                    <td class="px-4 py-3 max-w-[300px]">
-                                        <span class="font-semibold text-on-surface line-clamp-1 block" :title="p.title">{{ p.title }}</span>
+                                    <td class="px-4 py-3 max-w-[200px]">
+                                        <span class="font-semibold text-on-surface block truncate" :title="p.product_name || p.title">{{ (p.product_name || p.title || '').slice(0,30) }}{{ (p.product_name || p.title || '').length > 30 ? '...' : '' }}</span>
                                         <div class="flex items-center gap-2 mt-1 text-xs text-on-surface-variant flex-wrap">
-                                            <span v-if="p.item_id">SKU: {{ p.item_id }}</span>
-                                            <span v-if="p.product_slug" class="text-primary">/{{ p.product_slug }}</span>
+                                            <span v-if="p.item_id" class="bg-surface-container-low px-1.5 py-0.5 rounded">SKU: {{ p.item_id }}</span>
+                                            <span v-if="p.brand" class="text-primary">{{ p.brand }}</span>
                                         </div>
                                     </td>
-                                    <td class="px-4 py-3">
-                                        <p class="text-xs text-on-surface-variant" v-if="p.brand">{{ p.brand }}</p>
-                                        <p class="font-bold text-[#146c2e]" v-if="p.price">{{ p.currency || 'USD' }} {{ p.price }}</p>
+                                    <td class="px-4 py-3 whitespace-nowrap">
+                                        <p class="font-bold text-[#146c2e]" v-if="p.price">{{ p.currency || '$' }}{{ p.price }}</p>
                                         <p v-else class="text-on-surface-variant text-xs">-</p>
                                     </td>
                                     <td class="px-4 py-3">
-                                        <p v-if="p.item_id" class="text-xs text-on-surface-variant">{{ p.item_id }}</p>
-                                        <p v-if="p.breadcrumbs && p.breadcrumbs.length" class="text-xs text-on-surface-variant mt-0.5">{{ p.breadcrumbs.join(' > ') }}</p>
-                                        <p v-if="p.category" class="text-xs text-primary mt-0.5">{{ p.category }}</p>
-                                        <p v-else-if="!p.item_id" class="text-on-surface-variant text-xs">-</p>
+                                        <p v-if="p.category" class="text-xs text-primary">{{ p.category }}</p>
+                                        <p v-else class="text-on-surface-variant text-xs">-</p>
                                     </td>
                                 </tr>
                             </tbody>

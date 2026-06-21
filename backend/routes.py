@@ -8954,11 +8954,12 @@ Respond with strict JSON only (no markdown code blocks):
             ET.SubElement(channel, "link").text = site["url"]
             ET.SubElement(channel, "description").text = "Google Shopping Product Feed (跑品)"
 
-            site_domain = site["url"].rstrip("/")
-            # Strip protocol for cleaner URL construction
+            raw_url = site["url"].rstrip("/")
+            if not raw_url.startswith("http"):
+                raw_url = f"https://{raw_url}"
             from urllib.parse import urlparse
-            parsed = urlparse(site_domain)
-            site_domain = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme else f"https://{parsed.netloc}"
+            parsed = urlparse(raw_url)
+            site_domain = f"{parsed.scheme}://{parsed.netloc}"
 
             for p in products:
                 item = ET.SubElement(channel, "item")
@@ -8967,10 +8968,10 @@ Respond with strict JSON only (no markdown code blocks):
                 desc = (p.get("description") or "")[:5000]
                 ET.SubElement(item, "g:description").text = re.sub(r"<[^>]*>", "", desc) if desc else ""
 
-                # Product link: use source_url if available, otherwise link to site
-                source = p.get("source_url", "")
-                if source and source.startswith("http"):
-                    ET.SubElement(item, "g:link").text = source
+                # Product link: use slug-based URL
+                slug = p.get("product_slug", "")
+                if slug:
+                    ET.SubElement(item, "g:link").text = f"{site_domain}/product/{slug}"
                 else:
                     ET.SubElement(item, "g:link").text = f"{site_domain}/products/{p.get('id', '')}"
 
