@@ -2504,13 +2504,15 @@ def register_routes(app):
             return jsonify({"code": 400, "message": "目标URL格式无效"}), 400
 
         user_id = get_current_user_id()
+        claims = get_jwt()
+        is_admin = claims.get("role") == "admin"
         results = []
         for sid in site_ids:
             site = get_site(sid)
             if not site:
                 results.append({"site_id": sid, "ok": False, "error": "站点不存在"})
                 continue
-            if str(site.get("created_by")) != str(user_id):
+            if not is_admin and str(site.get("created_by")) != str(user_id):
                 results.append({"site_id": sid, "ok": False, "error": "无权操作此站点"})
                 continue
             domain = site.get("url", "")
@@ -2593,7 +2595,8 @@ def register_routes(app):
         if not site:
             return jsonify({"code": 404, "message": "站点不存在"}), 404
         user_id = get_current_user_id()
-        if str(site.get("created_by")) != str(user_id):
+        claims = get_jwt()
+        if claims.get("role") != "admin" and str(site.get("created_by")) != str(user_id):
             return jsonify({"code": 403, "message": "无权操作此站点"}), 403
         domain = site.get("url", "")
         zone_id = site.get("cf_zone_id", "")
