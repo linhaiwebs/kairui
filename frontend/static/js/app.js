@@ -3587,7 +3587,7 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- Analytics Dashboard -->
-            <div v-if="currentPage === 'analytics'" class="fade-in max-w-[1440px] mx-auto px-lg">
+            <div v-if="currentPage === 'analytics'" class="fade-in">
                 <div v-if="analyticsLoading" class="text-center py-20"><span class="spinner w-4 h-4 inline-block"></span></div>
                 <div v-else-if="analyticsData && analyticsData.targets" class="space-y-6">
                     <!-- Period filter -->
@@ -4773,7 +4773,7 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- 资源总览 -->
-            <div v-if="currentPage === 'resource-overview'" class="fade-in max-w-[1440px] mx-auto px-lg">
+            <div v-if="currentPage === 'resource-overview'" class="fade-in">
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="font-semibold text-on-surface"><i class="fas fa-account_tree mr-2 text-primary"></i>资源总览</h3>
                     <button @click="loadResourceOverview" class="text-xs text-primary"><i class="fas fa-sync mr-1"></i>刷新</button>
@@ -4840,7 +4840,7 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- 网站产品 产品 -->
-            <div v-if="currentPage === 'woocommerce-products'" class="fade-in max-w-[1440px] mx-auto px-lg">
+            <div v-if="currentPage === 'woocommerce-products'" class="fade-in">
                 <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
                     <h3 class="font-semibold text-on-surface">
                         <i class="fas fa-shopping-cart mr-2 text-primary"></i>网站产品 产品
@@ -4954,7 +4954,7 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- Settings (Tabbed) -->
-            <div v-if="currentPage === 'settings' && currentUserRole === 'admin'" class="fade-in max-w-[1440px] mx-auto px-lg">
+            <div v-if="currentPage === 'settings' && currentUserRole === 'admin'" class="fade-in">
                 <div>
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1">
                         <!-- Tab Navigation -->
@@ -5261,7 +5261,7 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- Operator Resources -->
-            <div v-if="currentPage === 'operator-resources'" class="fade-in max-w-[1440px] mx-auto px-lg">
+            <div v-if="currentPage === 'operator-resources'" class="fade-in">
                 <h3 class="font-semibold text-on-surface mb-4"><i class="fas fa-server mr-2 text-primary"></i>环境配置</h3>
                 <div class="flex border-b mb-4 gap-0">
                     <button @click="operatorResourceTab = 'google'" :class="['px-4 py-2 text-sm font-medium border-b-2 transition', operatorResourceTab === 'google' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface']"><i class="fab fa-google mr-1"></i>谷歌账户 <span class="text-xs">({{ myGoogleAccounts.length }})</span></button>
@@ -5284,7 +5284,7 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- User Management -->
-            <div v-if="currentPage === 'users' && currentUserRole === 'admin'" class="fade-in max-w-[1440px] mx-auto px-lg">
+            <div v-if="currentPage === 'users' && currentUserRole === 'admin'" class="fade-in">
                 <div class="flex items-center justify-between mb-6">
                     <h3 class="font-semibold text-on-surface"><i class="fas fa-users mr-2 text-primary"></i>用户管理</h3>
                     <button @click="openUserModal(null)" class="btn-primary text-on-primary px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus mr-2"></i>创建用户</button>
@@ -5343,7 +5343,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 </div>
 
             <!-- Brand Kits List -->
-            <div v-if="currentPage === 'brand-kits'" class="fade-in max-w-[1440px] mx-auto px-lg">
+            <div v-if="currentPage === 'brand-kits'" class="fade-in">
                 <div class="flex items-center justify-between mb-6">
                     <h3 class="font-semibold text-on-surface"><i class="fas fa-paint-brush mr-2 text-primary"></i>品牌套件</h3>
                     <div class="flex gap-2">
@@ -5440,7 +5440,7 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- Google Merchant Center Automation -->
-            <div v-if="currentPage === 'mc-automation'" class="fade-in max-w-[1440px] mx-auto px-lg">
+            <div v-if="currentPage === 'mc-automation'" class="fade-in">
                 <div class="space-y-6">
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-6">
                         <h3 class="font-semibold text-on-surface mb-2"><i class="fab fa-google mr-2 text-primary"></i>Google Merchant Center 自动化</h3>
@@ -5500,7 +5500,7 @@ pipelineStatuses[siteId].demo_importing = false;
             </div>
 
             <!-- Brand Kit Detail -->
-            <div v-if="currentPage === 'brand-kits-detail' && brandKitDetail" class="fade-in max-w-[1440px] mx-auto px-lg">
+            <div v-if="currentPage === 'brand-kits-detail' && brandKitDetail" class="fade-in">
                 <div class="mb-6">
                     <button @click="currentPage = 'brand-kits'; loadBrandKits()" class="text-primary hover:text-primary text-sm mb-3 inline-block">
                         <i class="fas fa-arrow-left mr-1"></i>返回列表
