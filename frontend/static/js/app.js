@@ -923,6 +923,15 @@ pipelineStatuses[siteId].demo_importing = false;
             if (resp.code === 200) { analyticsTimeline.value = resp.data; analyticsTimelineVisible.value = true; }
         }
         function setAnalyticsPeriod(p) { analyticsPeriod.value = p; analyticsSiteId.value ? loadSiteAnalytics(analyticsSiteId.value) : loadAnalytics(); }
+        const analyticsKeyTarget = ref('');
+        const analyticsKeyValue = ref('');
+        const analyticsKeyResult = ref('');
+        async function saveAnalyticsKey() {
+            if (!analyticsKeyTarget.value.trim() || !analyticsKeyValue.value.trim()) { analyticsKeyResult.value = '请填写域名和Key'; return; }
+            const r = await API.setAnalyticsKey(analyticsKeyTarget.value.trim(), analyticsKeyValue.value.trim());
+            analyticsKeyResult.value = r.code === 200 ? '保存成功！刷新页面查看数据' : (r.message || '保存失败');
+            if (r.code === 200) { analyticsKeyTarget.value = ''; analyticsKeyValue.value = ''; loadAnalytics(); }
+        }
         function formatInt(val) {
             const n = Number(val) || 0;
             return n.toLocaleString('en-US', {maximumFractionDigits:0});
@@ -3321,6 +3330,7 @@ pipelineStatuses[siteId].demo_importing = false;
             analyticsData, analyticsLoading, analyticsPeriod, analyticsSiteId, analyticsSource,
             analyticsSessionPage, analyticsTimeline, analyticsTimelineVisible,
             loadAnalytics, loadSiteAnalytics, loadSiteSessions, loadSessionTimeline, setAnalyticsPeriod,
+            analyticsKeyTarget, analyticsKeyValue, analyticsKeyResult, saveAnalyticsKey,
             loadWalmartCategories, fetchWalmartBestsellers, loadPersistedWalmartProducts, exportWalmartData,
             enrichWalmartProducts, loadGeneratedFeed, clearGeneratedFeed,
             walmartGoPage,
@@ -3613,6 +3623,18 @@ pipelineStatuses[siteId].demo_importing = false;
                         <p v-else class="text-sm text-on-surface-variant py-4 text-center">暂无数据，请确保已安装 kairui-tracker 插件并配置 API Key。</p>
                     </div>
                     <p v-if="!analyticsData.targets.length" class="text-center py-12 text-on-surface-variant">暂无可分析的镜像站点。请先使用镜像向导创建镜像。</p>
+
+                    <!-- API Key Config -->
+                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5">
+                        <h4 class="font-semibold text-on-surface mb-2">配置分析 API Key</h4>
+                        <p class="text-xs text-on-surface-variant mb-3">从 WordPress 插件获取 Key（WP后台→设置→Kairui Tracker 或执行 <code>wp option get kairui_api_key</code>），填入对应目标站点域名。</p>
+                        <div class="flex gap-3 items-end">
+                            <div class="flex-1"><label class="block text-xs text-on-surface-variant mb-1">目标站点域名</label><input v-model="analyticsKeyTarget" type="text" placeholder="woo-site.com" class="w-full px-3 py-2 border rounded text-sm focus:border-primary"></div>
+                            <div class="flex-1"><label class="block text-xs text-on-surface-variant mb-1">API Key</label><input v-model="analyticsKeyValue" type="text" placeholder="粘贴插件生成的Key" class="w-full px-3 py-2 border rounded text-sm focus:border-primary"></div>
+                            <button @click="saveAnalyticsKey" class="btn-primary text-on-primary px-4 py-2 rounded text-sm">保存</button>
+                        </div>
+                        <p v-if="analyticsKeyResult" :class="['text-xs mt-2', analyticsKeyResult.includes('成功') ? 'text-[#146c2e]' : 'text-error']">{{ analyticsKeyResult }}</p>
+                    </div>
                 </div>
                 <div v-else class="text-center py-12 text-on-surface-variant">加载中...</div>
             </div>
