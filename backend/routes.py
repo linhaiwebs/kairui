@@ -9489,6 +9489,85 @@ Respond with strict JSON only (no markdown code blocks):
             "sites": site_results,
         }})
 
+    # ---- Analytics (Kairui Tracker Plugin Proxy) ----
+
+    @app.route("/api/analytics/dashboard", methods=["GET"])
+    @jwt_required()
+    def analytics_dashboard():
+        """Aggregated dashboard data from all mirrored sites."""
+        user_id = get_jwt().get("user_id")
+        sites = list_sites(user_id=user_id)
+
+        targets = {}
+        for s in sites:
+            target = s.get("mirror_target", "").strip()
+            if not target:
+                continue
+            if target not in targets:
+                targets[target] = {"target": target, "sites": [], "data": None}
+            targets[target]["sites"].append(s["site_name"])
+
+        cfg = get_global_config()
+        results = []
+        for target, info in targets.items():
+            api_key = cfg.get(f"kairui_key_{target}", "")
+            if not api_key:
+                continue
+            try:
+                r = http_requests.get(
+                    f"https://{target}/wp-json/kairui/v1/analytics/summary?period=7d",
+                    headers={"X-Kairui-Key": api_key}, timeout=10
+                )
+                if r.status_code == 200:
+                    results.append({"target": target, "sites": info["sites"], "data": r.json()})
+            except Exception:
+                pass
+
+        return jsonify({"code": 200, "data": {"targets": results}})
+
+    @app.route("/api/analytics/<path:subpath>", methods=["GET"])
+    @jwt_required()
+    def analytics_proxy(subpath):
+        """Proxy analytics requests to target WooCommerce kairui-tracker plugin."""
+        site_id = request.args.get("site_id", type=int)
+        if not site_id:
+            return jsonify({"code": 400, "message": "site_id required"}), 400
+
+        site = get_site(site_id)
+        if not site:
+            return jsonify({"code": 404, "message": "站点不存在"}), 404
+
+        target = site.get("mirror_target", "").strip()
+        if not target:
+            return jsonify({"code": 400, "message": "站点未配置镜像目标"}), 400
+
+        cfg = get_global_config()
+        api_key = cfg.get(f"kairui_key_{target}", "")
+        if not api_key:
+            return jsonify({"code": 400, "message": "请先配置分析API Key"}), 400
+
+        params = {k: v for k, v in request.args.items() if k not in ("site_id",)}
+        try:
+            r = http_requests.get(
+                f"https://{target}/wp-json/kairui/v1/{subpath}",
+                params=params, headers={"X-Kairui-Key": api_key}, timeout=15
+            )
+            return jsonify(r.json()), r.status_code
+        except Exception as e:
+            return jsonify({"code": 500, "message": f"分析服务不可用: {str(e)[:100]}"}), 500
+
+    @app.route("/api/analytics/key", methods=["POST"])
+    @jwt_required()
+    def analytics_set_key():
+        """Set kairui-tracker API key for a mirror target."""
+        data = request.get_json(silent=True) or {}
+        target = (data.get("target") or "").strip()
+        api_key = (data.get("api_key") or "").strip()
+        if not target or not api_key:
+            return jsonify({"code": 400, "message": "target and api_key required"}), 400
+        update_global_config(f"kairui_key_{target}", api_key)
+        return jsonify({"code": 200, "message": "API Key已保存"})
+
     # ---- Feed Products (Google Merchant Center) ----
 
     @app.route("/api/sites/<int:site_id>/feed-products", methods=["GET"])

@@ -157,6 +157,25 @@ const app = createApp({
         const wooStatsPeriod = ref('month');
         const wooStatsDateMin = ref('');
         const wooStatsDateMax = ref('');
+        const wooStatsSearch = ref('');
+        const wooStatsPage = ref(1);
+        const WOO_STATS_PER = 20;
+        const wooStatsPagedSites = computed(() => {
+            const all = (wooStats.value?.sites || []).filter(s => !wooStatsSearch.value || s.site_name.toLowerCase().includes(wooStatsSearch.value.toLowerCase()) || (s.url||'').toLowerCase().includes(wooStatsSearch.value.toLowerCase()));
+            const start = (wooStatsPage.value - 1) * WOO_STATS_PER;
+            return all.slice(start, start + WOO_STATS_PER);
+        });
+        const wooStatsTotalPages = computed(() => Math.max(1, Math.ceil(((wooStats.value?.sites || []).filter(s => !wooStatsSearch.value || s.site_name.toLowerCase().includes(wooStatsSearch.value.toLowerCase()) || (s.url||'').toLowerCase().includes(wooStatsSearch.value.toLowerCase()))).length / WOO_STATS_PER)));
+
+        // Analytics (Kairui Tracker)
+        const analyticsData = ref(null);
+        const analyticsLoading = ref(false);
+        const analyticsPeriod = ref('7d');
+        const analyticsSiteId = ref(null);
+        const analyticsSource = ref('');
+        const analyticsSessionPage = ref(1);
+        const analyticsTimeline = ref(null);
+        const analyticsTimelineVisible = ref(false);
 
         // 筛品 - Walmart tab state
         const walmartCategories = ref([]);  // grouped: [{group, items: [{key, label, url, cached_count}]}]
@@ -875,6 +894,35 @@ pipelineStatuses[siteId].demo_importing = false;
             const n = Number(val) || 0;
             return n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
         }
+
+        // ---- Analytics ----
+        async function loadAnalytics() {
+            analyticsLoading.value = true;
+            try {
+                const resp = await API.getDashboardAnalytics();
+                if (resp.code === 200) analyticsData.value = resp.data;
+            } catch (e) { /* silent */ }
+            analyticsLoading.value = false;
+        }
+        async function loadSiteAnalytics(siteId) {
+            analyticsSiteId.value = siteId;
+            analyticsLoading.value = true;
+            try {
+                const resp = await API.getAnalytics(siteId, 'analytics/summary', { period: analyticsPeriod.value });
+                if (resp.code === 200) analyticsData.value = resp.data;
+            } catch (e) { /* silent */ }
+            analyticsLoading.value = false;
+        }
+        async function loadSiteSessions(siteId, page) {
+            const resp = await API.getAnalytics(siteId, 'analytics/sessions', { period: '7d', page: page || 1 });
+            if (resp.code === 200) return resp.data;
+            return null;
+        }
+        async function loadSessionTimeline(siteId, sessionId) {
+            const resp = await API.getAnalytics(siteId, 'analytics/session/' + sessionId + '/timeline');
+            if (resp.code === 200) { analyticsTimeline.value = resp.data; analyticsTimelineVisible.value = true; }
+        }
+        function setAnalyticsPeriod(p) { analyticsPeriod.value = p; analyticsSiteId.value ? loadSiteAnalytics(analyticsSiteId.value) : loadAnalytics(); }
         function formatInt(val) {
             const n = Number(val) || 0;
             return n.toLocaleString('en-US', {maximumFractionDigits:0});
@@ -3188,6 +3236,7 @@ pipelineStatuses[siteId].demo_importing = false;
             feedSiteId, feedProducts, showFeedProductModal, feedEditId, feedEditForm,
             feedMenuOpen, sourceTab, feedStats, feedStatsLoading,
             wooStats, wooStatsLoading, wooStatsPeriod, wooStatsDateMin, wooStatsDateMax,
+            wooStatsSearch, wooStatsPage, WOO_STATS_PER, wooStatsPagedSites, wooStatsTotalPages,
             walmartCategories, walmartSelectedCategory, walmartProducts, walmartLoading, walmartError, walmartFetchLimit,
             walmartEnriching, walmartEnrichProgress, generatedFeed,
             walmartPage, walmartPerPage, walmartPagedProducts, walmartTotalPages,
@@ -3269,6 +3318,9 @@ pipelineStatuses[siteId].demo_importing = false;
             handleDeleteFeedProduct, handleImportSampleProducts, handleExportFeed,
             toggleFeedMenu, setSourceTab, loadFeedStats,
             loadWooStats, setWooStatsPeriod, formatMoney, formatInt,
+            analyticsData, analyticsLoading, analyticsPeriod, analyticsSiteId, analyticsSource,
+            analyticsSessionPage, analyticsTimeline, analyticsTimelineVisible,
+            loadAnalytics, loadSiteAnalytics, loadSiteSessions, loadSessionTimeline, setAnalyticsPeriod,
             loadWalmartCategories, fetchWalmartBestsellers, loadPersistedWalmartProducts, exportWalmartData,
             enrichWalmartProducts, loadGeneratedFeed, clearGeneratedFeed,
             walmartGoPage,
@@ -3410,19 +3462,13 @@ pipelineStatuses[siteId].demo_importing = false;
                 <a v-if="currentUserRole === 'admin'" @click="currentPage = 'users'; loadUsers()" :class="['sidebar-link', currentPage === 'users' ? 'active' : '']">
                     <span class="material-symbols-outlined">group</span> 用户管理
                 </a>
+                <a @click="currentPage = 'analytics'; loadAnalytics()" :class="['sidebar-link', currentPage === 'analytics' ? 'active' : '']">
+                    <span class="material-symbols-outlined">analytics</span> 分析总览
+                </a>
                 <div v-if="currentUserRole === 'admin'" class="sidebar-group">
-                    <div @click="toggleStats" :class="['sidebar-link', (currentPage === 'woo-stats' || currentPage === 'resource-overview') ? 'active' : '']" style="cursor:pointer">
-                        <span class="material-symbols-outlined">analytics</span> 统计总览
-                        <span class="material-symbols-outlined ml-auto" style="font-size:16px">{{ statsSubmenuOpen ? 'expand_less' : 'expand_more' }}</span>
-                    </div>
-                    <div v-show="statsSubmenuOpen || currentPage === 'woo-stats' || currentPage === 'resource-overview'" class="sidebar-submenu">
-                        <a @click="currentPage = 'woo-stats'; loadWooStats()" :class="['sidebar-sublink', currentPage === 'woo-stats' ? 'active' : '']">
-                            <span class="material-symbols-outlined">trending_up</span> 销售统计
-                        </a>
-                        <a @click="currentPage = 'resource-overview'; loadResourceOverview()" :class="['sidebar-sublink', currentPage === 'resource-overview' ? 'active' : '']">
-                            <span class="material-symbols-outlined">account_tree</span> 资源总览
-                        </a>
-                    </div>
+                    <a @click="currentPage = 'resource-overview'; loadResourceOverview()" :class="['sidebar-link', currentPage === 'resource-overview' ? 'active' : '']">
+                        <span class="material-symbols-outlined">account_tree</span> 资源总览
+                    </a>
                 </div>
                 <a v-if="currentUserRole === 'admin'" @click="currentPage = 'settings'" :class="['sidebar-link', currentPage === 'settings' ? 'active' : '']">
                     <span class="material-symbols-outlined">settings</span> 系统设置
@@ -3483,12 +3529,12 @@ pipelineStatuses[siteId].demo_importing = false;
                 <div class="page-breadcrumb" v-if="currentPage !== 'dashboard'">
                     <span>凯瑞投流</span>
                     <span class="material-symbols-outlined" style="font-size:16px">chevron_right</span>
-                    <span class="current">{{ currentPage === 'sites' ? '站点概览' : currentPage === 'brand-kits' ? '品牌套件' : currentPage === 'brand-kits-detail' ? '品牌套件详情' : currentPage === 'shai-pin-dashboard' ? '筛品' : currentPage === 'shai-pin-source' ? '产品来源' : currentPage === 'shai-pin-feed' ? '数据源生成' : currentPage === 'woocommerce-products' ? '网站产品' : currentPage === 'woo-stats' ? '销售统计' : currentPage === 'mc-automation' ? 'Google MC' : currentPage === 'users' ? '用户管理' : '系统设置' }}</span>
+                    <span class="current">{{ currentPage === 'sites' ? '站点概览' : currentPage === 'brand-kits' ? '品牌套件' : currentPage === 'brand-kits-detail' ? '品牌套件详情' : currentPage === 'shai-pin-dashboard' ? '筛品' : currentPage === 'shai-pin-source' ? '产品来源' : currentPage === 'shai-pin-feed' ? '数据源生成' : currentPage === 'woocommerce-products' ? '网站产品' : currentPage === 'woo-stats' ? '销售统计' : currentPage === 'analytics' ? '分析总览' : currentPage === 'mc-automation' ? 'Google MC' : currentPage === 'users' ? '用户管理' : '系统设置' }}</span>
                 </div>
 
 <!-- Main Content -->
         <div class="mb-lg">
-                <h1 class="page-title">{{ currentPage === 'dashboard' ? '概览' : currentPage === 'sites' ? '站点概览' : currentPage === 'brand-kits' ? '品牌套件' : currentPage === 'brand-kits-detail' ? '品牌套件详情' : currentPage === 'shai-pin-dashboard' ? '筛品' : currentPage === 'shai-pin-source' ? '产品来源' : currentPage === 'shai-pin-feed' ? '数据源生成' : currentPage === 'woocommerce-products' ? '网站产品' : currentPage === 'woo-stats' ? '销售统计' : currentPage === 'mc-automation' ? 'Google MC' : currentPage === 'users' ? '用户管理' : '系统设置' }}</h1>
+                <h1 class="page-title">{{ currentPage === 'dashboard' ? '概览' : currentPage === 'sites' ? '站点概览' : currentPage === 'brand-kits' ? '品牌套件' : currentPage === 'brand-kits-detail' ? '品牌套件详情' : currentPage === 'shai-pin-dashboard' ? '筛品' : currentPage === 'shai-pin-source' ? '产品来源' : currentPage === 'shai-pin-feed' ? '数据源生成' : currentPage === 'woocommerce-products' ? '网站产品' : currentPage === 'woo-stats' ? '销售统计' : currentPage === 'analytics' ? '分析总览' : currentPage === 'mc-automation' ? 'Google MC' : currentPage === 'users' ? '用户管理' : '系统设置' }}</h1>
                 <p class="font-body-md text-on-surface-variant mt-xs"><span class="text-[#146c2e]"><span class="material-symbols-outlined text-[10px] mr-1">dns</span>{{ currentPanelEnv ? currentPanelEnv.name + ' (' + currentPanelEnv.host + ')' : (panelEnvironments.length || 0) + ' 台服务器' }}</span></p>
                 <div class="flex gap-sm mt-md">
                     <button v-if="currentPage === 'settings'" @click="exportSystemData" class="flex items-center gap-sm px-md py-sm bg-primary-container text-on-primary rounded-lg hover:bg-primary transition-colors font-label-md text-label-md shadow-level-1" title="导出所有配置和数据"><span class="material-symbols-outlined text-[18px]">download</span>导出配置</button>
@@ -3528,6 +3574,47 @@ pipelineStatuses[siteId].demo_importing = false;
                         <button @click="currentPage = 'resource-overview'" class="flex items-center gap-2 p-3 border rounded-lg hover:border-primary hover:bg-primary/5 transition text-sm"><i class="fas fa-chart-bar text-purple-600"></i> 资源总览</button>
                     </div>
                 </div>
+            </div>
+
+            <!-- Analytics Dashboard -->
+            <div v-if="currentPage === 'analytics'" class="fade-in max-w-[1440px] mx-auto px-lg">
+                <div v-if="analyticsLoading" class="text-center py-20"><span class="spinner w-4 h-4 inline-block"></span></div>
+                <div v-else-if="analyticsData && analyticsData.targets" class="space-y-6">
+                    <!-- Period filter -->
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm text-on-surface-variant">时间范围:</span>
+                        <button v-for="p in [{k:'today',l:'今日'},{k:'yesterday',l:'昨日'},{k:'7d',l:'7天'},{k:'30d',l:'30天'}]" :key="p.k"
+                            @click="setAnalyticsPeriod(p.k)"
+                            :class="['px-3 py-1.5 rounded-lg text-sm transition', analyticsPeriod===p.k ? 'bg-primary-container text-on-primary' : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high']">
+                            {{ p.l }}
+                        </button>
+                    </div>
+                    <!-- Target cards -->
+                    <div v-for="t in analyticsData.targets" :key="t.target" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5">
+                        <h3 class="font-semibold text-on-surface mb-3">{{ t.target }} <span class="text-sm font-normal text-on-surface-variant">({{ t.sites.join(', ') }})</span></h3>
+                        <div v-if="t.data && t.data.sources" class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead><tr class="text-left text-xs text-on-surface-variant uppercase">
+                                    <th class="px-3 py-2">来源</th><th class="px-3 py-2 text-right">访客</th><th class="px-3 py-2 text-right">浏览</th><th class="px-3 py-2 text-right">加购</th><th class="px-3 py-2 text-right">订单</th><th class="px-3 py-2 text-right">营收</th><th class="px-3 py-2 text-right">转化率</th>
+                                </tr></thead>
+                                <tbody class="divide-y">
+                                    <tr v-for="s in t.data.sources" class="hover:bg-surface-container-low">
+                                        <td class="px-3 py-2 font-medium">{{ s.source }}</td>
+                                        <td class="px-3 py-2 text-right">{{ s.visitors||0 }}</td>
+                                        <td class="px-3 py-2 text-right">{{ s.product_views||0 }}</td>
+                                        <td class="px-3 py-2 text-right">{{ s.add_to_carts||0 }}</td>
+                                        <td class="px-3 py-2 text-right">{{ s.orders||0 }}</td>
+                                        <td class="px-3 py-2 text-right font-bold text-[#146c2e]">\${{ (s.revenue||0).toLocaleString() }}</td>
+                                        <td class="px-3 py-2 text-right">{{ s.conversion_rate||0 }}%</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p v-else class="text-sm text-on-surface-variant py-4 text-center">暂无数据，请确保已安装 kairui-tracker 插件并配置 API Key。</p>
+                    </div>
+                    <p v-if="!analyticsData.targets.length" class="text-center py-12 text-on-surface-variant">暂无可分析的镜像站点。请先使用镜像向导创建镜像。</p>
+                </div>
+                <div v-else class="text-center py-12 text-on-surface-variant">加载中...</div>
             </div>
 
             <!-- 网站产品 Stats -->
@@ -3571,6 +3658,10 @@ pipelineStatuses[siteId].demo_importing = false;
                     </div>
                     <!-- Per-site table -->
                     <div class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
+                        <div class="px-4 py-3 border-b flex items-center gap-3">
+                            <div class="relative flex-1"><i class="fas fa-search absolute left-3 top-3 text-on-surface-variant text-xs"></i><input v-model="wooStatsSearch" @input="wooStatsPage=1" type="text" placeholder="搜索站点..." class="pl-8 pr-4 py-2 border rounded-lg text-sm focus:border-primary w-64"></div>
+                            <span class="text-xs text-on-surface-variant">共 {{ (wooStats.sites||[]).length }} 个站点</span>
+                        </div>
                         <table class="w-full text-sm">
                             <thead class="bg-surface-container-low text-on-surface-variant">
                                 <tr>
@@ -3583,7 +3674,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-outline-variant">
-                                <tr v-for="s in wooStats.sites" :key="s.id" class="hover:bg-surface-container-low">
+                                <tr v-for="s in wooStatsPagedSites" :key="s.id" class="hover:bg-surface-container-low">
                                     <td class="px-4 py-3">
                                         <div class="font-medium text-on-surface">{{ s.site_name }}</div>
                                         <div class="text-xs text-on-surface-variant">{{ s.url }}</div>
@@ -3611,6 +3702,13 @@ pipelineStatuses[siteId].demo_importing = false;
                                 </tr>
                             </tfoot>
                         </table>
+                    </div>
+                    <div v-if="wooStatsTotalPages > 1" class="flex items-center justify-between text-xs text-on-surface-variant mt-3 px-2">
+                        <span>第 {{ wooStatsPage }} / {{ wooStatsTotalPages }} 页</span>
+                        <div class="flex gap-1">
+                            <button @click="wooStatsPage = Math.max(1, wooStatsPage - 1)" :disabled="wooStatsPage<=1" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">上一页</button>
+                            <button @click="wooStatsPage = Math.min(wooStatsTotalPages, wooStatsPage + 1)" :disabled="wooStatsPage>=wooStatsTotalPages" class="px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-30">下一页</button>
+                        </div>
                     </div>
                 </div>
             </div>

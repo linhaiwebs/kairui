@@ -275,10 +275,16 @@ const API = {
         return this.request('GET', '/api/feed/stats');
     },
 
-    // WooCommerce Sales Statistics
-    async getWooCommerceStats(params = {}) {
-        const qs = new URLSearchParams(params).toString();
-        return this.request('GET', `/api/stats/woocommerce?${qs}`);
+    // Analytics (Kairui Tracker)
+    async getDashboardAnalytics() {
+        return this.request('GET', '/api/analytics/dashboard');
+    },
+    async getAnalytics(siteId, path, params = {}) {
+        const qs = new URLSearchParams({ site_id: siteId, ...params }).toString();
+        return this.request('GET', `/api/analytics/${path}?${qs}`);
+    },
+    async setAnalyticsKey(target, apiKey) {
+        return this.request('POST', '/api/analytics/key', { target, api_key: apiKey });
     },
 
     // 筛品 - Walmart Bestsellers (Crawlbase)
