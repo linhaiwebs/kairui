@@ -96,6 +96,26 @@ class Kairui_API {
         );
         $rows = $wpdb->get_results($sql, ARRAY_A);
 
+        // Fallback: if hourly_stats is empty, query raw events directly
+        if (empty($rows)) {
+            $etbl = $wpdb->prefix . 'kairui_events';
+            $esql = $wpdb->prepare(
+                "SELECT source,
+                    SUM(CASE WHEN event_type='page_view' THEN 1 ELSE 0 END) as page_views,
+                    SUM(CASE WHEN event_type='product_view' THEN 1 ELSE 0 END) as product_views,
+                    SUM(CASE WHEN event_type='add_to_cart' THEN 1 ELSE 0 END) as add_to_carts,
+                    SUM(CASE WHEN event_type='begin_checkout' THEN 1 ELSE 0 END) as checkouts,
+                    SUM(CASE WHEN event_type='purchase' THEN 1 ELSE 0 END) as orders,
+                    SUM(CASE WHEN event_type='purchase' THEN order_total ELSE 0 END) as revenue,
+                    COUNT(DISTINCT session_id) as visitors,
+                    0 as bounces
+                FROM $etbl $where
+                GROUP BY source",
+                $params
+            );
+            $rows = $wpdb->get_results($esql, ARRAY_A);
+        }
+
         $sources = [];
         $totals = ['visitors'=>0,'page_views'=>0,'orders'=>0,'revenue'=>0];
         foreach ($rows as $r) {
