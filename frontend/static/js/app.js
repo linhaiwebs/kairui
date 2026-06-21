@@ -176,6 +176,9 @@ const app = createApp({
         const analyticsSessionPage = ref(1);
         const analyticsTimeline = ref(null);
         const analyticsTimelineVisible = ref(false);
+        const analyticsView = ref('overview'); // 'overview' | 'site-detail'
+        const analyticsSiteData = ref(null);
+        const analyticsSiteSessions = ref(null);
 
         // 筛品 - Walmart tab state
         const walmartCategories = ref([]);  // grouped: [{group, items: [{key, label, url, cached_count}]}]
@@ -924,6 +927,25 @@ pipelineStatuses[siteId].demo_importing = false;
             if (resp.code === 200) { analyticsTimeline.value = resp.data; analyticsTimelineVisible.value = true; }
         }
         function setAnalyticsPeriod(p) { analyticsPeriod.value = p; analyticsSiteId.value ? loadSiteAnalytics(analyticsSiteId.value) : loadAnalytics(); }
+        async function openSiteDetail(target) {
+            analyticsView.value = 'site-detail';
+            analyticsSource.value = target;
+            analyticsLoading.value = true;
+            try {
+                const site = sites.value.find(s => (s.mirror_target || '').includes(target));
+                const sid = site ? site.id : analyticsSiteId.value;
+                if (sid) {
+                    const [summary, sessions] = await Promise.all([
+                        API.getAnalytics(sid, 'analytics/summary', { period: analyticsPeriod.value, source: target }),
+                        API.getAnalytics(sid, 'analytics/sessions', { period: '7d', source: target, page: 1 }),
+                    ]);
+                    if (summary.code === 200) analyticsSiteData.value = summary.data;
+                    if (sessions.code === 200) analyticsSiteSessions.value = sessions.data;
+                }
+            } catch (e) {}
+            analyticsLoading.value = false;
+        }
+        function backToOverview() { analyticsView.value = 'overview'; analyticsSiteData.value = null; analyticsSiteSessions.value = null; }
         const analyticsKeyTarget = ref('');
         const analyticsKeyValue = ref('');
         const analyticsKeyResult = ref('');
@@ -931,7 +953,7 @@ pipelineStatuses[siteId].demo_importing = false;
             if (!analyticsKeyTarget.value.trim() || !analyticsKeyValue.value.trim()) { analyticsKeyResult.value = '请填写域名和Key'; return; }
             const r = await API.setAnalyticsKey(analyticsKeyTarget.value.trim(), analyticsKeyValue.value.trim());
             analyticsKeyResult.value = r.code === 200 ? '保存成功！刷新页面查看数据' : (r.message || '保存失败');
-            if (r.code === 200) { analyticsKeyTarget.value = ''; analyticsKeyValue.value = ''; loadAnalytics(); }
+            if (r.code === 200) { analyticsKeyValue.value = ''; loadAnalytics(); }
         }
         function formatInt(val) {
             const n = Number(val) || 0;
@@ -3331,6 +3353,7 @@ pipelineStatuses[siteId].demo_importing = false;
             analyticsData, analyticsLoading, analyticsPeriod, analyticsSiteId, analyticsSource,
             analyticsSessionPage, analyticsTimeline, analyticsTimelineVisible,
             loadAnalytics, loadSiteAnalytics, loadSiteSessions, loadSessionTimeline, setAnalyticsPeriod,
+            analyticsView, analyticsSiteData, analyticsSiteSessions, openSiteDetail, backToOverview,
             analyticsKeyTarget, analyticsKeyValue, analyticsKeyResult, saveAnalyticsKey,
             loadWalmartCategories, fetchWalmartBestsellers, loadPersistedWalmartProducts, exportWalmartData,
             enrichWalmartProducts, loadGeneratedFeed, clearGeneratedFeed,
@@ -3610,7 +3633,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 </tr></thead>
                                 <tbody class="divide-y">
                                     <tr v-for="s in t.data.sources" class="hover:bg-surface-container-low">
-                                        <td class="px-3 py-2 font-medium">{{ s.source }}</td>
+                                        <td class="px-3 py-2 font-medium"><a href="#" @click.prevent="openSiteDetail(s.source)" class="text-primary hover:underline">{{ s.source }}</a></td>
                                         <td class="px-3 py-2 text-right">{{ s.visitors||0 }}</td>
                                         <td class="px-3 py-2 text-right">{{ s.product_views||0 }}</td>
                                         <td class="px-3 py-2 text-right">{{ s.add_to_carts||0 }}</td>
@@ -3623,9 +3646,57 @@ pipelineStatuses[siteId].demo_importing = false;
                         </div>
                         <p v-else class="text-sm text-on-surface-variant py-4 text-center">暂无数据，请确保已安装 kairui-tracker 插件并配置 API Key。</p>
                     </div>
-                    <p v-if="!analyticsData.targets.length" class="text-center py-12 text-on-surface-variant">暂无可分析的镜像站点。请先使用镜像向导创建镜像。</p>
+                    <!-- Site Detail View -->
+                    <div v-if="analyticsView === 'site-detail'" class="space-y-6">
+                        <button @click="backToOverview" class="text-primary hover:text-primary text-sm mb-3 inline-block"><i class="fas fa-arrow-left mr-1"></i>返回总览</button>
+                        <h3 class="font-semibold text-on-surface text-lg">{{ analyticsSource }}</h3>
+                        <div v-if="analyticsLoading" class="text-center py-12"><span class="spinner w-4 h-4 inline-block"></span></div>
+                        <div v-else-if="analyticsSiteData && analyticsSiteData.sources">
+                            <div v-for="s in analyticsSiteData.sources" :key="s.source" class="grid grid-cols-4 gap-4 mb-6">
+                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><p class="text-xs text-on-surface-variant">访客</p><p class="text-2xl font-bold text-primary">{{ s.visitors||0 }}</p></div>
+                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><p class="text-xs text-on-surface-variant">浏览产品</p><p class="text-2xl font-bold text-primary">{{ s.product_views||0 }}</p></div>
+                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><p class="text-xs text-on-surface-variant">加购</p><p class="text-2xl font-bold text-primary">{{ s.add_to_carts||0 }}</p></div>
+                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><p class="text-xs text-on-surface-variant">订单 / 营收</p><p class="text-2xl font-bold text-[#146c2e]">{{ s.orders||0 }} / \${{ (s.revenue||0).toLocaleString() }}</p></div>
+                            </div>
+                            <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5 mb-4">
+                                <h4 class="text-sm font-semibold mb-3">最近会话</h4>
+                                <div v-if="analyticsSiteSessions && analyticsSiteSessions.sessions" class="overflow-x-auto">
+                                    <table class="w-full text-sm"><thead><tr class="text-left text-xs text-on-surface-variant uppercase"><th class="px-3 py-2">会话ID</th><th class="px-3 py-2">入口页</th><th class="px-3 py-2">浏览</th><th class="px-3 py-2">加购</th><th class="px-3 py-2">下单</th><th class="px-3 py-2">时间</th></tr></thead>
+                                    <tbody class="divide-y">
+                                        <tr v-for="ses in (analyticsSiteSessions.sessions||[]).slice(0,20)" :key="ses.session_id" class="hover:bg-surface-container-low cursor-pointer" @click="loadSessionTimeline(analyticsSiteId||0, ses.session_id)">
+                                            <td class="px-3 py-2 text-xs font-mono">{{ (ses.session_id||'').slice(0,8) }}</td>
+                                            <td class="px-3 py-2 text-xs">{{ (ses.entry_page||'/').slice(0,40) }}</td>
+                                            <td class="px-3 py-2 text-xs">{{ ses.pages||0 }}</td>
+                                            <td class="px-3 py-2 text-xs">{{ ses.added_to_cart ? '✅' : '-' }}</td>
+                                            <td class="px-3 py-2 text-xs">{{ ses.converted ? '✅ #'+ses.order_id : '-' }}</td>
+                                            <td class="px-3 py-2 text-xs text-on-surface-variant">{{ (ses.last_active||'').slice(11,19) }}</td>
+                                        </tr>
+                                    </tbody></table>
+                                </div>
+                                <p v-else class="text-sm text-on-surface-variant py-4">暂无会话数据</p>
+                            </div>
+                        </div>
+                        <p v-else class="text-sm text-on-surface-variant py-8 text-center">暂无详细数据</p>
+                    </div>
+                    <p v-if="analyticsView === 'overview' && !analyticsData.targets.length" class="text-center py-12 text-on-surface-variant">暂无可分析的镜像站点。请先使用镜像向导创建镜像。</p>
                 </div>
                 <div v-else class="text-center py-12 text-on-surface-variant">加载中...</div>
+            </div>
+            <!-- Session Timeline Modal -->
+            <div v-if="analyticsTimelineVisible" class="modal-overlay modal-overlay" @click.self="analyticsTimelineVisible=false">
+                <div class="bg-surface-container-lowest rounded-2xl shadow-level-3 w-full max-w-2xl mx-4 max-h-[80vh] overflow-y-auto fade-in p-6">
+                    <h3 class="text-lg font-bold mb-4">会话时间线 - {{ (analyticsTimeline?.session_id||'').slice(0,8) }}</h3>
+                    <p class="text-xs text-on-surface-variant mb-3">来源: {{ analyticsTimeline?.source }} | 入口: {{ analyticsTimeline?.entry_page }}</p>
+                    <div class="space-y-2">
+                        <div v-for="(e,i) in (analyticsTimeline?.timeline||[])" :key="i" class="flex items-start gap-3 text-sm p-2 rounded bg-surface-container-low">
+                            <span class="text-xs font-mono text-on-surface-variant w-14">{{ e.time }}</span>
+                            <span class="text-xs bg-primary-container text-on-primary px-2 py-0.5 rounded-full">{{ e.event }}</span>
+                            <span class="text-xs text-on-surface-variant flex-1 truncate">{{ e.url||'/' }}</span>
+                            <span v-if="e.order_id" class="text-xs font-bold text-[#146c2e]">#{{ e.order_id }} \${{ e.order_total }}</span>
+                        </div>
+                    </div>
+                    <button @click="analyticsTimelineVisible=false" class="mt-4 w-full py-2 border rounded-lg text-sm">关闭</button>
+                </div>
             </div>
 
             <!-- 网站产品 Stats -->
