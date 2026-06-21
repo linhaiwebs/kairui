@@ -2556,6 +2556,9 @@ def register_routes(app):
                     f"hdrs.set('X-Forwarded-Host', '{domain}');"
                     f"hdrs.set('X-Forwarded-Proto', 'https');"
                     f"const resp = await fetch(url.toString(), {{method: request.method, headers: hdrs, body: request.body, redirect: 'follow'}});"
+                    f"let newResp = new Response(resp.body, resp);"
+                    f"let c=newResp.headers.get('Set-Cookie');"
+                    f"if(c){{c=c.replace(/{target_host}/g,'{domain}').replace(/Domain={target_host}/gi,'Domain={domain}');newResp.headers.set('Set-Cookie',c);}}"
                     f"function _rewrite(v){{if(v&&v.indexOf('wp-json/kairui')===-1&&v.indexOf('wp-admin')===-1&&v.indexOf('wp-content/plugins')===-1)return v.replace('{target_host}','{domain}');return v;}}"
                     f"return new HTMLRewriter().on('a[href]', {{element(el){{"
                     f"var h=el.getAttribute('href');if(h)el.setAttribute('href',_rewrite(h));"
@@ -2563,7 +2566,7 @@ def register_routes(app):
                     f"var s=el.getAttribute('src');if(s)el.setAttribute('src',_rewrite(s));"
                     f"}}}}).on('form[action]',{{element(el){{"
                     f"var a=el.getAttribute('action');if(a)el.setAttribute('action',_rewrite(a));"
-                    f"}}}}).transform(resp);"
+                    f"}}}}).transform(newResp);"
                     "}"
                 )
                 # Upload worker script
