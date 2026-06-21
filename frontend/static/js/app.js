@@ -932,9 +932,11 @@ pipelineStatuses[siteId].demo_importing = false;
             analyticsSource.value = target;
             analyticsLoading.value = true;
             try {
-                const site = sites.value.find(s => (s.mirror_target || '').includes(target));
-                const sid = site ? site.id : analyticsSiteId.value;
+                // Find the mirror site by its URL (the source IS the mirror site's domain)
+                const site = sites.value.find(s => s.url === target || s.site_name === target);
+                const sid = site ? site.id : null;
                 if (sid) {
+                    analyticsSiteId.value = sid;
                     const [summary, sessions] = await Promise.all([
                         API.getAnalytics(sid, 'analytics/summary', { period: analyticsPeriod.value, source: target }),
                         API.getAnalytics(sid, 'analytics/sessions', { period: '7d', source: target, page: 1 }),
