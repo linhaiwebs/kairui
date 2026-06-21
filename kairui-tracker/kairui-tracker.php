@@ -15,10 +15,12 @@ require_once KAIRUI_TRACKER_DIR . 'includes/class-tracker.php';
 require_once KAIRUI_TRACKER_DIR . 'includes/class-api.php';
 require_once KAIRUI_TRACKER_DIR . 'includes/class-js-injector.php';
 require_once KAIRUI_TRACKER_DIR . 'includes/class-aggregator.php';
+require_once KAIRUI_TRACKER_DIR . 'includes/class-feed-server.php';
 Kairui_Tracker::init();
 Kairui_API::init();
 Kairui_JS_Injector::init();
 Kairui_Aggregator::init();
+Kairui_Feed_Server::init();
 
 register_activation_hook(__FILE__, ['Kairui_Schema', 'create_tables']);
 register_deactivation_hook(__FILE__, ['Kairui_Schema', 'cleanup']);
