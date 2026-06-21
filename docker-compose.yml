@@ -22,6 +22,7 @@ services:
       - ~/.ssh:/root/.ssh:ro
       - ./backend:/app/backend
       - ./frontend:/app/frontend
+      - /tmp:/tmp/host
       - wp-brand-kits:/app/backend/brand-kits
       - wp-browsers:/app/backend/browsers
       - wp-logs:/app/logs
