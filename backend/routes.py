@@ -9495,8 +9495,10 @@ Respond with strict JSON only (no markdown code blocks):
     @jwt_required()
     def analytics_dashboard():
         """Aggregated dashboard data from all mirrored sites."""
-        user_id = get_jwt().get("user_id")
-        sites = list_sites(user_id=user_id)
+        claims = get_jwt()
+        user_id = claims.get("user_id")
+        role = claims.get("role", "")
+        sites = list_sites(user_id=None if role == "admin" else user_id)
 
         targets = {}
         for s in sites:
