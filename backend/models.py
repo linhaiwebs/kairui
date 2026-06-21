@@ -1952,10 +1952,21 @@ def list_generated_feed(site_id=None) -> list[dict]:
         results = []
         for r in rows:
             d = dict(r)
+            d["product_name"] = d.get("title", "")
             for field in ("images", "features", "breadcrumbs"):
-                try:
-                    d[field] = json.loads(d.get(field, "[]"))
-                except (json.JSONDecodeError, TypeError):
+                val = d.get(field, "")
+                if isinstance(val, str):
+                    val = val.strip().strip('"').strip("'")
+                    if val.startswith("[") and val.endswith("]"):
+                        try: d[field] = json.loads(val)
+                        except: d[field] = []
+                    elif "," in val:
+                        d[field] = [u.strip() for u in val.split(",") if u.strip()]
+                    elif val:
+                        d[field] = [val]
+                    else:
+                        d[field] = []
+                else:
                     d[field] = []
             try:
                 d["extra_data"] = json.loads(d.get("extra_data", "{}"))
@@ -2122,10 +2133,21 @@ def list_run_products(category=None, page=1, per_page=20) -> dict:
         results = []
         for r in rows:
             d = dict(r)
+            d["product_name"] = d.get("title", "")
             for field in ("images", "features", "breadcrumbs"):
-                try:
-                    d[field] = json.loads(d.get(field, "[]"))
-                except (json.JSONDecodeError, TypeError):
+                val = d.get(field, "")
+                if isinstance(val, str):
+                    val = val.strip().strip('"').strip("'")
+                    if val.startswith("[") and val.endswith("]"):
+                        try: d[field] = json.loads(val)
+                        except: d[field] = []
+                    elif "," in val:
+                        d[field] = [u.strip() for u in val.split(",") if u.strip()]
+                    elif val:
+                        d[field] = [val]
+                    else:
+                        d[field] = []
+                else:
                     d[field] = []
             try:
                 d["extra_data"] = json.loads(d.get("extra_data", "{}"))
@@ -2151,10 +2173,21 @@ def get_run_products_by_ids(ids: list[int]) -> list[dict]:
         results = []
         for r in rows:
             d = dict(r)
+            d["product_name"] = d.get("title", "")
             for field in ("images", "features", "breadcrumbs"):
-                try:
-                    d[field] = json.loads(d.get(field, "[]"))
-                except (json.JSONDecodeError, TypeError):
+                val = d.get(field, "")
+                if isinstance(val, str):
+                    val = val.strip().strip('"').strip("'")
+                    if val.startswith("[") and val.endswith("]"):
+                        try: d[field] = json.loads(val)
+                        except: d[field] = []
+                    elif "," in val:
+                        d[field] = [u.strip() for u in val.split(",") if u.strip()]
+                    elif val:
+                        d[field] = [val]
+                    else:
+                        d[field] = []
+                else:
                     d[field] = []
             try:
                 d["extra_data"] = json.loads(d.get("extra_data", "{}"))
