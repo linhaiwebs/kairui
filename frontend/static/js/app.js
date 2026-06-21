@@ -3472,7 +3472,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 <a v-if="currentUserRole === 'admin'" @click="currentPage = 'users'; loadUsers()" :class="['sidebar-link', currentPage === 'users' ? 'active' : '']">
                     <span class="material-symbols-outlined">group</span> 用户管理
                 </a>
-                <a @click="currentPage = 'analytics'; loadAnalytics()" :class="['sidebar-link', currentPage === 'analytics' ? 'active' : '']">
+                <a v-if="currentUserRole === 'admin'" @click="currentPage = 'analytics'; loadAnalytics()" :class="['sidebar-link', currentPage === 'analytics' ? 'active' : '']">
                     <span class="material-symbols-outlined">analytics</span> 分析总览
                 </a>
                 <div v-if="currentUserRole === 'admin'" class="sidebar-group">
