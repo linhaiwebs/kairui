@@ -2545,15 +2545,6 @@ def register_routes(app):
                     pass
                 alias = site.get("nginx_alias", domain)
                 worker_name = f"mirror-{alias.replace('.', '-')}"
-                # Resolve origin server IP for feed file bypass
-                origin_ip = ""
-                try:
-                    site_env = get_user_panel_environment(site.get("created_by") or 1)
-                    if site_env:
-                        origin_ip = site_env.get("host", "")
-                except Exception:
-                    pass
-                origin_ip_js = origin_ip if origin_ip else target_host
 
                 script = (
                     "addEventListener('fetch', event => {"
@@ -2561,10 +2552,9 @@ def register_routes(app):
                     "});"
                     "async function handleRequest(request) {"
                     f"const url = new URL(request.url);"
-                    f"const bypass = url.pathname==='/feedstart.xml'||url.pathname==='/feed.xml';"
-                    f"url.hostname = bypass ? '{origin_ip_js}' : '{target_host}';"
+                    f"url.hostname = '{target_host}';"
                     f"let hdrs = new Headers(request.headers);"
-                    f"if(!bypass){{hdrs.set('X-Forwarded-Host', '{domain}');}}"
+                    f"hdrs.set('X-Forwarded-Host', '{domain}');"
                     f"hdrs.set('X-Forwarded-Proto', 'https');"
                     f"const resp = await fetch(url.toString(), {{method: request.method, headers: hdrs, body: request.body, redirect: 'follow'}});"
                     f"let newResp = new Response(resp.body, resp);"
