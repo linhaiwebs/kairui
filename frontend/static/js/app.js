@@ -509,6 +509,7 @@ const app = createApp({
             { key: 'crawlbase', label: 'Crawlbase' },
             { key: 'cloudflare', label: 'Cloudflare' },
             { key: 'dataforseo', label: 'DataForSEO' },
+            { key: 'analytics', label: '分析配置' },
             { key: 'google_account', label: '谷歌账户' },
             { key: 'fingerprint', label: '指纹环境' },
         ];
@@ -3623,18 +3624,6 @@ pipelineStatuses[siteId].demo_importing = false;
                         <p v-else class="text-sm text-on-surface-variant py-4 text-center">暂无数据，请确保已安装 kairui-tracker 插件并配置 API Key。</p>
                     </div>
                     <p v-if="!analyticsData.targets.length" class="text-center py-12 text-on-surface-variant">暂无可分析的镜像站点。请先使用镜像向导创建镜像。</p>
-
-                    <!-- API Key Config -->
-                    <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5">
-                        <h4 class="font-semibold text-on-surface mb-2">配置分析 API Key</h4>
-                        <p class="text-xs text-on-surface-variant mb-3">从 WordPress 插件获取 Key（WP后台→设置→Kairui Tracker 或执行 <code>wp option get kairui_api_key</code>），填入对应目标站点域名。</p>
-                        <div class="flex gap-3 items-end">
-                            <div class="flex-1"><label class="block text-xs text-on-surface-variant mb-1">目标站点域名</label><input v-model="analyticsKeyTarget" type="text" placeholder="woo-site.com" class="w-full px-3 py-2 border rounded text-sm focus:border-primary"></div>
-                            <div class="flex-1"><label class="block text-xs text-on-surface-variant mb-1">API Key</label><input v-model="analyticsKeyValue" type="text" placeholder="粘贴插件生成的Key" class="w-full px-3 py-2 border rounded text-sm focus:border-primary"></div>
-                            <button @click="saveAnalyticsKey" class="btn-primary text-on-primary px-4 py-2 rounded text-sm">保存</button>
-                        </div>
-                        <p v-if="analyticsKeyResult" :class="['text-xs mt-2', analyticsKeyResult.includes('成功') ? 'text-[#146c2e]' : 'text-error']">{{ analyticsKeyResult }}</p>
-                    </div>
                 </div>
                 <div v-else class="text-center py-12 text-on-surface-variant">加载中...</div>
             </div>
@@ -5120,6 +5109,23 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <div class="space-y-3">
                                     <div><label class="block text-sm font-medium text-on-surface mb-1">API Login</label><input v-model="globalConfig.dataforseo_login" type="text" class="w-full px-4 py-2 border rounded-lg focus:border-primary text-sm" placeholder="DataForSEO API Login"></div>
                                     <div><label class="block text-sm font-medium text-on-surface mb-1">API Password</label><input v-model="globalConfig.dataforseo_password" type="password" class="w-full px-4 py-2 border rounded-lg focus:border-primary text-sm" placeholder="DataForSEO API Password"></div>
+                                </div>
+                            </div>
+                            <!-- Tab: 分析配置 -->
+                            <div v-else-if="settingsActiveTab === 'analytics'">
+                                <h4 class="text-sm font-semibold text-on-surface mb-3"><i class="fas fa-analytics mr-2 text-primary"></i>分析 API 配置</h4>
+                                <p class="text-xs text-on-surface-variant mb-4">配置镜像目标 WooCommerce 站点的 Kairui Tracker 插件 API Key。<br>在 WP 服务器执行 <code>php -r "require 'wp-load.php'; echo get_option('kairui_api_key');"</code> 获取 Key。</p>
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="block text-sm font-medium text-on-surface mb-1">目标站点域名</label>
+                                        <input v-model="analyticsKeyTarget" type="text" placeholder="woo-site.com" class="w-full px-4 py-2 border rounded-lg focus:border-primary text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-on-surface mb-1">API Key</label>
+                                        <input v-model="analyticsKeyValue" type="text" placeholder="粘贴插件生成的Key" class="w-full px-4 py-2 border rounded-lg focus:border-primary text-sm">
+                                    </div>
+                                    <button @click="saveAnalyticsKey" class="btn-primary text-on-primary px-4 py-2 rounded text-sm">保存</button>
+                                    <p v-if="analyticsKeyResult" :class="['text-xs mt-2', analyticsKeyResult.includes('成功') ? 'text-[#146c2e]' : 'text-error']">{{ analyticsKeyResult }}</p>
                                 </div>
                             </div>
                             <!-- Tab: 谷歌账户 -->
