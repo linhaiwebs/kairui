@@ -8,6 +8,7 @@
 
     var queue = [];
     var lastPage = location.pathname;
+    var flushing = false;
     var scrollMarks = {25: false, 50: false, 75: false, 100: false};
 
     function getCookie(name) {
@@ -24,9 +25,12 @@
     }
 
     function flush() {
-        if (!queue.length) return;
+        if (!queue.length || flushing) return;
+        flushing = true;
         var batch = queue.splice(0);
-        navigator.sendBeacon(API, JSON.stringify(batch));
+        fetch(API, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(batch), keepalive: true })
+            .catch(function(){})
+            .finally(function(){ flushing = false; });
     }
 
     // Page view
@@ -89,8 +93,6 @@
     // Batch flush
     setInterval(flush, BATCH_INTERVAL);
 
-    // Flush on exit
-    window.addEventListener('beforeunload', flush);
     document.addEventListener('visibilitychange', function() {
         if (document.visibilityState === 'hidden') flush();
     });
