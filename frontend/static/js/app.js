@@ -4728,7 +4728,7 @@ pipelineStatuses[siteId].demo_importing = false;
                         <!-- CSV Import -->
                         <label class="px-4 py-2 bg-primary text-on-primary rounded-lg text-sm hover:bg-primary/80 transition cursor-pointer whitespace-nowrap">
                             <i class="fas fa-upload mr-1"></i>{{ runImporting ? runImportProgress || '导入中...' : '导入CSV' }}
-                            <input type="file" accept=".csv" @change="importRunCsv" :disabled="runImporting" class="hidden">
+                            <input type="file" accept=".csv,.csv.gz,.gz" @change="importRunCsv" :disabled="runImporting" class="hidden">
                         </label>
                     </div>
                     <div class="flex items-center gap-2 flex-wrap">

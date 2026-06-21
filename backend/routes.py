@@ -8477,181 +8477,415 @@ Respond with strict JSON only (no markdown code blocks):
     @app.route("/api/run-products/import-csv", methods=["POST"])
     @jwt_required()
     def run_products_import_csv():
-        """Upload WooCommerce CSV and import into run_products with streaming progress."""
+        """Upload WooCommerce CSV (or .csv.gz) and import into run_products with streaming."""
         import csv
         import io
         import re
+        import gzip
         from models import save_run_products_batch
 
         if "file" not in request.files:
             return jsonify({"code": 400, "message": "请上传 CSV 文件"}), 400
 
         file = request.files["file"]
-        if not file.filename or not file.filename.lower().endswith(".csv"):
-            return jsonify({"code": 400, "message": "请上传 .csv 文件"}), 400
+        fname = (file.filename or "").lower()
+        if not (fname.endswith(".csv") or fname.endswith(".csv.gz")):
+            return jsonify({"code": 400, "message": "请上传 .csv 或 .csv.gz 文件"}), 400
 
-        try:
-            raw = file.read()
+        is_gzip = fname.endswith(".gz")
+
+        # ---- Helper: parse CSV rows in a streaming way ----
+        def parse_products(fp):
+            """Generator: yield product dicts from a file-like CSV reader. Memory-efficient."""
+            # Detect dialect / header from first chunk
+            sample = fp.read(8192)
+            if isinstance(sample, bytes):
+                sample = sample.decode("utf-8", errors="replace")
+            fp.seek(0)
+
             # Auto-detect BOM and encoding
-            if raw.startswith(b"\xef\xbb\xbf"):
-                raw = raw[3:]
-            # Try UTF-8 first, then common encodings
-            for enc in ("utf-8", "utf-8-sig", "latin-1", "gbk"):
-                try:
-                    text = raw.decode(enc)
-                    break
-                except UnicodeDecodeError:
-                    continue
-            else:
-                text = raw.decode("utf-8", errors="replace")
-        except Exception as e:
-            return jsonify({"code": 400, "message": f"文件读取失败: {e}"}), 400
+            raw_head = fp.read(3)
+            fp.seek(0)
+            if raw_head == b"\xef\xbb\xbf":
+                fp.read(3)  # skip BOM
 
-        # Parse CSV
-        try:
-            # Auto-detect dialect
-            sample = text[:4096]
             sniffer = csv.Sniffer()
             try:
                 dialect = sniffer.sniff(sample)
             except Exception:
                 dialect = csv.excel
-            reader = csv.DictReader(io.StringIO(text), dialect=dialect)
-            if not reader.fieldnames:
-                reader = csv.DictReader(io.StringIO(text))
+
+            reader = csv.DictReader(io.TextIOWrapper(fp, encoding="utf-8", errors="replace"), dialect=dialect)
             fieldnames = reader.fieldnames or []
+            if not fieldnames:
+                return
+
+            def find_col(names, *candidates):
+                lower_map = {n.strip().lower(): n for n in names if n}
+                for c in candidates:
+                    c_lower = c.lower().strip()
+                    if c_lower in lower_map:
+                        return lower_map[c_lower]
+                    for k, v in lower_map.items():
+                        if c_lower in k or k in c_lower:
+                            return v
+                return None
+
+            col_title = find_col(fieldnames, "Name", "Product Name", "Title")
+            col_price = find_col(fieldnames, "Regular price", "Price", "Regular Price")
+            col_desc = find_col(fieldnames, "Description", "Product Description")
+            col_short_desc = find_col(fieldnames, "Short description", "Short Description")
+            col_sku = find_col(fieldnames, "SKU", "Sku", "Product SKU")
+            col_images = find_col(fieldnames, "Images", "Image", "Product Images")
+            col_categories = find_col(fieldnames, "Categories", "Category", "Product Categories")
+            col_tags = find_col(fieldnames, "Tags", "Product Tags")
+            col_stock = find_col(fieldnames, "Stock status", "Stock", "In stock?", "Stock Status")
+            col_brand = find_col(fieldnames, "Brand", "Manufacturer", "Vendor")
+
+            if not col_title:
+                return
+
+            logger.info(f"[RunProducts] CSV import: title={col_title}, gzip={is_gzip}")
+
+            for row in reader:
+                title = (row.get(col_title, "") or "").strip()
+                if not title:
+                    continue
+
+                price = (row.get(col_price, "") or "").strip() if col_price else ""
+                desc = (row.get(col_desc, "") or "").strip() if col_desc else ""
+                if not desc and col_short_desc:
+                    desc = (row.get(col_short_desc, "") or "").strip()
+
+                images = []
+                if col_images:
+                    img_raw = (row.get(col_images, "") or "").strip()
+                    if img_raw:
+                        images = [u.strip() for u in re.split(r'[,\n]', img_raw) if u.strip()]
+
+                thumbnail = images[0] if images else ""
+
+                cat_raw = (row.get(col_categories, "") or "").strip() if col_categories else ""
+                tags_raw = (row.get(col_tags, "") or "").strip() if col_tags else ""
+
+                top_category = ""
+                breadcrumbs = []
+                if cat_raw:
+                    parts = [p.strip() for p in re.split(r'\s*>\s*', cat_raw) if p.strip()]
+                    if parts:
+                        top_category = parts[0]
+                        breadcrumbs = parts
+                elif tags_raw:
+                    top_category = tags_raw.split(",")[0].strip()
+                    breadcrumbs = [top_category]
+
+                stock = ""
+                if col_stock:
+                    stock = (row.get(col_stock, "") or "").strip().lower()
+                avail = "in_stock"
+                if "outofstock" in stock or "out of stock" in stock:
+                    avail = "out_of_stock"
+                elif "backorder" in stock:
+                    avail = "preorder"
+
+                sku = (row.get(col_sku, "") or "").strip() if col_sku else ""
+                brand = (row.get(col_brand, "") or "").strip() if col_brand else ""
+
+                yield {
+                    "title": title,
+                    "price": price,
+                    "currency": "USD",
+                    "brand": brand,
+                    "item_id": sku,
+                    "description": desc,
+                    "images": images,
+                    "thumbnail": thumbnail,
+                    "breadcrumbs": breadcrumbs,
+                    "category": top_category,
+                    "extra_data": {"availability": avail, "source": "woocommerce_csv"},
+                    "source_url": "",
+                }
+
+        # ---- Open file (handle gzip) ----
+        try:
+            if is_gzip:
+                raw = file.stream
+                fp = gzip.GzipFile(fileobj=raw, mode="rb")
+            else:
+                raw = file.stream
+                fp = io.BytesIO()
+                # Read in chunks to avoid memory issues, but need seekable for sniffer
+                chunk = raw.read(8192)
+                fp.write(chunk)
+                # For large files: write remaining to a temp file
+                import tempfile
+                tmp = tempfile.SpooledTemporaryFile(max_size=10 * 1024 * 1024)
+                tmp.write(chunk)
+                while True:
+                    chunk = raw.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    tmp.write(chunk)
+                tmp.seek(0)
+                fp = tmp
         except Exception as e:
-            return jsonify({"code": 400, "message": f"CSV 解析失败: {e}"}), 400
+            return jsonify({"code": 400, "message": f"文件读取失败: {e}"}), 400
 
-        if not fieldnames:
-            return jsonify({"code": 400, "message": "CSV 文件没有标题行"}), 400
-
-        # Map CSV column names to run_products fields (case-insensitive fuzzy match)
-        def find_col(names, *candidates):
-            """Find best matching column name from candidates."""
-            lower_map = {n.strip().lower(): n for n in names if n}
-            for c in candidates:
-                c_lower = c.lower().strip()
-                if c_lower in lower_map:
-                    return lower_map[c_lower]
-                for k, v in lower_map.items():
-                    if c_lower in k or k in c_lower:
-                        return v
-            return None
-
-        col_title = find_col(fieldnames, "Name", "Product Name", "Title")
-        col_price = find_col(fieldnames, "Regular price", "Price", "Regular Price")
-        col_desc = find_col(fieldnames, "Description", "Product Description")
-        col_short_desc = find_col(fieldnames, "Short description", "Short Description")
-        col_sku = find_col(fieldnames, "SKU", "Sku", "Product SKU")
-        col_images = find_col(fieldnames, "Images", "Image", "Product Images")
-        col_categories = find_col(fieldnames, "Categories", "Category", "Product Categories")
-        col_tags = find_col(fieldnames, "Tags", "Product Tags")
-        col_stock = find_col(fieldnames, "Stock status", "Stock", "In stock?", "Stock Status")
-        col_brand = find_col(fieldnames, "Brand", "Manufacturer", "Vendor")
-
-        if not col_title:
-            return jsonify({"code": 400, "message": f"CSV 缺少产品名称列。找到的列: {', '.join(fieldnames[:10])}..."}), 400
-
-        logger.info(f"[RunProducts] CSV import: title={col_title}, price={col_price}, columns={len(fieldnames)}")
-
-        # Parse all rows into products
-        all_products = []
-        for row in reader:
-            title = (row.get(col_title, "") or "").strip()
-            if not title:
-                continue
-
-            price = (row.get(col_price, "") or "").strip() if col_price else ""
-            desc = (row.get(col_desc, "") or "").strip() if col_desc else ""
-            if not desc and col_short_desc:
-                desc = (row.get(col_short_desc, "") or "").strip()
-
-            # Parse images
-            images = []
-            if col_images:
-                img_raw = (row.get(col_images, "") or "").strip()
-                if img_raw:
-                    images = [u.strip() for u in re.split(r'[,\n]', img_raw) if u.strip()]
-
-            thumbnail = images[0] if images else ""
-
-            # Parse categories: "Cat > Sub > Sub" → top category + breadcrumbs
-            cat_raw = (row.get(col_categories, "") or "").strip() if col_categories else ""
-            tags_raw = (row.get(col_tags, "") or "").strip() if col_tags else ""
-
-            top_category = ""
-            breadcrumbs = []
-            if cat_raw:
-                parts = [p.strip() for p in re.split(r'\s*>\s*', cat_raw) if p.strip()]
-                if parts:
-                    top_category = parts[0]
-                    breadcrumbs = parts
-            elif tags_raw:
-                top_category = tags_raw.split(",")[0].strip()
-                breadcrumbs = [top_category]
-
-            # Parse stock status
-            stock = ""
-            if col_stock:
-                stock = (row.get(col_stock, "") or "").strip().lower()
-            avail = "in_stock"
-            if "outofstock" in stock or "out of stock" in stock:
-                avail = "out_of_stock"
-            elif "backorder" in stock:
-                avail = "preorder"
-
-            sku = (row.get(col_sku, "") or "").strip() if col_sku else ""
-            brand = (row.get(col_brand, "") or "").strip() if col_brand else ""
-
-            product = {
-                "title": title,
-                "price": price,
-                "currency": "USD",
-                "brand": brand,
-                "item_id": sku,
-                "description": desc,
-                "images": images,
-                "thumbnail": thumbnail,
-                "breadcrumbs": breadcrumbs,
-                "category": top_category,
-                "extra_data": {"availability": avail, "source": "woocommerce_csv"},
-                "source_url": "",
-            }
-            all_products.append(product)
-
-        total = len(all_products)
-        if total == 0:
-            return jsonify({"code": 400, "message": "CSV 中没有有效的产品数据"}), 400
-
-        logger.info(f"[RunProducts] Parsed {total} products from CSV, starting batch import")
-
-        # Streaming response: import in batches with NDJSON progress
+        # ---- Streaming: parse + batch import + NDJSON progress ----
         BATCH_SIZE = 500
 
         def generate():
+            batch = []
             imported = 0
             errors = 0
-            for i in range(0, total, BATCH_SIZE):
-                batch = all_products[i:i + BATCH_SIZE]
-                try:
-                    save_run_products_batch(batch)
-                    imported += len(batch)
-                except Exception as e:
-                    logger.error(f"[RunProducts] Batch insert error at offset {i}: {e}")
-                    errors += len(batch)
+            total_estimate = 0
+
+            try:
+                for product in parse_products(fp):
+                    batch.append(product)
+                    if len(batch) >= BATCH_SIZE:
+                        try:
+                            save_run_products_batch(batch)
+                            imported += len(batch)
+                        except Exception as e:
+                            logger.error(f"[RunProducts] Batch insert error: {e}")
+                            errors += len(batch)
+                        total_estimate = imported + errors
+                        yield json.dumps({
+                            "type": "progress",
+                            "imported": imported,
+                            "total": total_estimate,
+                            "errors": errors,
+                        }) + "\n"
+                        batch = []
+
+                # Final batch
+                if batch:
+                    try:
+                        save_run_products_batch(batch)
+                        imported += len(batch)
+                    except Exception as e:
+                        logger.error(f"[RunProducts] Final batch insert error: {e}")
+                        errors += len(batch)
+
+                total_estimate = imported + errors
                 yield json.dumps({
-                    "type": "progress",
+                    "type": "done",
                     "imported": imported,
-                    "total": total,
+                    "total": total_estimate,
                     "errors": errors,
                 }) + "\n"
-            yield json.dumps({
-                "type": "done",
-                "imported": imported,
-                "total": total,
-                "errors": errors,
-            }) + "\n"
+
+            except Exception as e:
+                logger.error(f"[RunProducts] Streaming import error: {e}")
+                yield json.dumps({
+                    "type": "error",
+                    "message": str(e)[:200],
+                    "imported": imported,
+                    "errors": errors,
+                }) + "\n"
+            finally:
+                if hasattr(fp, "close"):
+                    fp.close()
+
+        if total_estimate == 0 and errors > 0:
+            return jsonify({"code": 400, "message": "CSV 中没有有效的产品数据"}), 400
+
+        return Response(
+            generate(),
+            mimetype="application/x-ndjson",
+            headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+        )
+
+    @app.route("/api/run-products/import-local-csv", methods=["POST"])
+    @jwt_required()
+    def run_products_import_local_csv():
+        """Import CSV from server local filesystem path (for large files transferred via SCP).
+        Body: {"file_path": "/tmp/products.csv"}  or  {"file_path": "/tmp/products.csv.gz"}
+        """
+        import csv
+        import io
+        import re
+        import gzip
+        from models import save_run_products_batch
+
+        data = request.get_json(silent=True) or {}
+        file_path = (data.get("file_path") or "").strip()
+        if not file_path or not os.path.isfile(file_path):
+            return jsonify({"code": 400, "message": f"文件不存在: {file_path}"}), 400
+
+        fname = os.path.basename(file_path).lower()
+        if not (fname.endswith(".csv") or fname.endswith(".csv.gz")):
+            return jsonify({"code": 400, "message": "仅支持 .csv 或 .csv.gz 文件"}), 400
+
+        is_gzip = fname.endswith(".gz")
+        file_size = os.path.getsize(file_path)
+        logger.info(f"[RunProducts] Local import: {file_path} ({file_size / 1024 / 1024:.1f} MB, gzip={is_gzip})")
+
+        # ---- Streaming parse + import (same logic as import-csv) ----
+        def parse_products(fp):
+            """Same generator as above — refactored inline for local file."""
+            sample = fp.read(8192)
+            if isinstance(sample, bytes):
+                sample = sample.decode("utf-8", errors="replace")
+            fp.seek(0)
+
+            raw_head = fp.read(3)
+            fp.seek(0)
+            if raw_head == b"\xef\xbb\xbf":
+                fp.read(3)
+
+            sniffer = csv.Sniffer()
+            try:
+                dialect = sniffer.sniff(sample)
+            except Exception:
+                dialect = csv.excel
+
+            reader = csv.DictReader(io.TextIOWrapper(fp, encoding="utf-8", errors="replace"), dialect=dialect)
+            fieldnames = reader.fieldnames or []
+            if not fieldnames:
+                return
+
+            def find_col(names, *candidates):
+                lower_map = {n.strip().lower(): n for n in names if n}
+                for c in candidates:
+                    c_lower = c.lower().strip()
+                    if c_lower in lower_map:
+                        return lower_map[c_lower]
+                    for k, v in lower_map.items():
+                        if c_lower in k or k in c_lower:
+                            return v
+                return None
+
+            col_title = find_col(fieldnames, "Name", "Product Name", "Title")
+            col_price = find_col(fieldnames, "Regular price", "Price", "Regular Price")
+            col_desc = find_col(fieldnames, "Description", "Product Description")
+            col_short_desc = find_col(fieldnames, "Short description", "Short Description")
+            col_sku = find_col(fieldnames, "SKU", "Sku", "Product SKU")
+            col_images = find_col(fieldnames, "Images", "Image", "Product Images")
+            col_categories = find_col(fieldnames, "Categories", "Category", "Product Categories")
+            col_tags = find_col(fieldnames, "Tags", "Product Tags")
+            col_stock = find_col(fieldnames, "Stock status", "Stock", "In stock?", "Stock Status")
+            col_brand = find_col(fieldnames, "Brand", "Manufacturer", "Vendor")
+
+            if not col_title:
+                return
+
+            for row in reader:
+                title = (row.get(col_title, "") or "").strip()
+                if not title:
+                    continue
+                price = (row.get(col_price, "") or "").strip() if col_price else ""
+                desc = (row.get(col_desc, "") or "").strip() if col_desc else ""
+                if not desc and col_short_desc:
+                    desc = (row.get(col_short_desc, "") or "").strip()
+
+                images = []
+                if col_images:
+                    img_raw = (row.get(col_images, "") or "").strip()
+                    if img_raw:
+                        images = [u.strip() for u in re.split(r'[,\n]', img_raw) if u.strip()]
+
+                cat_raw = (row.get(col_categories, "") or "").strip() if col_categories else ""
+                tags_raw = (row.get(col_tags, "") or "").strip() if col_tags else ""
+                top_category = ""
+                breadcrumbs = []
+                if cat_raw:
+                    parts = [p.strip() for p in re.split(r'\s*>\s*', cat_raw) if p.strip()]
+                    if parts:
+                        top_category = parts[0]
+                        breadcrumbs = parts
+                elif tags_raw:
+                    top_category = tags_raw.split(",")[0].strip()
+                    breadcrumbs = [top_category]
+
+                stock = ""
+                if col_stock:
+                    stock = (row.get(col_stock, "") or "").strip().lower()
+                avail = "in_stock"
+                if "outofstock" in stock or "out of stock" in stock:
+                    avail = "out_of_stock"
+                elif "backorder" in stock:
+                    avail = "preorder"
+
+                yield {
+                    "title": title,
+                    "price": price,
+                    "currency": "USD",
+                    "brand": (row.get(col_brand, "") or "").strip() if col_brand else "",
+                    "item_id": (row.get(col_sku, "") or "").strip() if col_sku else "",
+                    "description": desc,
+                    "images": images,
+                    "thumbnail": images[0] if images else "",
+                    "breadcrumbs": breadcrumbs,
+                    "category": top_category,
+                    "extra_data": {"availability": avail, "source": "woocommerce_csv"},
+                    "source_url": "",
+                }
+
+        try:
+            if is_gzip:
+                fp = gzip.open(file_path, "rb")
+            else:
+                fp = open(file_path, "rb")
+        except Exception as e:
+            return jsonify({"code": 400, "message": f"无法打开文件: {e}"}), 400
+
+        BATCH_SIZE = 500
+
+        def generate():
+            batch = []
+            imported = 0
+            errors = 0
+            try:
+                for product in parse_products(fp):
+                    batch.append(product)
+                    if len(batch) >= BATCH_SIZE:
+                        try:
+                            save_run_products_batch(batch)
+                            imported += len(batch)
+                        except Exception as e:
+                            logger.error(f"[RunProducts] Batch insert error: {e}")
+                            errors += len(batch)
+                        yield json.dumps({
+                            "type": "progress",
+                            "imported": imported,
+                            "total": imported + errors,
+                            "errors": errors,
+                        }) + "\n"
+                        batch = []
+
+                if batch:
+                    try:
+                        save_run_products_batch(batch)
+                        imported += len(batch)
+                    except Exception as e:
+                        logger.error(f"[RunProducts] Final batch insert error: {e}")
+                        errors += len(batch)
+
+                yield json.dumps({
+                    "type": "done",
+                    "imported": imported,
+                    "total": imported + errors,
+                    "errors": errors,
+                }) + "\n"
+
+            except Exception as e:
+                logger.error(f"[RunProducts] Local import error: {e}")
+                yield json.dumps({
+                    "type": "error",
+                    "message": str(e)[:200],
+                    "imported": imported,
+                    "errors": errors,
+                }) + "\n"
+            finally:
+                fp.close()
+                # Optionally remove the file after import
+                if data.get("remove_after"):
+                    try:
+                        os.remove(file_path)
+                    except Exception:
+                        pass
 
         return Response(
             generate(),

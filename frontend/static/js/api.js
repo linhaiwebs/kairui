@@ -404,6 +404,10 @@ const API = {
         return resp;  // Return raw Response for streaming NDJSON
     },
 
+    async importLocalRunCsv(filePath, removeAfter = false) {
+        return this.request('POST', '/api/run-products/import-local-csv', { file_path: filePath, remove_after: removeAfter });
+    },
+
     async deleteRunProducts(ids) {
         return this.request('DELETE', '/api/run-products/items', { ids });
     },
