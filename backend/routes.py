@@ -2780,32 +2780,6 @@ def register_routes(app):
             logger.error(f"Failed to export CSV: {e}")
             return jsonify({"code": 500, "message": f"导出CSV失败: {str(e)[:100]}"}), 500
 
-    @app.route("/api/woocommerce/export/csv", methods=["GET"])
-    @jwt_required()
-    def export_woo_products_csv():
-        """Export WooCommerce products as CSV."""
-        try:
-            import csv, io as _io
-            site_id = request.args.get("site_id", type=int)
-            products = list_woocommerce_products(site_id=site_id)
-            output = _io.StringIO()
-            writer = csv.writer(output)
-            writer.writerow(["ID", "Name", "SKU", "Price", "Sale Price", "Categories", "Description", "Images", "Source URL", "Created"])
-            for p in products:
-                writer.writerow([
-                    p.get("id", ""), p.get("name", ""), p.get("sku", ""),
-                    p.get("regular_price", ""), p.get("sale_price", ""),
-                    p.get("categories", ""), (p.get("description") or p.get("short_description", ""))[:200],
-                    p.get("images", ""), p.get("source_url", ""), p.get("created_at", ""),
-                ])
-            csv_data = output.getvalue()
-            resp = Response(csv_data, mimetype="text/csv")
-            resp.headers["Content-Disposition"] = "attachment; filename=woocommerce_products.csv"
-            return resp
-        except Exception as e:
-            logger.error(f"Failed to export WooCommerce CSV: {e}")
-            return jsonify({"code": 500, "message": str(e)[:100]}), 500
-
     # ---- 1Panel Proxy APIs ----
 
     # ---- Panel Environment CRUD (admin only) ----
