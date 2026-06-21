@@ -7,7 +7,7 @@
 
 defined('ABSPATH') || exit;
 
-define('KAIRUI_TRACKER_VERSION', '1.0.0');
+define('KAIRUI_TRACKER_VERSION', '1.0.1');
 define('KAIRUI_TRACKER_DIR', plugin_dir_path(__FILE__));
 
 require_once KAIRUI_TRACKER_DIR . 'includes/class-schema.php';
