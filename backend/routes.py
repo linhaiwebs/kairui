@@ -8967,12 +8967,12 @@ Respond with strict JSON only (no markdown code blocks):
                 desc = (p.get("description") or "")[:5000]
                 ET.SubElement(item, "g:description").text = re.sub(r"<[^>]*>", "", desc) if desc else ""
 
-                # Product link: {domain}/product/{slug}
-                slug = p.get("product_slug", "")
-                if slug:
-                    ET.SubElement(item, "g:link").text = f"{site_domain}/product/{slug}"
+                # Product link: use source_url if available, otherwise link to site
+                source = p.get("source_url", "")
+                if source and source.startswith("http"):
+                    ET.SubElement(item, "g:link").text = source
                 else:
-                    ET.SubElement(item, "g:link").text = p.get("source_url") or site_domain
+                    ET.SubElement(item, "g:link").text = f"{site_domain}/products/{p.get('id', '')}"
 
                 images = p.get("images") or []
                 if isinstance(images, str):
