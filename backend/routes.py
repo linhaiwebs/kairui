@@ -9516,12 +9516,14 @@ Respond with strict JSON only (no markdown code blocks):
         cfg = get_global_config()
         results = []
         for target, info in targets.items():
-            api_key = cfg.get(f"kairui_key_{target}", "")
+            # Strip protocol for key lookup and URL building
+            host = target.replace("https://", "").replace("http://", "").strip("/")
+            api_key = cfg.get(f"kairui_key_{host}", "")
             if not api_key:
                 continue
             try:
                 r = http_requests.get(
-                    f"https://{target}/wp-json/kairui/v1/analytics/summary?period=7d",
+                    f"https://{host}/wp-json/kairui/v1/analytics/summary?period=7d",
                     headers={"X-Kairui-Key": api_key}, timeout=10
                 )
                 if r.status_code == 200:
@@ -9547,15 +9549,16 @@ Respond with strict JSON only (no markdown code blocks):
         if not target:
             return jsonify({"code": 400, "message": "站点未配置镜像目标"}), 400
 
+        host = target.replace("https://", "").replace("http://", "").strip("/")
         cfg = get_global_config()
-        api_key = cfg.get(f"kairui_key_{target}", "")
+        api_key = cfg.get(f"kairui_key_{host}", "")
         if not api_key:
             return jsonify({"code": 400, "message": "请先配置分析API Key"}), 400
 
         params = {k: v for k, v in request.args.items() if k not in ("site_id",)}
         try:
             r = http_requests.get(
-                f"https://{target}/wp-json/kairui/v1/{subpath}",
+                f"https://{host}/wp-json/kairui/v1/{subpath}",
                 params=params, headers={"X-Kairui-Key": api_key}, timeout=15
             )
             return jsonify(r.json()), r.status_code
@@ -9571,7 +9574,8 @@ Respond with strict JSON only (no markdown code blocks):
         api_key = (data.get("api_key") or "").strip()
         if not target or not api_key:
             return jsonify({"code": 400, "message": "target and api_key required"}), 400
-        update_global_config(f"kairui_key_{target}", api_key)
+        host = target.replace("https://", "").replace("http://", "").strip("/")
+        update_global_config(f"kairui_key_{host}", api_key)
         return jsonify({"code": 200, "message": "API Key已保存"})
 
     # ---- Feed Products (Google Merchant Center) ----
