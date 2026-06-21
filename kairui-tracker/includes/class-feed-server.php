@@ -6,51 +6,31 @@
  */
 class Kairui_Feed_Server {
     const OPTION_PREFIX = 'kairui_feed_';
-    const FEED_PATHS = ['/feedstart.xml', '/feed.xml'];
 
     public static function init() {
-        add_action('init', [__CLASS__, 'register_rewrite']);
-        add_action('template_redirect', [__CLASS__, 'serve_feed']);
+        add_action('parse_request', [__CLASS__, 'intercept']);
         add_action('rest_api_init', [__CLASS__, 'register_api']);
     }
 
-    public static function register_rewrite() {
-        foreach (self::FEED_PATHS as $path) {
-            add_rewrite_rule(
-                '^' . ltrim($path, '/') . '$',
-                'index.php?kairui_feed=1&kairui_feed_path=' . urlencode($path),
-                'top'
-            );
+    public static function intercept($wp) {
+        $uri = $_SERVER['REQUEST_URI'] ?? '';
+        $path = parse_url($uri, PHP_URL_PATH);
+        if (!$path || (!str_ends_with($path, '/feedstart.xml') && !str_ends_with($path, '/feed.xml'))) {
+            return;
         }
-        add_rewrite_tag('%kairui_feed%', '([0-1])');
-        add_rewrite_tag('%kairui_feed_path%', '([^&]+)');
-    }
-
-    public static function serve_feed() {
-        $is_feed = intval(get_query_var('kairui_feed', 0));
-        if (!$is_feed) return;
 
         $domain = sanitize_text_field($_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? '');
-        if (!$domain) {
-            status_header(400);
-            die('Missing domain');
-        }
+        if (!$domain) { status_header(400); die('Missing domain'); }
 
-        $key = self::OPTION_PREFIX . $domain;
-        $feed_path = get_query_var('kairui_feed_path', '/feedstart.xml');
-        if ($feed_path === '/feed.xml') {
-            $key = self::OPTION_PREFIX . 'feed_' . $domain;
-        }
-
+        $is_feed_xml = str_ends_with($path, '/feed.xml');
+        $key = self::OPTION_PREFIX . ($is_feed_xml ? 'feed_' : '') . $domain;
         $content = get_option($key, '');
-        if (!$content) {
-            status_header(404);
-            header('Content-Type: text/plain');
-            die('Feed not found for ' . $domain);
-        }
+
+        if (!$content) { status_header(404); die('Feed not found: '.$domain); }
 
         status_header(200);
         header('Content-Type: application/xml; charset=utf-8');
+        header('X-Robots-Tag: noindex');
         echo $content;
         exit;
     }
