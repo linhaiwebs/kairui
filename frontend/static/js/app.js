@@ -924,7 +924,8 @@ pipelineStatuses[siteId].demo_importing = false;
         }
         async function loadSessionTimeline(siteId, sessionId) {
             const resp = await API.getAnalytics(siteId, 'analytics/session/' + sessionId + '/timeline');
-            if (resp.code === 200) { analyticsTimeline.value = resp.data; analyticsTimelineVisible.value = true; }
+            if (resp && resp.timeline) { analyticsTimeline.value = resp; analyticsTimelineVisible.value = true; }
+            else if (resp && resp.code === 200) { analyticsTimeline.value = resp.data; analyticsTimelineVisible.value = true; }
         }
         function setAnalyticsPeriod(p) { analyticsPeriod.value = p; analyticsSiteId.value ? loadSiteAnalytics(analyticsSiteId.value) : loadAnalytics(); }
         async function openSiteDetail(target) {
@@ -943,8 +944,11 @@ pipelineStatuses[siteId].demo_importing = false;
                     API.getAnalytics(sid, 'analytics/summary', { period: analyticsPeriod.value, source: target }),
                     API.getAnalytics(sid, 'analytics/sessions', { period: '7d', source: target, page: 1 }),
                 ]);
-                if (summary && summary.code === 200) analyticsSiteData.value = summary.data || summary;
-                if (sessions && sessions.code === 200) analyticsSiteSessions.value = sessions.data || sessions;
+                // Proxy returns raw WP plugin response (no code/data wrapper)
+                if (summary && summary.sources) analyticsSiteData.value = summary;
+                else if (summary && summary.code === 200) analyticsSiteData.value = summary.data;
+                if (sessions && sessions.sessions) analyticsSiteSessions.value = sessions;
+                else if (sessions && sessions.code === 200) analyticsSiteSessions.value = sessions.data;
             } catch (e) { console.error('openSiteDetail error:', e); }
             analyticsLoading.value = false;
         }
