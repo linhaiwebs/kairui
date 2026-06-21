@@ -374,6 +374,46 @@ const API = {
     async cleanWooFromSite(siteId) {
         return this.request('DELETE', '/api/shai-pin/woocommerce/sync-to-site', { site_id: siteId });
     },
+
+    // ---- Run Products (跑品) ----
+
+    async getRunProductCategories() {
+        return this.request('GET', '/api/run-products/categories');
+    },
+
+    async listRunProducts(category, page, perPage) {
+        let url = '/api/run-products/list?page=' + (page || 1) + '&per_page=' + (perPage || 20);
+        if (category) url += '&category=' + encodeURIComponent(category);
+        return this.request('GET', url);
+    },
+
+    async importRunCsv(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const resp = await fetch('/api/run-products/import-csv', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + (this.token || '') },
+            body: formData,
+        });
+        return resp;  // Return raw Response for streaming NDJSON
+    },
+
+    async deleteRunProducts(ids) {
+        return this.request('DELETE', '/api/run-products/items', { ids });
+    },
+
+    async clearRunProducts() {
+        return this.request('DELETE', '/api/run-products/clear');
+    },
+
+    async syncRunFeedToSite(siteId, runProductIds) {
+        return this.request('POST', '/api/run-products/sync-to-site', { site_id: siteId, run_product_ids: runProductIds });
+    },
+
+    async cleanRunFeedFromSite(siteId) {
+        return this.request('DELETE', '/api/run-products/sync-to-site', { site_id: siteId });
+    },
+
     async importCsvProducts(siteId, file, action) {
         const formData = new FormData();
         formData.append('file', file);

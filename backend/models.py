@@ -275,6 +275,31 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_woo_products_site ON woocommerce_products(site_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_generated_feed_site ON generated_feed(site_id)")
 
+    # Run Products table — global product pool for "跑品" (visible to all sites, site-isolated on feed generation)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS run_products (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            title           TEXT NOT NULL,
+            price           TEXT DEFAULT '',
+            currency        TEXT DEFAULT 'USD',
+            brand           TEXT DEFAULT '',
+            item_id         TEXT DEFAULT '',
+            ratings         TEXT DEFAULT '',
+            reviews_count   INTEGER DEFAULT 0,
+            description     TEXT DEFAULT '',
+            images          TEXT DEFAULT '[]',
+            features        TEXT DEFAULT '[]',
+            breadcrumbs     TEXT DEFAULT '[]',
+            thumbnail       TEXT DEFAULT '',
+            source_url      TEXT DEFAULT '',
+            category        TEXT DEFAULT '',
+            extra_data      TEXT DEFAULT '{}',
+            product_slug    TEXT DEFAULT '',
+            created_at      TEXT
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_run_products_category ON run_products(category)")
+
     # Users table — admin + operator roles
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -442,6 +467,12 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
+    # Migration: add run_feed_url column for "跑品" feed
+    try:
+        cursor.execute("ALTER TABLE sites ADD COLUMN run_feed_url TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+
     for key, value in defaults.items():
         cursor.execute(
             "INSERT OR IGNORE INTO global_config (config_key, config_value, updated_at) VALUES (?, ?, ?)",
@@ -517,6 +548,8 @@ def _migrate_add_columns(conn):
             conn.execute("ALTER TABLE amazon_search_results ADD COLUMN hotness_score INTEGER DEFAULT NULL")
         if "images" not in asr_cols:
             conn.execute("ALTER TABLE amazon_search_results ADD COLUMN images TEXT DEFAULT ''")
+        if "created_by" not in asr_cols:
+            conn.execute("ALTER TABLE amazon_search_results ADD COLUMN created_by INTEGER DEFAULT NULL")
     except Exception:
         pass
 
@@ -1138,7 +1171,7 @@ def update_site(site_id, data):
             "port", "nginx_alias", "db_name", "db_service",
             "status", "cf_zone_id", "cf_dns_record_id",
             "google_feed_url", "google_verification_method", "google_verification_done",
-            "google_mc_account_id", "cloakbrowser_profile_name",
+            "google_mc_account_id", "run_feed_url", "cloakbrowser_profile_name",
             "demo_imported", "demo_name", "brand_configured",
             "site_type", "static_dir", "brand_kit_id",
         ]:
@@ -1199,7 +1232,7 @@ def update_site_fields(site_id, fields):
             "port", "nginx_alias", "db_name", "db_service",
             "status", "cf_zone_id", "cf_dns_record_id",
             "google_feed_url", "google_verification_method", "google_verification_done",
-            "google_mc_account_id", "cloakbrowser_profile_name",
+            "google_mc_account_id", "run_feed_url", "cloakbrowser_profile_name",
             "stitch_design_status", "site_type", "static_dir", "brand_kit_id",
             "panel_environment_id", "mirror_target",
             "demo_imported", "demo_name", "brand_configured",
@@ -1963,6 +1996,215 @@ def clear_generated_feed(site_id=None) -> int:
         conn.close()
 
 
+# ---- Run Products (跑品) ----
+
+def save_run_product(data: dict) -> int:
+    """Insert a single product into run_products (global pool, no site_id)."""
+    conn = get_db()
+    try:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Auto-generate product_slug from title (WooCommerce-style: lowercase, spaces→hyphens, remove special chars)
+        title = data.get("title", "")
+        slug = data.get("product_slug", "")
+        if not slug and title:
+            import re
+            slug = title.lower().strip()
+            slug = re.sub(r'[^\w\s-]', '', slug)  # remove special chars
+            slug = re.sub(r'[\s_]+', '-', slug)    # spaces/underscores→hyphens
+            slug = re.sub(r'-+', '-', slug)         # collapse multi-hyphens
+            slug = slug.strip('-')
+        conn.execute(
+            """INSERT INTO run_products
+               (title, price, currency, brand, item_id, ratings, reviews_count,
+                description, images, features, breadcrumbs, thumbnail,
+                source_url, category, extra_data, product_slug, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                title,
+                data.get("price", ""),
+                data.get("currency", "USD"),
+                data.get("brand", ""),
+                data.get("item_id", ""),
+                data.get("ratings", ""),
+                data.get("reviews_count", 0),
+                data.get("description", ""),
+                json.dumps(data.get("images", []), ensure_ascii=False),
+                json.dumps(data.get("features", []), ensure_ascii=False),
+                json.dumps(data.get("breadcrumbs", []), ensure_ascii=False),
+                data.get("thumbnail", ""),
+                data.get("source_url", ""),
+                data.get("category", ""),
+                json.dumps(data.get("extra_data", {}), ensure_ascii=False),
+                slug,
+                now,
+            ),
+        )
+        conn.commit()
+        return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def save_run_products_batch(products: list[dict]) -> int:
+    """Batch-insert multiple run_products in a single transaction. Returns count inserted."""
+    if not products:
+        return 0
+    conn = get_db()
+    try:
+        import re
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        count = 0
+        for p in products:
+            title = p.get("title", "")
+            slug = p.get("product_slug", "")
+            if not slug and title:
+                slug = title.lower().strip()
+                slug = re.sub(r'[^\w\s-]', '', slug)
+                slug = re.sub(r'[\s_]+', '-', slug)
+                slug = re.sub(r'-+', '-', slug)
+                slug = slug.strip('-')
+            conn.execute(
+                """INSERT INTO run_products
+                   (title, price, currency, brand, item_id, ratings, reviews_count,
+                    description, images, features, breadcrumbs, thumbnail,
+                    source_url, category, extra_data, product_slug, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    title,
+                    p.get("price", ""),
+                    p.get("currency", "USD"),
+                    p.get("brand", ""),
+                    p.get("item_id", ""),
+                    p.get("ratings", ""),
+                    p.get("reviews_count", 0),
+                    p.get("description", ""),
+                    json.dumps(p.get("images", []), ensure_ascii=False),
+                    json.dumps(p.get("features", []), ensure_ascii=False),
+                    json.dumps(p.get("breadcrumbs", []), ensure_ascii=False),
+                    p.get("thumbnail", ""),
+                    p.get("source_url", ""),
+                    p.get("category", ""),
+                    json.dumps(p.get("extra_data", {}), ensure_ascii=False),
+                    slug,
+                    now,
+                ),
+            )
+            count += 1
+        conn.commit()
+        return count
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def list_run_products(category=None, page=1, per_page=20) -> dict:
+    """List run_products with optional category filter and pagination.
+    Returns {"products": [...], "total": int, "page": int, "per_page": int}.
+    """
+    conn = get_db()
+    try:
+        if category:
+            where = "WHERE category = ?"
+            params = (category,)
+        else:
+            where = ""
+            params = ()
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM run_products {where}", params
+        ).fetchone()[0]
+        offset = (page - 1) * per_page
+        rows = conn.execute(
+            f"SELECT * FROM run_products {where} ORDER BY id DESC LIMIT ? OFFSET ?",
+            params + (per_page, offset)
+        ).fetchall()
+        results = []
+        for r in rows:
+            d = dict(r)
+            for field in ("images", "features", "breadcrumbs"):
+                try:
+                    d[field] = json.loads(d.get(field, "[]"))
+                except (json.JSONDecodeError, TypeError):
+                    d[field] = []
+            try:
+                d["extra_data"] = json.loads(d.get("extra_data", "{}"))
+            except (json.JSONDecodeError, TypeError):
+                d["extra_data"] = {}
+            results.append(d)
+        return {"products": results, "total": total, "page": page, "per_page": per_page}
+    finally:
+        conn.close()
+
+
+def get_run_products_by_ids(ids: list[int]) -> list[dict]:
+    """Get specific run_products by their IDs."""
+    if not ids:
+        return []
+    conn = get_db()
+    try:
+        placeholders = ",".join(["?"] * len(ids))
+        rows = conn.execute(
+            f"SELECT * FROM run_products WHERE id IN ({placeholders}) ORDER BY id DESC",
+            ids
+        ).fetchall()
+        results = []
+        for r in rows:
+            d = dict(r)
+            for field in ("images", "features", "breadcrumbs"):
+                try:
+                    d[field] = json.loads(d.get(field, "[]"))
+                except (json.JSONDecodeError, TypeError):
+                    d[field] = []
+            try:
+                d["extra_data"] = json.loads(d.get("extra_data", "{}"))
+            except (json.JSONDecodeError, TypeError):
+                d["extra_data"] = {}
+            results.append(d)
+        return results
+    finally:
+        conn.close()
+
+
+def get_run_product_categories() -> list[str]:
+    """Return distinct non-empty categories from run_products, sorted alphabetically."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT category FROM run_products WHERE category != '' ORDER BY category"
+        ).fetchall()
+        return [r[0] for r in rows]
+    finally:
+        conn.close()
+
+
+def delete_run_products(ids: list[int]) -> int:
+    """Delete specific run_products by IDs. Returns count deleted."""
+    if not ids:
+        return 0
+    conn = get_db()
+    try:
+        placeholders = ",".join(["?"] * len(ids))
+        conn.execute(
+            f"DELETE FROM run_products WHERE id IN ({placeholders})", ids
+        )
+        conn.commit()
+        return conn.execute("SELECT changes()").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def clear_run_products() -> int:
+    """Delete ALL run_products. Returns count deleted."""
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM run_products")
+        conn.commit()
+        return conn.total_changes
+    finally:
+        conn.close()
+
+
 # ---- WooCommerce Products ----
 
 def save_woocommerce_product(data: dict) -> int:
@@ -2132,8 +2374,8 @@ def save_amazon_search_results(products: list[dict]) -> int:
                 """INSERT INTO amazon_search_results
                    (product_name, price, source_url, thumbnail, rating_score,
                     review_count, search_query, asin, brand, breadcrumbs,
-                    features, original_price, is_prime, delivery, images, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    features, original_price, is_prime, delivery, images, created_by, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     p.get("product_name", ""),
                     p.get("price", ""),
@@ -2150,6 +2392,7 @@ def save_amazon_search_results(products: list[dict]) -> int:
                     1 if p.get("is_prime") else 0,
                     p.get("delivery", ""),
                     p.get("images", ""),
+                    p.get("created_by"),
                     now,
                 ),
             )
@@ -2160,13 +2403,18 @@ def save_amazon_search_results(products: list[dict]) -> int:
         conn.close()
 
 
-def load_amazon_search_results() -> list[dict]:
-    """Load all persisted Amazon search results."""
+def load_amazon_search_results(user_id=None) -> list[dict]:
+    """Load all persisted Amazon search results, optionally filtered by user."""
     conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT * FROM amazon_search_results ORDER BY id DESC"
-        ).fetchall()
+        if user_id:
+            rows = conn.execute(
+                "SELECT * FROM amazon_search_results WHERE created_by = ? ORDER BY id DESC", (user_id,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM amazon_search_results ORDER BY id DESC"
+            ).fetchall()
         results = []
         for r in rows:
             d = dict(r)

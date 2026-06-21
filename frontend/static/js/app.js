@@ -270,6 +270,20 @@ const app = createApp({
         const csvFileInput = ref(null);
         const wooGeneratingFeed = ref(false);
 
+        // Run Products (跑品) state
+        const feedTab = ref('approved'); // 'approved' | 'run'
+        const runProducts = ref([]);
+        const runCategories = ref([]);
+        const runSelectedCategory = ref('');
+        const runSelectedIndices = ref(new Set());
+        const runFeedUrl = ref({});
+        const syncingRunFeed = ref(false);
+        const runPage = ref(1);
+        const runPerPage = ref(20);
+        const runTotal = ref(0);
+        const runImporting = ref(false);
+        const runImportProgress = ref('');
+
         // Deploy progress overlay
         const deployOverlay = reactive({ show: false, message: '', domains: [], results: [], done: false,
             step: 'progress' });  // 'progress' | 'demo-import'
@@ -1474,6 +1488,194 @@ pipelineStatuses[siteId].demo_importing = false;
             }
             syncingFeed.value = false;
         }
+
+        // ---- Run Products (跑品) Functions ----
+
+        async function loadRunProducts() {
+            try {
+                const resp = await API.listRunProducts(
+                    runSelectedCategory.value || null,
+                    runPage.value,
+                    runPerPage.value
+                );
+                if (resp.code === 200 && resp.data) {
+                    runProducts.value = resp.data.products || [];
+                    runTotal.value = resp.data.total || 0;
+                }
+            } catch (e) {
+                console.error('加载跑品失败:', e);
+            }
+        }
+
+        async function loadRunCategories() {
+            try {
+                const resp = await API.getRunProductCategories();
+                if (resp.code === 200) {
+                    runCategories.value = resp.data || [];
+                }
+            } catch (e) {
+                console.error('加载跑品分类失败:', e);
+            }
+        }
+
+        function onRunCategoryChange() {
+            runPage.value = 1;
+            runSelectedIndices.value = new Set();
+            loadRunProducts();
+        }
+
+        async function importRunCsv(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            if (!file.name.toLowerCase().endsWith('.csv')) {
+                showToast('请上传 .csv 文件', 'error');
+                return;
+            }
+            runImporting.value = true;
+            runImportProgress.value = '正在上传并解析 CSV...';
+            try {
+                const resp = await API.importRunCsv(file);
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    showToast(err.message || 'CSV 导入失败', 'error');
+                    runImporting.value = false;
+                    return;
+                }
+                // Stream NDJSON progress
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        try {
+                            const msg = JSON.parse(line);
+                            if (msg.type === 'progress') {
+                                runImportProgress.value = `已导入 ${msg.imported} / ${msg.total} ...`;
+                            } else if (msg.type === 'done') {
+                                runImportProgress.value = '';
+                                showToast(`CSV 导入完成！${msg.imported} 件产品`, 'success');
+                                await loadRunCategories();
+                                runPage.value = 1;
+                                await loadRunProducts();
+                            }
+                        } catch (parseErr) {
+                            // skip non-JSON lines
+                        }
+                    }
+                }
+            } catch (e) {
+                showToast('CSV 导入失败: ' + (e.message || '网络错误'), 'error');
+            }
+            runImporting.value = false;
+            runImportProgress.value = '';
+            // Reset file input
+            e.target.value = '';
+        }
+
+        function toggleRunSelect(idx) {
+            const set = new Set(runSelectedIndices.value);
+            if (set.has(idx)) set.delete(idx); else set.add(idx);
+            runSelectedIndices.value = set;
+        }
+
+        function selectAllRun() {
+            if (runSelectedIndices.value.size === runProducts.value.length) {
+                runSelectedIndices.value = new Set();
+            } else {
+                runSelectedIndices.value = new Set(runProducts.value.map((_, i) => i));
+            }
+        }
+
+        async function deleteSelectedRunProducts() {
+            const indices = [...runSelectedIndices.value];
+            if (!indices.length) { showToast('请先选择产品', 'error'); return; }
+            if (!confirm(`确定删除选中的 ${indices.length} 件跑品？`)) return;
+            try {
+                const ids = indices.map(i => runProducts.value[i]?.id).filter(Boolean);
+                const resp = await API.deleteRunProducts(ids);
+                if (resp.code === 200) {
+                    showToast(`已删除 ${resp.data.deleted} 件产品`, 'success');
+                    runSelectedIndices.value = new Set();
+                    await loadRunProducts();
+                    await loadRunCategories();
+                } else {
+                    showToast(resp.message || '删除失败', 'error');
+                }
+            } catch (e) {
+                showToast('删除失败: ' + (e.message || '网络错误'), 'error');
+            }
+        }
+
+        async function createRunFeedForSite() {
+            if (!feedSyncSiteId.value) { showToast('请先选择目标站点', 'error'); return; }
+            const indices = [...runSelectedIndices.value];
+            if (!indices.length) { showToast('请先选择跑品产品', 'error'); return; }
+            if (syncingRunFeed.value) return;
+            syncingRunFeed.value = true;
+            try {
+                const ids = indices.map(i => runProducts.value[i]?.id).filter(Boolean);
+                const resp = await API.syncRunFeedToSite(feedSyncSiteId.value, ids);
+                if (resp.code === 200) {
+                    runFeedUrl.value[feedSyncSiteId.value] = resp.data.feed_url || '';
+                    showToast(`跑品 Feed 创建成功！${resp.data.products} 件产品，文件大小 ${(resp.data.size_bytes / 1024).toFixed(1)} KB`, 'success');
+                } else {
+                    showToast(resp.message || '创建失败', 'error');
+                }
+            } catch (e) {
+                showToast('创建失败: ' + (e.message || '网络错误'), 'error');
+            }
+            syncingRunFeed.value = false;
+        }
+
+        async function cleanRunFeedFromSite() {
+            if (!feedSyncSiteId.value) { showToast('请先选择目标站点', 'error'); return; }
+            if (!confirm('确定从该站点清理 feedstart.xml？')) return;
+            syncingRunFeed.value = true;
+            try {
+                const resp = await API.cleanRunFeedFromSite(feedSyncSiteId.value);
+                if (resp.code === 200) {
+                    delete runFeedUrl.value[feedSyncSiteId.value];
+                    showToast('feedstart.xml 已清理', 'success');
+                } else {
+                    showToast(resp.message || '清理失败', 'error');
+                }
+            } catch (e) {
+                showToast('清理失败: ' + (e.message || '网络错误'), 'error');
+            }
+            syncingRunFeed.value = false;
+        }
+
+        // Run products computed
+        const runSelectedCount = computed(() => runSelectedIndices.value.size);
+        const runTotalPages = computed(() => Math.max(1, Math.ceil(runTotal.value / runPerPage.value)));
+
+        function runGoToPage(page) {
+            if (page >= 1 && page <= runTotalPages.value) {
+                runPage.value = page;
+                runSelectedIndices.value = new Set();
+                loadRunProducts();
+            }
+        }
+
+        function getSiteName(siteId) {
+            const site = (sites.value || []).find(s => s.id == siteId);
+            return site ? `${site.site_name} (${site.url})` : '';
+        }
+
+        // Watch feedTab to load data on tab switch
+        watch(feedTab, (tab) => {
+            if (tab === 'run') {
+                loadRunCategories();
+                loadRunProducts();
+            }
+        });
+
         async function handleCsvUpload(e) {
             const file = e.target.files[0];
             if (!file) return;
@@ -3003,6 +3205,13 @@ pipelineStatuses[siteId].demo_importing = false;
             feedSyncSiteId, wooSyncSiteId, syncingFeed, syncingWoo,
             convertToWooCommerce, loadWooProducts, toggleWooSelect, selectAllWoo, deleteSelectedWooProducts,
             createFeedForSite, cleanFeedFromSite, syncWooToSite, cleanWooFromSite, generateFeedFromWoo, wooGeneratingFeed, feedUrl,
+            // Run Products (跑品)
+            feedTab, runProducts, runCategories, runSelectedCategory, runSelectedIndices, runFeedUrl,
+            syncingRunFeed, runPage, runPerPage, runTotal, runImporting, runImportProgress,
+            loadRunProducts, loadRunCategories, onRunCategoryChange, importRunCsv,
+            toggleRunSelect, selectAllRun, deleteSelectedRunProducts,
+            createRunFeedForSite, cleanRunFeedFromSite,
+            runSelectedCount, runTotalPages, runGoToPage, getSiteName,
             csvUploading, csvFileInput, handleCsvUpload,
             wooPage, wooPerPage, wooPagedProducts, wooTotalPages, wooGoPage,
             feedPage, feedPerPage, feedPagedProducts, feedTotalPages, feedGoPage,
@@ -4138,8 +4347,22 @@ pipelineStatuses[siteId].demo_importing = false;
                 </div>
             </div>
 
-            <!-- 筛品 - Feed生成 -->
+            <!-- 数据源生成 (过审品 + 跑品) -->
             <div v-if="currentPage === 'shai-pin-feed'" class="fade-in">
+                <!-- Tabs -->
+                <div class="flex gap-2 mb-4">
+                    <button @click="feedTab = 'approved'"
+                        :class="['px-4 py-2 rounded-lg text-sm font-medium transition', feedTab === 'approved' ? 'bg-[#146c2e] text-white' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high']">
+                        <i class="fas fa-check-circle mr-1"></i>过审品
+                    </button>
+                    <button @click="feedTab = 'run'"
+                        :class="['px-4 py-2 rounded-lg text-sm font-medium transition', feedTab === 'run' ? 'bg-[#146c2e] text-white' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high']">
+                        <i class="fas fa-running mr-1"></i>跑品
+                    </button>
+                </div>
+
+                <!-- ====== 过审品 Content ====== -->
+                <div v-if="feedTab === 'approved'">
                 <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
                     <h3 class="font-semibold text-on-surface">
                         <i class="fas fa-file-export mr-2 text-[#146c2e]"></i>Feed 生成
@@ -4294,6 +4517,140 @@ pipelineStatuses[siteId].demo_importing = false;
                     </div>
                 </div>
             </div>
+            </div>
+            <!-- ====== 跑品 Content ====== -->
+            <div v-if="feedTab === 'run'">
+                <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+                    <h3 class="font-semibold text-on-surface">
+                        <i class="fas fa-running mr-2 text-[#146c2e]"></i>跑品 Feed
+                        <span v-if="runTotal" class="text-sm text-on-surface-variant ml-2">({{ runTotal }} 件商品)</span>
+                        <a v-if="runFeedUrl[feedSyncSiteId]" :href="runFeedUrl[feedSyncSiteId]" target="_blank"
+                            class="ml-3 text-xs text-primary hover:text-primary underline inline-flex items-center gap-1">
+                            <i class="fas fa-external-link-alt"></i>{{ runFeedUrl[feedSyncSiteId].split('/').pop() }}
+                        </a>
+                    </h3>
+                </div>
+                <!-- Run toolbar: category filter + import + site selector + actions -->
+                <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <!-- Category filter -->
+                        <select v-model="runSelectedCategory" @change="onRunCategoryChange"
+                            class="border rounded-lg px-3 py-2 text-sm bg-surface-container-lowest focus:ring-2 focus:ring-green-300">
+                            <option value="">全部分类</option>
+                            <option v-for="cat in runCategories" :key="cat" :value="cat">{{ cat }}</option>
+                        </select>
+                        <!-- CSV Import -->
+                        <label class="px-4 py-2 bg-primary text-on-primary rounded-lg text-sm hover:bg-primary/80 transition cursor-pointer whitespace-nowrap">
+                            <i class="fas fa-upload mr-1"></i>{{ runImporting ? runImportProgress || '导入中...' : '导入CSV' }}
+                            <input type="file" accept=".csv" @change="importRunCsv" :disabled="runImporting" class="hidden">
+                        </label>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <!-- Site selector -->
+                        <select v-model="feedSyncSiteId" class="border rounded-lg px-3 py-2 text-sm bg-surface-container-lowest focus:ring-2 focus:ring-green-300">
+                            <option :value="null">-- 选择站点 --</option>
+                            <option v-for="site in sites" :key="site.id" :value="site.id">{{ site.site_name }} ({{ site.url }})</option>
+                        </select>
+                        <!-- 跑品创建 -->
+                        <button @click="createRunFeedForSite"
+                            :disabled="!feedSyncSiteId || syncingRunFeed || !runSelectedIndices.size"
+                            :title="feedSyncSiteId ? '将创建 feedstart.xml 到 ' + getSiteName(feedSyncSiteId) : '请先选择站点'"
+                            class="px-4 py-2 bg-[#146c2e] text-on-primary rounded-lg text-sm hover:bg-[#146c2e]/80 disabled:opacity-50 transition whitespace-nowrap">
+                            <span class="material-symbols-outlined text-[18px]">add_circle</span>🏃{{ syncingRunFeed ? '创建中...' : '跑品创建' }}
+                        </button>
+                        <!-- 清理 -->
+                        <button @click="cleanRunFeedFromSite" :disabled="!feedSyncSiteId || syncingRunFeed"
+                            class="px-4 py-2 bg-tertiary-container text-on-primary rounded-lg text-sm hover:bg-tertiary disabled:opacity-50 transition whitespace-nowrap">
+                            <i class="fas fa-broom mr-1"></i>清理
+                        </button>
+                        <!-- 刷新 -->
+                        <button @click="loadRunProducts" class="px-4 py-2 border rounded-lg text-sm hover:bg-surface-container-low transition">
+                            <span class="material-symbols-outlined">sync</span>刷新
+                        </button>
+                        <!-- 导入进度 -->
+                        <span v-if="runImporting && runImportProgress" class="text-xs text-primary">{{ runImportProgress }}</span>
+                    </div>
+                </div>
+
+                <!-- Run product table -->
+                <div v-if="runProducts.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
+                    <!-- Toolbar -->
+                    <div class="px-6 py-3 bg-surface-container-low border-b flex items-center justify-between text-xs text-on-surface-variant">
+                        <span>共 {{ runTotal }} 件产品（当前第 {{ runPage }} 页 {{ runProducts.length }} 件）</span>
+                        <div class="flex items-center gap-3">
+                            <label class="flex items-center gap-1 cursor-pointer hover:text-on-surface">
+                                <input type="checkbox" :checked="runSelectedIndices.size === runProducts.length && runProducts.length > 0" @change="selectAllRun" class="accent-green-500">
+                                全选
+                            </label>
+                            <button @click="deleteSelectedRunProducts" :disabled="!runSelectedIndices.size"
+                                class="px-4 py-1.5 bg-error text-on-primary rounded text-xs font-medium hover:bg-error disabled:opacity-50 transition">
+                                <i class="fas fa-trash mr-1"></i>删除 ({{ runSelectedIndices.size }})
+                            </button>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-surface-container-low text-left text-xs text-on-surface-variant uppercase border-b">
+                                <tr>
+                                    <th class="px-4 py-3 w-10"></th>
+                                    <th class="px-4 py-3 w-14">图片</th>
+                                    <th class="px-4 py-3 min-w-[220px] max-w-[300px]">产品信息</th>
+                                    <th class="px-4 py-3 w-32">品牌/价格</th>
+                                    <th class="px-4 py-3 w-28">SKU/分类</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y">
+                                <tr v-for="(p, ridx) in runProducts" :key="p.id"
+                                    :class="['hover:bg-surface-container-low transition align-top cursor-pointer', runSelectedIndices.has(ridx) ? 'bg-[#146c2e]/5' : '']"
+                                    @click="toggleRunSelect(ridx)">
+                                    <td class="px-4 py-3">
+                                        <input type="checkbox" :checked="runSelectedIndices.has(ridx)" class="accent-green-500 pointer-events-none">
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <img v-if="p.thumbnail" :src="p.thumbnail" class="w-12 h-12 rounded border object-cover" :alt="p.title">
+                                        <img v-else-if="p.images && p.images.length" :src="p.images[0]" class="w-12 h-12 rounded border object-cover" :alt="p.title">
+                                        <div v-else class="w-12 h-12 bg-surface-container rounded border flex items-center justify-center"><i class="fas fa-image text-on-surface-variant text-xs"></i></div>
+                                    </td>
+                                    <td class="px-4 py-3 max-w-[300px]">
+                                        <span class="font-semibold text-on-surface line-clamp-1 block" :title="p.title">{{ p.title }}</span>
+                                        <div class="flex items-center gap-2 mt-1 text-xs text-on-surface-variant flex-wrap">
+                                            <span v-if="p.item_id">SKU: {{ p.item_id }}</span>
+                                            <span v-if="p.product_slug" class="text-primary">/{{ p.product_slug }}</span>
+                                        </div>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <p class="text-xs text-on-surface-variant" v-if="p.brand">{{ p.brand }}</p>
+                                        <p class="font-bold text-[#146c2e]" v-if="p.price">{{ p.currency || 'USD' }} {{ p.price }}</p>
+                                        <p v-else class="text-on-surface-variant text-xs">-</p>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <p v-if="p.item_id" class="text-xs text-on-surface-variant">{{ p.item_id }}</p>
+                                        <p v-if="p.breadcrumbs && p.breadcrumbs.length" class="text-xs text-on-surface-variant mt-0.5">{{ p.breadcrumbs.join(' > ') }}</p>
+                                        <p v-if="p.category" class="text-xs text-primary mt-0.5">{{ p.category }}</p>
+                                        <p v-else-if="!p.item_id" class="text-on-surface-variant text-xs">-</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    </div>
+                    <!-- Pagination -->
+                    <div class="px-6 py-3 bg-surface-container-low border-t flex items-center justify-between text-xs text-on-surface-variant">
+                        <span>第 {{ runPage }} / {{ runTotalPages }} 页，每页 {{ runPerPage }} 件，共 {{ runTotal }} 件</span>
+                        <div class="flex items-center gap-1">
+                            <button @click="runGoToPage(runPage - 1)" :disabled="runPage <= 1"
+                                class="px-3 py-1 rounded hover:bg-surface-container-high disabled:opacity-30 transition">上一页</button>
+                            <button @click="runGoToPage(runPage + 1)" :disabled="runPage >= runTotalPages"
+                                class="px-3 py-1 rounded hover:bg-surface-container-high disabled:opacity-30 transition">下一页</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Empty state -->
+                <div v-if="!runProducts.length && !runImporting" class="text-center py-16 text-on-surface-variant">
+                    <i class="fas fa-inbox text-4xl mb-3 block"></i>
+                    <p class="text-sm">暂无跑品产品</p>
+                    <p class="text-xs mt-1">点击"导入CSV"上传 WooCommerce 导出的产品文件</p>
+                </div>
             </div>
 
             <!-- 资源总览 -->

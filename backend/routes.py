@@ -2093,6 +2093,15 @@ def register_routes(app):
             return jsonify({"code": 404, "message": "Feed not found"}), 404
         return send_file(feed_file, mimetype="application/rss+xml")
 
+    @app.route("/api/public/feed/run_<int:site_id>.xml", methods=["GET"])
+    def serve_run_feed_xml(site_id):
+        """Serve generated feedstart.xml for Google Merchant Center (跑品)."""
+        data_dir = os.environ.get("WP_DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
+        feed_file = os.path.join(data_dir, "feeds", f"run_{site_id}.xml")
+        if not os.path.isfile(feed_file):
+            return jsonify({"code": 404, "message": "Feed not found"}), 404
+        return send_file(feed_file, mimetype="application/rss+xml")
+
     # ---- Auth ----
 
     @app.route("/api/auth/login", methods=["POST"])
@@ -3011,6 +3020,24 @@ def register_routes(app):
             update_site(site["id"], {"google_feed_url": ""})
             return True
         return False
+
+    def _sync_run_feed_to_static_site(site, products, xml_str, size_bytes):
+        """Upload feedstart.xml (跑品) to static site directory via SSH."""
+        domain = site["url"]
+        site_dir = site.get("static_dir", "")
+        env = get_user_panel_environment(site.get("created_by") or 1)
+        if env and site_dir:
+            from ssh_client import get_ssh_client
+            ssh = get_ssh_client(env["host"], 22, env.get("ssh_password", ""))
+            ssh.write_file(f"{site_dir}/feedstart.xml", xml_str)
+            ssh.reload_nginx()
+
+        feed_url = f"https://{domain}/feedstart.xml"
+        update_site(site["id"], {"run_feed_url": feed_url})
+        return jsonify({
+            "code": 200,
+            "data": {"feed_url": feed_url, "products": len(products), "size_bytes": size_bytes},
+        })
 
     def _regenerate_static_site_html(task_id_or_none, site_id):
         """Regenerate static site files and upload via SSH (used after product sync)."""
@@ -8410,6 +8437,460 @@ Respond with strict JSON only (no markdown code blocks):
                 logger.warning(f"[FeedSync] Local clean error: {e}")
 
         return jsonify({"code": 200, "data": {"cleaned": cleaned, "message": "已清理" if cleaned else "没有需要清理的Feed文件"}})
+
+    # ---- Run Products (跑品) API Routes ----
+
+    @app.route("/api/run-products/categories", methods=["GET"])
+    @jwt_required()
+    def run_products_categories():
+        """Get distinct categories from run_products."""
+        try:
+            from models import get_run_product_categories
+            cats = get_run_product_categories()
+            return jsonify({"code": 200, "data": cats})
+        except Exception as e:
+            logger.error(f"[RunProducts] Categories error: {e}")
+            return jsonify({"code": 500, "message": str(e)[:100]}), 500
+
+    @app.route("/api/run-products/list", methods=["GET"])
+    @jwt_required()
+    def run_products_list():
+        """List run_products with optional category filter and pagination."""
+        try:
+            from models import list_run_products
+            category = request.args.get("category", "").strip() or None
+            page = request.args.get("page", 1, type=int)
+            per_page = request.args.get("per_page", 20, type=int)
+            result = list_run_products(category=category, page=page, per_page=per_page)
+            return jsonify({"code": 200, "data": result})
+        except Exception as e:
+            logger.error(f"[RunProducts] List error: {e}")
+            return jsonify({"code": 500, "message": str(e)[:100]}), 500
+
+    @app.route("/api/run-products/import-csv", methods=["POST"])
+    @jwt_required()
+    def run_products_import_csv():
+        """Upload WooCommerce CSV and import into run_products with streaming progress."""
+        import csv
+        import io
+        import re
+        from models import save_run_products_batch
+
+        if "file" not in request.files:
+            return jsonify({"code": 400, "message": "请上传 CSV 文件"}), 400
+
+        file = request.files["file"]
+        if not file.filename or not file.filename.lower().endswith(".csv"):
+            return jsonify({"code": 400, "message": "请上传 .csv 文件"}), 400
+
+        try:
+            raw = file.read()
+            # Auto-detect BOM and encoding
+            if raw.startswith(b"\xef\xbb\xbf"):
+                raw = raw[3:]
+            # Try UTF-8 first, then common encodings
+            for enc in ("utf-8", "utf-8-sig", "latin-1", "gbk"):
+                try:
+                    text = raw.decode(enc)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            else:
+                text = raw.decode("utf-8", errors="replace")
+        except Exception as e:
+            return jsonify({"code": 400, "message": f"文件读取失败: {e}"}), 400
+
+        # Parse CSV
+        try:
+            # Auto-detect dialect
+            sample = text[:4096]
+            sniffer = csv.Sniffer()
+            try:
+                dialect = sniffer.sniff(sample)
+            except Exception:
+                dialect = csv.excel
+            reader = csv.DictReader(io.StringIO(text), dialect=dialect)
+            if not reader.fieldnames:
+                reader = csv.DictReader(io.StringIO(text))
+            fieldnames = reader.fieldnames or []
+        except Exception as e:
+            return jsonify({"code": 400, "message": f"CSV 解析失败: {e}"}), 400
+
+        if not fieldnames:
+            return jsonify({"code": 400, "message": "CSV 文件没有标题行"}), 400
+
+        # Map CSV column names to run_products fields (case-insensitive fuzzy match)
+        def find_col(names, *candidates):
+            """Find best matching column name from candidates."""
+            lower_map = {n.strip().lower(): n for n in names if n}
+            for c in candidates:
+                c_lower = c.lower().strip()
+                if c_lower in lower_map:
+                    return lower_map[c_lower]
+                for k, v in lower_map.items():
+                    if c_lower in k or k in c_lower:
+                        return v
+            return None
+
+        col_title = find_col(fieldnames, "Name", "Product Name", "Title")
+        col_price = find_col(fieldnames, "Regular price", "Price", "Regular Price")
+        col_desc = find_col(fieldnames, "Description", "Product Description")
+        col_short_desc = find_col(fieldnames, "Short description", "Short Description")
+        col_sku = find_col(fieldnames, "SKU", "Sku", "Product SKU")
+        col_images = find_col(fieldnames, "Images", "Image", "Product Images")
+        col_categories = find_col(fieldnames, "Categories", "Category", "Product Categories")
+        col_tags = find_col(fieldnames, "Tags", "Product Tags")
+        col_stock = find_col(fieldnames, "Stock status", "Stock", "In stock?", "Stock Status")
+        col_brand = find_col(fieldnames, "Brand", "Manufacturer", "Vendor")
+
+        if not col_title:
+            return jsonify({"code": 400, "message": f"CSV 缺少产品名称列。找到的列: {', '.join(fieldnames[:10])}..."}), 400
+
+        logger.info(f"[RunProducts] CSV import: title={col_title}, price={col_price}, columns={len(fieldnames)}")
+
+        # Parse all rows into products
+        all_products = []
+        for row in reader:
+            title = (row.get(col_title, "") or "").strip()
+            if not title:
+                continue
+
+            price = (row.get(col_price, "") or "").strip() if col_price else ""
+            desc = (row.get(col_desc, "") or "").strip() if col_desc else ""
+            if not desc and col_short_desc:
+                desc = (row.get(col_short_desc, "") or "").strip()
+
+            # Parse images
+            images = []
+            if col_images:
+                img_raw = (row.get(col_images, "") or "").strip()
+                if img_raw:
+                    images = [u.strip() for u in re.split(r'[,\n]', img_raw) if u.strip()]
+
+            thumbnail = images[0] if images else ""
+
+            # Parse categories: "Cat > Sub > Sub" → top category + breadcrumbs
+            cat_raw = (row.get(col_categories, "") or "").strip() if col_categories else ""
+            tags_raw = (row.get(col_tags, "") or "").strip() if col_tags else ""
+
+            top_category = ""
+            breadcrumbs = []
+            if cat_raw:
+                parts = [p.strip() for p in re.split(r'\s*>\s*', cat_raw) if p.strip()]
+                if parts:
+                    top_category = parts[0]
+                    breadcrumbs = parts
+            elif tags_raw:
+                top_category = tags_raw.split(",")[0].strip()
+                breadcrumbs = [top_category]
+
+            # Parse stock status
+            stock = ""
+            if col_stock:
+                stock = (row.get(col_stock, "") or "").strip().lower()
+            avail = "in_stock"
+            if "outofstock" in stock or "out of stock" in stock:
+                avail = "out_of_stock"
+            elif "backorder" in stock:
+                avail = "preorder"
+
+            sku = (row.get(col_sku, "") or "").strip() if col_sku else ""
+            brand = (row.get(col_brand, "") or "").strip() if col_brand else ""
+
+            product = {
+                "title": title,
+                "price": price,
+                "currency": "USD",
+                "brand": brand,
+                "item_id": sku,
+                "description": desc,
+                "images": images,
+                "thumbnail": thumbnail,
+                "breadcrumbs": breadcrumbs,
+                "category": top_category,
+                "extra_data": {"availability": avail, "source": "woocommerce_csv"},
+                "source_url": "",
+            }
+            all_products.append(product)
+
+        total = len(all_products)
+        if total == 0:
+            return jsonify({"code": 400, "message": "CSV 中没有有效的产品数据"}), 400
+
+        logger.info(f"[RunProducts] Parsed {total} products from CSV, starting batch import")
+
+        # Streaming response: import in batches with NDJSON progress
+        BATCH_SIZE = 500
+
+        def generate():
+            imported = 0
+            errors = 0
+            for i in range(0, total, BATCH_SIZE):
+                batch = all_products[i:i + BATCH_SIZE]
+                try:
+                    save_run_products_batch(batch)
+                    imported += len(batch)
+                except Exception as e:
+                    logger.error(f"[RunProducts] Batch insert error at offset {i}: {e}")
+                    errors += len(batch)
+                yield json.dumps({
+                    "type": "progress",
+                    "imported": imported,
+                    "total": total,
+                    "errors": errors,
+                }) + "\n"
+            yield json.dumps({
+                "type": "done",
+                "imported": imported,
+                "total": total,
+                "errors": errors,
+            }) + "\n"
+
+        return Response(
+            generate(),
+            mimetype="application/x-ndjson",
+            headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+        )
+
+    @app.route("/api/run-products/items", methods=["DELETE"])
+    @jwt_required()
+    def run_products_items_delete():
+        """Delete selected run_products by IDs."""
+        try:
+            from models import delete_run_products
+            data = request.get_json(silent=True) or {}
+            ids = data.get("ids") or []
+            if not ids:
+                return jsonify({"code": 400, "message": "请选择要删除的产品"}), 400
+            deleted = delete_run_products([int(i) for i in ids])
+            return jsonify({"code": 200, "data": {"deleted": deleted}})
+        except Exception as e:
+            logger.error(f"[RunProducts] Delete error: {e}")
+            return jsonify({"code": 500, "message": str(e)[:100]}), 500
+
+    @app.route("/api/run-products/clear", methods=["DELETE"])
+    @jwt_required()
+    def run_products_clear():
+        """Clear all run_products."""
+        try:
+            from models import clear_run_products
+            count = clear_run_products()
+            return jsonify({"code": 200, "message": f"已清除 {count} 条", "data": {"deleted": count}})
+        except Exception as e:
+            logger.error(f"[RunProducts] Clear error: {e}")
+            return jsonify({"code": 500, "message": str(e)[:100]}), 500
+
+    @app.route("/api/run-products/sync-to-site", methods=["POST"])
+    @jwt_required()
+    def run_products_sync_to_site():
+        """Generate feedstart.xml from selected run_products and upload to site."""
+        import xml.etree.ElementTree as ET
+        from models import get_run_products_by_ids, get_site
+        import json as _j
+
+        data = request.get_json(silent=True) or {}
+        site_id = data.get("site_id")
+        run_product_ids = data.get("run_product_ids") or []
+
+        if not site_id:
+            return jsonify({"code": 400, "message": "请选择目标站点"}), 400
+        if not run_product_ids:
+            return jsonify({"code": 400, "message": "请选择要创建的跑品"}), 400
+
+        site = get_site(site_id)
+        if not site:
+            return jsonify({"code": 404, "message": "站点不存在"}), 404
+
+        products = get_run_products_by_ids([int(i) for i in run_product_ids])
+        if not products:
+            return jsonify({"code": 400, "message": "未找到选中的跑品产品"}), 400
+
+        try:
+            ns_g = "http://base.google.com/ns/1.0"
+            rss = ET.Element("rss", {"version": "2.0", "xmlns:g": ns_g})
+            channel = ET.SubElement(rss, "channel")
+            ET.SubElement(channel, "title").text = site.get("site_name") or site["url"]
+            ET.SubElement(channel, "link").text = site["url"]
+            ET.SubElement(channel, "description").text = "Google Shopping Product Feed (跑品)"
+
+            site_domain = site["url"].rstrip("/")
+            # Strip protocol for cleaner URL construction
+            from urllib.parse import urlparse
+            parsed = urlparse(site_domain)
+            site_domain = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme else f"https://{parsed.netloc}"
+
+            for p in products:
+                item = ET.SubElement(channel, "item")
+                ET.SubElement(item, "g:id").text = str(p.get("id", ""))
+                ET.SubElement(item, "g:title").text = (p.get("title") or "")[:150]
+                desc = (p.get("description") or "")[:5000]
+                ET.SubElement(item, "g:description").text = re.sub(r"<[^>]*>", "", desc) if desc else ""
+
+                # Product link: {domain}/product/{slug}
+                slug = p.get("product_slug", "")
+                if slug:
+                    ET.SubElement(item, "g:link").text = f"{site_domain}/product/{slug}"
+                else:
+                    ET.SubElement(item, "g:link").text = p.get("source_url") or site_domain
+
+                images = p.get("images") or []
+                if isinstance(images, str):
+                    try:
+                        images = _j.loads(images)
+                    except Exception:
+                        images = [images] if images else []
+                if isinstance(images, list) and images:
+                    ET.SubElement(item, "g:image_link").text = str(images[0])
+                    for img in images[1:11]:
+                        ET.SubElement(item, "g:additional_image_link").text = str(img)
+
+                price = (p.get("price") or "").replace("$", "").replace(",", "").strip()
+                currency = p.get("currency", "USD")
+                if price:
+                    ET.SubElement(item, "g:price").text = f"{price} {currency}"
+
+                extra = p.get("extra_data") or {}
+                if isinstance(extra, str):
+                    try:
+                        extra = _j.loads(extra)
+                    except Exception:
+                        extra = {}
+                avail = (extra.get("availability") or "").lower()
+                g_avail = "in_stock"
+                if "out of stock" in avail or "unavailable" in avail or "outofstock" in avail:
+                    g_avail = "out_of_stock"
+                elif "backorder" in avail:
+                    g_avail = "preorder"
+                ET.SubElement(item, "g:availability").text = g_avail
+                ET.SubElement(item, "g:condition").text = "new"
+
+                brand = p.get("brand", "")
+                if brand:
+                    ET.SubElement(item, "g:brand").text = str(brand)[:70]
+
+                sku = p.get("item_id", "")
+                if sku:
+                    ET.SubElement(item, "g:mpn").text = str(sku)[:70]
+
+                breadcrumbs = p.get("breadcrumbs") or []
+                if isinstance(breadcrumbs, str):
+                    try:
+                        breadcrumbs = _j.loads(breadcrumbs)
+                    except Exception:
+                        breadcrumbs = []
+                if isinstance(breadcrumbs, list) and breadcrumbs:
+                    ET.SubElement(item, "g:product_type").text = " > ".join(str(b) for b in breadcrumbs)[:750]
+
+            xml_str = ET.tostring(rss, encoding="unicode")
+            size_bytes = len(xml_str.encode("utf-8"))
+
+            # Upload: try WordPress first, then static
+            wp_feed_url = ""
+            wp_error = ""
+            site_type = site.get("site_type", "")
+
+            if site_type == "static":
+                # Static site: upload via SSH
+                return _sync_run_feed_to_static_site(site, products, xml_str, size_bytes)
+
+            # WordPress site
+            try:
+                from services.wordpress_client import WordPressAdminSession
+                wp = WordPressAdminSession(site["url"], site["admin_name"], site["admin_password"])
+                wp_feed_url = wp.upload_feed_content(xml_str) or ""
+                if wp_feed_url:
+                    logger.info(f"[RunFeedSync] Uploaded feedstart.xml to WP site {site_id}: {wp_feed_url}")
+                    from models import update_site
+                    update_site(site_id, {"run_feed_url": wp_feed_url})
+                    return jsonify({
+                        "code": 200,
+                        "data": {"feed_url": wp_feed_url, "products": len(products), "size_bytes": size_bytes},
+                    })
+                else:
+                    wp_error = "WordPress 上传返回空"
+            except Exception as e:
+                wp_error = str(e)[:200]
+                logger.warning(f"[RunFeedSync] WP upload failed: {e}")
+
+            # Fallback: save locally
+            data_dir = os.environ.get("WP_DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
+            feed_dir = os.path.join(data_dir, "feeds")
+            os.makedirs(feed_dir, exist_ok=True)
+            feed_filename = f"run_{site_id}.xml"
+            with open(os.path.join(feed_dir, feed_filename), "w", encoding="utf-8") as f:
+                f.write(xml_str)
+
+            panel_host = current_app.config.get("PANEL_HOST", "").strip()
+            wp_port = os.environ.get("WP_PORT", "8011")
+            if panel_host:
+                local_feed_url = f"http://{panel_host}:{wp_port}/api/public/feed/run_{site_id}.xml"
+            else:
+                local_feed_url = f"{request.host_url.rstrip('/')}/api/public/feed/run_{site_id}.xml"
+
+            logger.info(f"[RunFeedSync] Fallback local URL: {local_feed_url}")
+            from models import update_site
+            update_site(site_id, {"run_feed_url": local_feed_url})
+            return jsonify({
+                "code": 200,
+                "data": {"feed_url": local_feed_url, "products": len(products), "size_bytes": size_bytes},
+            })
+        except Exception as e:
+            logger.error(f"[RunFeedSync] Error: {e}")
+            return jsonify({"code": 500, "message": str(e)[:200]}), 500
+
+    @app.route("/api/run-products/sync-to-site", methods=["DELETE"])
+    @jwt_required()
+    def run_products_clean_from_site():
+        """Remove feedstart.xml from site and local storage."""
+        data = request.get_json(silent=True) or {}
+        site_id = data.get("site_id")
+        if not site_id:
+            return jsonify({"code": 400, "message": "请选择目标站点"}), 400
+
+        site = get_site(site_id)
+        if not site:
+            return jsonify({"code": 404, "message": "站点不存在"}), 404
+
+        cleaned = False
+        site_type = site.get("site_type", "")
+
+        if site_type == "static":
+            try:
+                from services.panel_client import OnePanelClient
+                panel = OnePanelClient()
+                static_dir = site.get("static_dir", "")
+                if static_dir:
+                    panel.delete_file(f"{static_dir}/feedstart.xml")
+                    panel.reload_nginx()
+                cleaned = True
+            except Exception as e:
+                logger.warning(f"[RunFeedSync] Static clean error: {e}")
+
+        # WordPress: try to delete via WP
+        if not cleaned and site.get("admin_name"):
+            try:
+                from services.wordpress_client import WordPressAdminSession
+                wp = WordPressAdminSession(site["url"], site["admin_name"], site["admin_password"])
+                wp.delete_feed_file()
+                cleaned = True
+            except Exception as e:
+                logger.warning(f"[RunFeedSync] WP clean error: {e}")
+
+        # Remove local fallback
+        data_dir = os.environ.get("WP_DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
+        feed_file = os.path.join(data_dir, "feeds", f"run_{site_id}.xml")
+        if os.path.isfile(feed_file):
+            try:
+                os.remove(feed_file)
+                cleaned = True
+            except Exception as e:
+                logger.warning(f"[RunFeedSync] Local clean error: {e}")
+
+        # Clear run_feed_url from site record
+        from models import update_site
+        update_site(site_id, {"run_feed_url": ""})
+
+        return jsonify({"code": 200, "data": {"cleaned": cleaned, "message": "已清理" if cleaned else "没有需要清理的 feedstart.xml"}})
 
     @app.route("/api/shai-pin/woocommerce/sync-to-site", methods=["POST"])
     @jwt_required()
