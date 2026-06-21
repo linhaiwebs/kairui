@@ -931,20 +931,21 @@ pipelineStatuses[siteId].demo_importing = false;
             analyticsView.value = 'site-detail';
             analyticsSource.value = target;
             analyticsLoading.value = true;
+            analyticsSiteData.value = null;
+            analyticsSiteSessions.value = null;
             try {
                 // Find the mirror site by its URL (the source IS the mirror site's domain)
-                const site = sites.value.find(s => s.url === target || s.site_name === target);
+                const site = sites.value.find(s => s.url === target || s.site_name === target || (s.url||'').includes(target));
                 const sid = site ? site.id : null;
-                if (sid) {
-                    analyticsSiteId.value = sid;
-                    const [summary, sessions] = await Promise.all([
-                        API.getAnalytics(sid, 'analytics/summary', { period: analyticsPeriod.value, source: target }),
-                        API.getAnalytics(sid, 'analytics/sessions', { period: '7d', source: target, page: 1 }),
-                    ]);
-                    if (summary.code === 200) analyticsSiteData.value = summary.data;
-                    if (sessions.code === 200) analyticsSiteSessions.value = sessions.data;
-                }
-            } catch (e) {}
+                if (!sid) { analyticsLoading.value = false; return; }
+                analyticsSiteId.value = sid;
+                const [summary, sessions] = await Promise.all([
+                    API.getAnalytics(sid, 'analytics/summary', { period: analyticsPeriod.value, source: target }),
+                    API.getAnalytics(sid, 'analytics/sessions', { period: '7d', source: target, page: 1 }),
+                ]);
+                if (summary && summary.code === 200) analyticsSiteData.value = summary.data || summary;
+                if (sessions && sessions.code === 200) analyticsSiteSessions.value = sessions.data || sessions;
+            } catch (e) { console.error('openSiteDetail error:', e); }
             analyticsLoading.value = false;
         }
         function backToOverview() { analyticsView.value = 'overview'; analyticsSiteData.value = null; analyticsSiteSessions.value = null; }
