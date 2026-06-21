@@ -41,6 +41,25 @@ class Kairui_Tracker {
         } else {
             setcookie(self::COOKIE_SESSION, $_COOKIE[self::COOKIE_SESSION], time() + self::SESSION_TTL, '/', '', true, false);
         }
+
+        // Record page_view server-side (throttled: once per session per page)
+        if ($source && !self::_is_api_request() && !self::_is_bot()) {
+            $page = sanitize_text_field($_SERVER['REQUEST_URI'] ?? '/');
+            $seen_key = 'kairui_seen_' . md5($page);
+            if (empty($_COOKIE[$seen_key])) {
+                setcookie($seen_key, '1', time() + 300, '/', '', true, false); // 5 min throttle
+                self::record_event('page_view');
+            }
+        }
+    }
+
+    private static function _is_api_request() {
+        $uri = $_SERVER['REQUEST_URI'] ?? '';
+        return strpos($uri, '/wp-json/') !== false || strpos($uri, '/wp-admin/') !== false || strpos($uri, 'xmlrpc') !== false;
+    }
+    private static function _is_bot() {
+        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        return empty($ua) || preg_match('/bot|crawl|spider|slurp|curl|wget/i', $ua);
     }
 
     public static function get_source() {
