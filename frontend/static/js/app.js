@@ -4504,7 +4504,6 @@ pipelineStatuses[siteId].demo_importing = false;
                                 class="px-3 py-1 rounded hover:bg-surface-container-high disabled:opacity-30 transition">下一页</button>
                         </div>
                     </div>
-                </div>
 
                 <!-- Description Modal -->
                 <div v-if="showFeedDescModal" class="modal-overlay modal-overlay" @click.self="showFeedDescModal = false">
@@ -4517,7 +4516,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     </div>
                 </div>
             </div>
-            </div>
+
             <!-- ====== 跑品 Content ====== -->
             <div v-if="feedTab === 'run'">
                 <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
@@ -4644,13 +4643,13 @@ pipelineStatuses[siteId].demo_importing = false;
                                 class="px-3 py-1 rounded hover:bg-surface-container-high disabled:opacity-30 transition">下一页</button>
                         </div>
                     </div>
-                </div>
                 <!-- Empty state -->
                 <div v-if="!runProducts.length && !runImporting" class="text-center py-16 text-on-surface-variant">
                     <i class="fas fa-inbox text-4xl mb-3 block"></i>
                     <p class="text-sm">暂无跑品产品</p>
                     <p class="text-xs mt-1">点击"导入CSV"上传 WooCommerce 导出的产品文件</p>
                 </div>
+            </div>
             </div>
 
             <!-- 资源总览 -->
