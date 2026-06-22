@@ -2606,11 +2606,12 @@ def register_routes(app):
                     "});"
                     "async function handleRequest(request) {"
                     f"const url = new URL(request.url);"
-                    # feedstart.xml.gz: fetch from origin, return with proper GMC headers
+                    # feedstart.xml.gz: fetch from origin, decompress, return pure XML
                     f"if(url.pathname==='/feedstart.xml'||url.pathname==='/feedstart.xml.gz'){{"
                     f"const originResp=await fetch(request);"
-                    f"const body=await originResp.arrayBuffer();"
-                    f"return new Response(body,{{headers:{{'Content-Type':'application/xml','Content-Encoding':'gzip','Cache-Control':'max-age=3600'}}}});"
+                    f"const ds=new DecompressionStream('gzip');"
+                    f"const decompressed=await new Response(originResp.body.pipeThrough(ds)).text();"
+                    f"return new Response(decompressed,{{headers:{{'Content-Type':'application/xml','Cache-Control':'max-age=3600'}}}});"
                     f"}}"
                     f"url.hostname = '{target_host}';"
                     f"let hdrs = new Headers(request.headers);"
