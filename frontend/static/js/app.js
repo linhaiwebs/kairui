@@ -100,6 +100,10 @@ const app = createApp({
         const mirrorTotalPages = computed(() => Math.max(1,Math.ceil(mirrorSites.value.length/MIRROR_PER)));
         function toggleMirrorSite(sid) { const s=new Set(mirrorSelectedIds.value); s.has(sid)?s.delete(sid):s.add(sid); mirrorSelectedIds.value=s; }
         const mirrorProgress = ref({ current: 0, total: 0, msg: '' });
+        const mirrorProgressPct = computed(() => {
+            if (!mirrorProgress.value.total) return 0;
+            return Math.round(mirrorProgress.value.current / mirrorProgress.value.total * 100);
+        });
         async function startMirror() {
             if (!mirrorTargetUrl.value.trim()) { showToast('请输入目标站域名', 'error'); return; }
             if (!mirrorSelectedIds.value.size) { showToast('请选择至少一个站点', 'error'); return; }
@@ -3387,7 +3391,7 @@ pipelineStatuses[siteId].demo_importing = false;
             loadAnalytics, loadSiteAnalytics, loadSiteSessions, loadSessionTimeline, setAnalyticsPeriod,
             analyticsView, analyticsSiteData, analyticsSiteSessions, openSiteDetail, backToOverview,
             wcSources, showWcSourceModal, wcSourceEditId, wcSourceForm, loadWcSources, openWcSourceModal, saveWcSource, deleteWcSource,
-            mirrorGenerateFeed, mirrorProgress, analyticsKeyTarget, analyticsKeyValue, analyticsKeyResult, saveAnalyticsKey,
+            mirrorGenerateFeed, mirrorProgress, mirrorProgressPct, analyticsKeyTarget, analyticsKeyValue, analyticsKeyResult, saveAnalyticsKey,
             loadWalmartCategories, fetchWalmartBestsellers, loadPersistedWalmartProducts, exportWalmartData,
             enrichWalmartProducts, loadGeneratedFeed, clearGeneratedFeed,
             walmartGoPage,
@@ -6412,7 +6416,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     <button @click="showMirrorModal = false" class="px-6 py-2 border rounded-lg hover:bg-surface-container-low">取消</button>
                     <div v-if="mirrorProgress.total" class="bg-blue-50 border border-primary-container/20 rounded-lg p-3 mb-3">
                         <div class="flex items-center justify-between mb-1"><span class="text-sm text-primary">{{ mirrorProgress.msg }}</span><span class="text-xs text-on-surface-variant">{{ mirrorProgress.current }}/{{ mirrorProgress.total }}</span></div>
-                        <div class="w-full bg-surface-container-high rounded-full h-2"><div class="bg-primary h-2 rounded-full transition-all" :style="{ width: (mirrorProgress.current/mirrorProgress.total*100).toFixed(0) + "%" }"></div></div>
+                        <div class="w-full bg-surface-container-high rounded-full h-2"><div class="bg-primary h-2 rounded-full transition-all" :style="{ width: mirrorProgressPct + '%' }"></div></div>
                     </div>
                     <button @click="startMirror" :disabled="loading || !mirrorSelectedIds.size" class="btn-primary text-on-primary px-6 py-2 rounded-lg"><i v-if="loading" class="fas fa-spinner fa-spin mr-2"></i><i v-else class="fas fa-bolt mr-2"></i>开始镜像 ({{ mirrorSelectedIds.size }})</button>
                 </div>
