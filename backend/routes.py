@@ -2606,8 +2606,12 @@ def register_routes(app):
                     "});"
                     "async function handleRequest(request) {"
                     f"const url = new URL(request.url);"
-                    # feedstart.xml: passthrough to origin (served from site's own server)
-                    f"if(url.pathname==='/feedstart.xml'||url.pathname==='/feedstart.xml.gz'){{return fetch(request);}}"
+                    # feedstart.xml.gz: fetch from origin, return with proper GMC headers
+                    f"if(url.pathname==='/feedstart.xml'||url.pathname==='/feedstart.xml.gz'){{"
+                    f"const originResp=await fetch(request);"
+                    f"const body=await originResp.arrayBuffer();"
+                    f"return new Response(body,{{headers:{{'Content-Type':'application/xml','Content-Encoding':'gzip','Cache-Control':'max-age=3600'}}}});"
+                    f"}}"
                     f"url.hostname = '{target_host}';"
                     f"let hdrs = new Headers(request.headers);"
                     f"hdrs.set('X-Forwarded-Host', '{domain}');"
