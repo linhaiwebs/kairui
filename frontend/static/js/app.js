@@ -513,6 +513,7 @@ const app = createApp({
             { key: 'cloudflare', label: 'Cloudflare' },
             { key: 'dataforseo', label: 'DataForSEO' },
             { key: 'analytics', label: '分析配置' },
+            { key: 'woocommerce_api', label: 'WooCommerce API' },
             { key: 'google_account', label: '谷歌账户' },
             { key: 'fingerprint', label: '指纹环境' },
         ];
@@ -956,11 +957,20 @@ pipelineStatuses[siteId].demo_importing = false;
         const analyticsKeyTarget = ref('');
         const analyticsKeyValue = ref('');
         const analyticsKeyResult = ref('');
+        const wcApiUrl = ref('');
+        const wcApiKey = ref('');
+        const wcApiSecret = ref('');
+        const wcApiResult = ref('');
         async function saveAnalyticsKey() {
             if (!analyticsKeyTarget.value.trim() || !analyticsKeyValue.value.trim()) { analyticsKeyResult.value = '请填写域名和Key'; return; }
             const r = await API.setAnalyticsKey(analyticsKeyTarget.value.trim(), analyticsKeyValue.value.trim());
             analyticsKeyResult.value = r.code === 200 ? '保存成功！刷新页面查看数据' : (r.message || '保存失败');
             if (r.code === 200) { analyticsKeyValue.value = ''; loadAnalytics(); }
+        }
+        async function saveWcApi() {
+            if (!wcApiUrl.value.trim() || !wcApiKey.value.trim() || !wcApiSecret.value.trim()) { wcApiResult.value = '请填写所有字段'; return; }
+            const r = await API.request('POST', '/api/settings/wc-api', { url: wcApiUrl.value.trim(), key: wcApiKey.value.trim(), secret: wcApiSecret.value.trim() });
+            wcApiResult.value = r.code === 200 ? '已保存' : (r.message || '保存失败');
         }
         function formatInt(val) {
             const n = Number(val) || 0;
@@ -3362,6 +3372,7 @@ pipelineStatuses[siteId].demo_importing = false;
             loadAnalytics, loadSiteAnalytics, loadSiteSessions, loadSessionTimeline, setAnalyticsPeriod,
             analyticsView, analyticsSiteData, analyticsSiteSessions, openSiteDetail, backToOverview,
             analyticsKeyTarget, analyticsKeyValue, analyticsKeyResult, saveAnalyticsKey,
+            wcApiUrl, wcApiKey, wcApiSecret, wcApiResult, saveWcApi,
             loadWalmartCategories, fetchWalmartBestsellers, loadPersistedWalmartProducts, exportWalmartData,
             enrichWalmartProducts, loadGeneratedFeed, clearGeneratedFeed,
             walmartGoPage,
@@ -5201,6 +5212,18 @@ pipelineStatuses[siteId].demo_importing = false;
                                     </div>
                                     <button @click="saveAnalyticsKey" class="btn-primary text-on-primary px-4 py-2 rounded text-sm">保存</button>
                                     <p v-if="analyticsKeyResult" :class="['text-xs mt-2', analyticsKeyResult.includes('成功') ? 'text-[#146c2e]' : 'text-error']">{{ analyticsKeyResult }}</p>
+                                </div>
+                            </div>
+                            <!-- Tab: WooCommerce API -->
+                            <div v-else-if="settingsActiveTab === 'woocommerce_api'">
+                                <h4 class="text-sm font-semibold text-on-surface mb-3"><i class="fab fa-wordpress mr-2 text-primary"></i>WooCommerce API</h4>
+                                <p class="text-xs text-on-surface-variant mb-4">在 WordPress 后台 → WooCommerce → Settings → Advanced → REST API 生成 Key。</p>
+                                <div class="space-y-3">
+                                    <div><label class="block text-sm font-medium text-on-surface mb-1">站点 URL</label><input v-model="wcApiUrl" type="text" placeholder="cnusel.com" class="w-full px-4 py-2 border rounded-lg focus:border-primary text-sm"></div>
+                                    <div><label class="block text-sm font-medium text-on-surface mb-1">Consumer Key</label><input v-model="wcApiKey" type="text" placeholder="ck_..." class="w-full px-4 py-2 border rounded-lg focus:border-primary text-sm"></div>
+                                    <div><label class="block text-sm font-medium text-on-surface mb-1">Consumer Secret</label><input v-model="wcApiSecret" type="text" placeholder="cs_..." class="w-full px-4 py-2 border rounded-lg focus:border-primary text-sm"></div>
+                                    <button @click="saveWcApi" class="btn-primary text-on-primary px-4 py-2 rounded text-sm">保存</button>
+                                    <p v-if="wcApiResult" :class="['text-xs', wcApiResult.includes('成功') || wcApiResult.includes('已保存') ? 'text-[#146c2e]' : 'text-error']">{{ wcApiResult }}</p>
                                 </div>
                             </div>
                             <!-- Tab: 谷歌账户 -->

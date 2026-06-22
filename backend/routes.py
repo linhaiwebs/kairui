@@ -9817,6 +9817,24 @@ Respond with strict JSON only (no markdown code blocks):
         update_global_config(f"kairui_key_{host}", api_key)
         return jsonify({"code": 200, "message": "API Key已保存"})
 
+    @app.route("/api/settings/wc-api", methods=["POST"])
+    @jwt_required()
+    def save_wc_api():
+        """Save WooCommerce API credentials."""
+        claims = get_jwt()
+        if claims.get("role") != "admin":
+            return jsonify({"code": 403, "message": "仅管理员可操作"}), 403
+        data = request.get_json(silent=True) or {}
+        url = (data.get("url") or "").strip().replace("https://", "").replace("http://", "").strip("/")
+        key = (data.get("key") or "").strip()
+        secret = (data.get("secret") or "").strip()
+        if not all([url, key, secret]):
+            return jsonify({"code": 400, "message": "缺少字段"}), 400
+        update_global_config("wc_api_url", url)
+        update_global_config("wc_api_key", key)
+        update_global_config("wc_api_secret", secret)
+        return jsonify({"code": 200, "message": "WooCommerce API 凭据已保存"})
+
     # ---- Feed Products (Google Merchant Center) ----
 
     @app.route("/api/sites/<int:site_id>/feed-products", methods=["GET"])
