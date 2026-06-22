@@ -2551,9 +2551,8 @@ def register_routes(app):
                 worker_name = f"mirror-{alias.replace('.', '-')}"
 
                 # Stream process feedstart.xml.gz: gunzip → sed replace → gzip (avoids OOM)
-                import subprocess, base64 as _b64, tempfile
+                import subprocess
                 env = get_user_panel_environment(site.get("created_by") or 1)
-                feed_gz_b64 = ""
                 feed_done = False
                 data_dir = os.environ.get("WP_DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
                 feed_gz_path = os.path.join(data_dir, "feedstart.xml.gz")
@@ -2566,7 +2565,6 @@ def register_routes(app):
                         result = subprocess.run(sed_cmd, shell=True, capture_output=True, timeout=120)
                         if result.returncode == 0 and result.stdout:
                             feed_gz = result.stdout
-                            feed_gz_b64 = _b64.b64encode(feed_gz).decode("ascii")
                             # Upload to mirror site via SSH
                             site_dir = site.get("static_dir", "")
                             if env and site_dir:
@@ -2594,12 +2592,8 @@ def register_routes(app):
                     "});"
                     "async function handleRequest(request) {"
                     f"const url = new URL(request.url);"
-                    # Serve feedstart.xml from embedded gzip content (base64 encoded, Worker decodes)
-                    f"if(url.pathname==='/feedstart.xml'){{"
-                    f"const b64='{feed_gz_b64}';"
-                    f"const bin=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));"
-                    f"return new Response(bin,{{headers:{{'Content-Type':'application/xml','Content-Encoding':'gzip','Cache-Control':'max-age=3600'}}}});"
-                    f"}}"
+                    # feedstart.xml: passthrough to origin (served from site's own server)
+                    f"if(url.pathname==='/feedstart.xml'){{return fetch(request);}}"
                     f"url.hostname = '{target_host}';"
                     f"let hdrs = new Headers(request.headers);"
                     f"hdrs.set('X-Forwarded-Host', '{domain}');"
