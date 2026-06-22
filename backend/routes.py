@@ -2550,6 +2550,20 @@ def register_routes(app):
                 alias = site.get("nginx_alias", domain)
                 worker_name = f"mirror-{alias.replace('.', '-')}"
 
+                # If re-mirroring, clean up old Worker/route first
+                if site.get("mirror_target"):
+                    try:
+                        old_routes = cf_client.list_worker_routes(zone_id)
+                        if old_routes.get("success") or old_routes.get("result"):
+                            for r in (old_routes.get("result") or []):
+                                if r.get("script") == worker_name:
+                                    cf_client.delete_worker_route(zone_id, r["id"])
+                                    logger.info(f"[Mirror] Removed old route for {worker_name}")
+                        cf_client.delete_worker(real_cf_id, worker_name)
+                        logger.info(f"[Mirror] Removed old worker {worker_name}")
+                    except Exception as e:
+                        logger.warning(f"[Mirror] Cleanup failed for {worker_name}: {e}")
+
                 # Stream process feedstart.xml.gz: gunzip → sed replace → gzip (avoids OOM)
                 import subprocess
                 env = get_user_panel_environment(site.get("created_by") or 1)
