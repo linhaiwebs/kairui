@@ -99,25 +99,41 @@ const app = createApp({
         const pagedMirrorSites = computed(() => { const s=(mirrorPage.value-1)*MIRROR_PER; return mirrorSites.value.slice(s,s+MIRROR_PER); });
         const mirrorTotalPages = computed(() => Math.max(1,Math.ceil(mirrorSites.value.length/MIRROR_PER)));
         function toggleMirrorSite(sid) { const s=new Set(mirrorSelectedIds.value); s.has(sid)?s.delete(sid):s.add(sid); mirrorSelectedIds.value=s; }
+        const mirrorProgress = ref({ current: 0, total: 0, msg: '' });
+        const mirrorLog = ref([]); // [{site, ok, msg}]
         async function startMirror() {
             if (!mirrorTargetUrl.value.trim()) { showToast('请输入目标站域名', 'error'); return; }
             if (!mirrorSelectedIds.value.size) { showToast('请选择至少一个站点', 'error'); return; }
             const ids = Array.from(mirrorSelectedIds.value);
+            mirrorProgress.value = { current: 0, total: ids.length, msg: '准备中...' };
+            mirrorLog.value = [];
             loading.value = true;
             let ok = 0, fail = 0;
             for (let i = 0; i < ids.length; i++) {
+                const sid = ids[i];
+                const site = mirrorSites.value.find(s => s.id === sid);
+                const name = site ? site.site_name : ('#'+sid);
+                mirrorProgress.value = { current: i, total: ids.length, msg: '正在处理: '+name };
                 try {
-                    const r = await API.request('POST','/api/sites/mirror',{target_url:mirrorTargetUrl.value.trim(),site_ids:[ids[i]]});
-                    if (r.code===200) {
-                        const rr = r.data?.results;
-                        if (rr && rr[0]?.ok) ok++; else fail++;
-                    } else fail++;
-                } catch(e) { fail++; }
+                    const r = await API.request('POST','/api/sites/mirror',{target_url:mirrorTargetUrl.value.trim(),site_ids:[sid]});
+                    if (r.code===200 && r.data?.results?.[0]?.ok) {
+                        ok++;
+                        mirrorLog.value.push({site: name, ok: true, msg: r.data.results[0].feed_url ? 'Feed ✓' : 'Worker ✓'});
+                    } else {
+                        fail++;
+                        mirrorLog.value.push({site: name, ok: false, msg: r.data?.results?.[0]?.error || r.message || '失败'});
+                    }
+                } catch(e) {
+                    fail++;
+                    mirrorLog.value.push({site: name, ok: false, msg: e.message || '网络错误'});
+                }
+                mirrorProgress.value = { current: i + 1, total: ids.length, msg: ok+'/'+(i+1)+' 成功' };
             }
+            mirrorProgress.value = { current: ids.length, total: ids.length, msg: '完成! 成功'+ok+(fail?', 失败'+fail:'') };
             showToast('镜像创建完成: '+ok+'/'+ids.length);
             mirrorSelectedIds.value = new Set(); mirrorTargetUrl.value = '';
             await loadSites(); loading.value = false;
-            showMirrorModal.value = false;
+            setTimeout(() => { showMirrorModal.value = false; mirrorProgress.value = { current: 0, total: 0, msg: '' }; mirrorLog.value = []; }, 3000);
         }
         async function unmirrorSite(site) {
             if (!confirm('确定取消 '+site.site_name+' 的镜像？')) return;
@@ -3382,7 +3398,7 @@ pipelineStatuses[siteId].demo_importing = false;
             loadAnalytics, loadSiteAnalytics, loadSiteSessions, loadSessionTimeline, setAnalyticsPeriod,
             analyticsView, analyticsSiteData, analyticsSiteSessions, openSiteDetail, backToOverview,
             wcSources, showWcSourceModal, wcSourceEditId, wcSourceForm, loadWcSources, openWcSourceModal, saveWcSource, deleteWcSource,
-            analyticsKeyTarget, analyticsKeyValue, analyticsKeyResult, saveAnalyticsKey,
+            mirrorProgress, mirrorLog, analyticsKeyTarget, analyticsKeyValue, analyticsKeyResult, saveAnalyticsKey,
             loadWalmartCategories, fetchWalmartBestsellers, loadPersistedWalmartProducts, exportWalmartData,
             enrichWalmartProducts, loadGeneratedFeed, clearGeneratedFeed,
             walmartGoPage,
@@ -6400,8 +6416,24 @@ pipelineStatuses[siteId].demo_importing = false;
                         <div v-else class="text-center py-8 text-sm text-on-surface-variant">没有可镜像的站点</div>
                     </div>
                 </div>
+                <!-- Progress -->
+                <div v-if="mirrorProgress.total" class="p-4 border-t bg-surface-container-low">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-sm text-on-surface">{{ mirrorProgress.msg }}</span>
+                        <span class="text-xs text-on-surface-variant">{{ mirrorProgress.current }}/{{ mirrorProgress.total }}</span>
+                    </div>
+                    <div class="w-full bg-surface-container-high rounded-full h-2 mb-2">
+                        <div class="bg-primary h-2 rounded-full transition-all duration-300" :style="{ width: (mirrorProgress.current/mirrorProgress.total*100) + '%' }"></div>
+                    </div>
+                    <div v-if="mirrorLog.length" class="max-h-32 overflow-y-auto space-y-0.5 text-xs">
+                        <div v-for="(log, i) in mirrorLog" :key="i" :class="['flex items-center gap-1.5', log.ok ? 'text-[#146c2e]' : 'text-error']">
+                            <i :class="['fas text-[10px]', log.ok ? 'fa-check-circle' : 'fa-times-circle']"></i>
+                            <span class="font-medium">{{ log.site }}</span><span class="text-on-surface-variant">{{ log.msg }}</span>
+                        </div>
+                    </div>
+                </div>
                 <div class="p-6 border-t flex gap-3 justify-end">
-                    <button @click="showMirrorModal = false" class="px-6 py-2 border rounded-lg hover:bg-surface-container-low">取消</button>
+                    <button @click="showMirrorModal = false" :disabled="loading" class="px-6 py-2 border rounded-lg hover:bg-surface-container-low disabled:opacity-50">取消</button>
                     <button @click="startMirror" :disabled="loading || !mirrorSelectedIds.size" class="btn-primary text-on-primary px-6 py-2 rounded-lg"><i v-if="loading" class="fas fa-spinner fa-spin mr-2"></i><i v-else class="fas fa-bolt mr-2"></i>开始镜像 ({{ mirrorSelectedIds.size }})</button>
                 </div>
             </div>
