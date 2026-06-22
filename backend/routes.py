@@ -9876,14 +9876,44 @@ Respond with strict JSON only (no markdown code blocks):
     # ---- Mirror Feed Generation ----
 
     def _generate_mirror_feed(domain, wc_source):
-        """Pull products from WooCommerce API and generate GMC feed XML."""
+        """Pull products from WooCommerce API (cached) and generate GMC feed XML."""
         import xml.etree.ElementTree as ET
         from requests.auth import HTTPBasicAuth
+        import json as _json
 
         wc_url = wc_source["url"]
-        auth = HTTPBasicAuth(wc_source["consumer_key"], wc_source["consumer_secret"])
-        base = f"https://{wc_url}/wp-json/wc/v3/products"
+        cache_key = f"mirror_feed_cache_{wc_url}"
 
+        # Try cache first
+        products = None
+        cfg = get_global_config()
+        cached = cfg.get(cache_key, "")
+        if cached:
+            try:
+                products = _json.loads(cached)
+                logger.info(f"[MirrorFeed] {domain}: using cached {len(products)} products")
+            except Exception:
+                pass
+
+        # Fetch from WC API if not cached
+        if not products:
+            products = []
+            auth = HTTPBasicAuth(wc_source["consumer_key"], wc_source["consumer_secret"])
+            base = f"https://{wc_url}/wp-json/wc/v3/products"
+            page = 1
+            while True:
+                r = http_requests.get(f"{base}?per_page=100&page={page}", auth=auth, timeout=60)
+                if r.status_code != 200: break
+                batch = r.json()
+                if not batch: break
+                products.extend(batch)
+                page += 1
+                if page % 5 == 0: logger.info(f"[MirrorFeed] Fetching page {page}...")
+            # Cache for 24 hours
+            update_global_config(cache_key, _json.dumps(products))
+            logger.info(f"[MirrorFeed] Cached {len(products)} products for {wc_url}")
+
+        # Build feed XML from cached/fetched products
         ns_g = "http://base.google.com/ns/1.0"
         rss = ET.Element("rss", {"version": "2.0", "xmlns:g": ns_g})
         channel = ET.SubElement(rss, "channel")
@@ -9891,48 +9921,36 @@ Respond with strict JSON only (no markdown code blocks):
         ET.SubElement(channel, "link").text = f"https://{domain}"
         ET.SubElement(channel, "description").text = "Google Shopping Product Feed"
 
-        page, total = 1, 0
-        while True:
-            r = http_requests.get(f"{base}?per_page=100&page={page}", auth=auth, timeout=30)
-            if r.status_code != 200: break
-            products = r.json()
-            if not products: break
-            total += len(products)
+        for p in products:
+            ptype = p.get("type", "simple")
+            if ptype == "variable": continue  # skip parent variable
 
-            for p in products:
-                ptype = p.get("type", "simple")
-                if ptype == "variable": continue  # skip parent variable
+            name = p.get("name", "")
+            price = p.get("sale_price") or p.get("regular_price") or p.get("price") or ""
+            permalink = (p.get("permalink") or f"https://{domain}").replace(f"https://{wc_url}", f"https://{domain}")
 
-                name = p.get("name", "")
-                price = p.get("sale_price") or p.get("regular_price") or p.get("price") or ""
-                permalink = (p.get("permalink") or f"https://{domain}").replace(f"https://{wc_url}", f"https://{domain}")
+            item = ET.SubElement(channel, "item")
+            ET.SubElement(item, "g:id").text = p.get("sku") or str(p.get("id"))
+            ET.SubElement(item, "g:title").text = name[:150]
+            ET.SubElement(item, "g:link").text = permalink
 
-                item = ET.SubElement(channel, "item")
-                ET.SubElement(item, "g:id").text = p.get("sku") or str(p.get("id"))
-                ET.SubElement(item, "g:title").text = name[:150]
-                ET.SubElement(item, "g:link").text = permalink
+            images = p.get("images", [])
+            if images:
+                ET.SubElement(item, "g:image_link").text = images[0].get("src", "")
+                for img in images[1:11]:
+                    ET.SubElement(item, "g:additional_image_link").text = img.get("src", "")
 
-                images = p.get("images", [])
-                if images:
-                    ET.SubElement(item, "g:image_link").text = images[0].get("src", "")
-                    for img in images[1:11]:
-                        ET.SubElement(item, "g:additional_image_link").text = img.get("src", "")
+            if price:
+                ET.SubElement(item, "g:price").text = f"{price} USD"
+            ET.SubElement(item, "g:availability").text = "in_stock" if p.get("stock_status") != "outofstock" else "out_of_stock"
+            ET.SubElement(item, "g:condition").text = "new"
 
-                if price:
-                    ET.SubElement(item, "g:price").text = f"{price} USD"
-                ET.SubElement(item, "g:availability").text = "in_stock" if p.get("stock_status") != "outofstock" else "out_of_stock"
-                ET.SubElement(item, "g:condition").text = "new"
+            if p.get("sku"):
+                ET.SubElement(item, "g:mpn").text = str(p.get("sku"))[:70]
+            if ptype == "variation" and p.get("parent_id"):
+                ET.SubElement(item, "g:item_group_id").text = str(p.get("parent_id"))
 
-                if p.get("sku"):
-                    ET.SubElement(item, "g:mpn").text = str(p.get("sku"))[:70]
-                if ptype == "variation" and p.get("parent_id"):
-                    ET.SubElement(item, "g:item_group_id").text = str(p.get("parent_id"))
-
-            page += 1
-            if page % 5 == 0:
-                logger.info(f"[MirrorFeed] {domain}: page={page-1}, total={total}")
-
-        logger.info(f"[MirrorFeed] {domain}: done, {total} products, {page-1} pages")
+        logger.info(f"[MirrorFeed] {domain}: generated feed from {len(products)} products")
         return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(rss, encoding="unicode")
 
     # ---- Feed Products (Google Merchant Center) ----
