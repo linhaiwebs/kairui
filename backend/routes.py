@@ -2588,27 +2588,6 @@ def register_routes(app):
                     raise Exception(f"路由创建失败: {msg}")
                 update_site_fields(sid, {"mirror_target": target})
                 result_entry = {"site_id": sid, "ok": True, "domain": domain}
-
-                # Auto-generate GMC feed if requested
-                if data.get("generate_feed"):
-                    wc_src = get_wc_source_for_operator(site.get("created_by"))
-                    if wc_src:
-                        try:
-                            feed_xml = _generate_mirror_feed(domain, wc_src)
-                            cfg = get_global_config()
-                            api_key = cfg.get(f"kairui_key_{target_host}", "")
-                            if api_key:
-                                http_requests.post(
-                                    f"https://{target_host}/wp-json/kairui/v1/feed/upload",
-                                    json={"domain": domain, "content": feed_xml},
-                                    headers={"X-Kairui-Key": api_key}, timeout=30
-                                )
-                            result_entry["feed_url"] = f"https://{domain}/feed-{domain}.xml"
-                            logger.info(f"[MirrorFeed] {domain}: uploaded feed ({len(feed_xml)} bytes)")
-                        except Exception as fe:
-                            logger.warning(f"[MirrorFeed] {domain}: failed - {fe}")
-                            result_entry["feed_error"] = str(fe)[:100]
-
                 results.append(result_entry)
                 logger.info(f"Mirror: {domain} -> {target_host} (worker={worker_name})")
             except Exception as e:

@@ -114,7 +114,7 @@ const app = createApp({
             for (let i = 0; i < ids.length; i++) {
                 mirrorProgress.value = { current: i, total: ids.length, msg: '正在部署Worker... (' + (i+1) + '/' + ids.length + ')' };
                 try {
-                    const r = await API.request('POST','/api/sites/mirror',{target_url:mirrorTargetUrl.value.trim(),site_ids:[ids[i]],generate_feed:mirrorGenerateFeed.value});
+                    const r = await API.request('POST','/api/sites/mirror',{target_url:mirrorTargetUrl.value.trim(),site_ids:[ids[i]]});
                     if (r.code===200) {
                         const rr = r.data?.results;
                         if (rr && rr[0]?.ok) { ok++; if (rr[0]?.feed_url) mirrorProgress.value.msg = 'Feed: '+rr[0].feed_url; }
@@ -124,7 +124,7 @@ const app = createApp({
             }
             mirrorProgress.value = { current: ids.length, total: ids.length, msg: '完成! 成功'+ok+(fail?', 失败'+fail:'') };
             showToast('镜像创建完成: '+ok+'/'+ids.length);
-            mirrorSelectedIds.value = new Set(); mirrorTargetUrl.value = ''; mirrorGenerateFeed.value = true;
+            mirrorSelectedIds.value = new Set(); mirrorTargetUrl.value = '';
             await loadSites(); loading.value = false;
             setTimeout(() => { mirrorProgress.value={current:0,total:0,msg:''}; showMirrorModal.value=false; }, 2000);
         }
@@ -984,7 +984,7 @@ pipelineStatuses[siteId].demo_importing = false;
         const showWcSourceModal = ref(false);
         const wcSourceEditId = ref(null);
         const wcSourceForm = reactive({ name: '', url: '', consumer_key: '', consumer_secret: '', operator_id: null });
-        const mirrorGenerateFeed = ref(true);
+
         async function saveAnalyticsKey() {
             if (!analyticsKeyTarget.value.trim() || !analyticsKeyValue.value.trim()) { analyticsKeyResult.value = '请填写域名和Key'; return; }
             const r = await API.setAnalyticsKey(analyticsKeyTarget.value.trim(), analyticsKeyValue.value.trim());
@@ -3391,7 +3391,7 @@ pipelineStatuses[siteId].demo_importing = false;
             loadAnalytics, loadSiteAnalytics, loadSiteSessions, loadSessionTimeline, setAnalyticsPeriod,
             analyticsView, analyticsSiteData, analyticsSiteSessions, openSiteDetail, backToOverview,
             wcSources, showWcSourceModal, wcSourceEditId, wcSourceForm, loadWcSources, openWcSourceModal, saveWcSource, deleteWcSource,
-            mirrorGenerateFeed, mirrorProgress, mirrorProgressPct, analyticsKeyTarget, analyticsKeyValue, analyticsKeyResult, saveAnalyticsKey,
+            mirrorProgress, mirrorProgressPct, analyticsKeyTarget, analyticsKeyValue, analyticsKeyResult, saveAnalyticsKey,
             loadWalmartCategories, fetchWalmartBestsellers, loadPersistedWalmartProducts, exportWalmartData,
             enrichWalmartProducts, loadGeneratedFeed, clearGeneratedFeed,
             walmartGoPage,
@@ -6393,10 +6393,6 @@ pipelineStatuses[siteId].demo_importing = false;
                         <input v-model="mirrorTargetUrl" type="text" placeholder="https://target-store.com" class="w-full px-4 py-3 border rounded-lg focus:border-primary">
                         <p class="text-xs text-on-surface-variant mt-1">输入 WooCommerce 商城域名，选中站点将通过 Cloudflare Worker 代理到此站</p>
                     </div>
-                        <div class="flex items-center gap-2 bg-blue-50 border border-primary-container/20 rounded-lg p-3">
-                            <input type="checkbox" v-model="mirrorGenerateFeed" id="genfeed" class="accent-primary">
-                            <label for="genfeed" class="text-sm text-primary">自动生成 GMC Feed（从目标站拉取产品生成 feed-域名.xml）</label>
-                        </div>
                     <div>
                         <div class="flex items-center justify-between mb-2">
                             <label class="text-sm font-medium text-on-surface">选择站点 <span class="text-xs text-on-surface-variant">({{ mirrorSites.length }} 个可用)</span></label>
