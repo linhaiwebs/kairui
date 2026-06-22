@@ -2572,7 +2572,7 @@ def register_routes(app):
                                 ssh = get_ssh_client(env["host"], 22, env.get("ssh_password", ""))
                                 ssh.write_file(f"{site_dir}/feedstart.xml.gz", feed_gz)
                                 ssh.reload_nginx()
-                                result_entry["feed_url"] = f"https://{domain}/feedstart.xml"
+                                result_entry["feed_url"] = f"https://{domain}/feedstart.xml.gz"
                                 feed_done = True
                                 logger.info(f"[MirrorFeed] {domain}: feedstart.xml.gz cloned ({len(feed_gz)} bytes gzip)")
                             elif env:

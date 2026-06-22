@@ -3935,9 +3935,9 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <span v-else>-</span>
                             </div>
                             <!-- Tags -->
-                            <div class="flex-shrink-0 w-16 text-center">
+                            <div class="flex-shrink-0 text-center whitespace-nowrap" style="min-width:80px">
                                 <span v-if="site.mirror_target" @click.stop="unmirrorSite(site)" class="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full cursor-pointer inline-flex items-center gap-0.5" title="点击取消镜像"><i class="fas fa-bolt text-[8px]"></i>镜像</span>
-                                <a v-if="site.mirror_target" :href="'https://'+site.url+'/feedstart.xml'" target="_blank" @click.stop class="text-[10px] text-primary hover:underline ml-1 block" title="GMC Feed URL"><i class="fas fa-rss text-[8px]"></i> feedstart.xml</a>
+                                <a v-if="site.mirror_target" :href="'https://'+site.url+'/feedstart.xml.gz'" target="_blank" @click.stop class="text-[10px] text-primary hover:underline ml-1 inline-block" title="GMC Feed URL"><i class="fas fa-rss text-[8px]"></i> feedstart.xml.gz</a>
                             </div>
                             <!-- Actions -->
                             <div class="flex items-center gap-1.5 flex-shrink-0">
