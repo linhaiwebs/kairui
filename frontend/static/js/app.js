@@ -6412,7 +6412,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     <button @click="showMirrorModal = false" class="px-6 py-2 border rounded-lg hover:bg-surface-container-low">取消</button>
                     <div v-if="mirrorProgress.total" class="bg-blue-50 border border-primary-container/20 rounded-lg p-3 mb-3">
                         <div class="flex items-center justify-between mb-1"><span class="text-sm text-primary">{{ mirrorProgress.msg }}</span><span class="text-xs text-on-surface-variant">{{ mirrorProgress.current }}/{{ mirrorProgress.total }}</span></div>
-                        <div class="w-full bg-surface-container-high rounded-full h-2"><div class="bg-primary h-2 rounded-full transition-all" :style="{ width: (mirrorProgress.current/mirrorProgress.total*100).toFixed(0) + chr(37) }"></div></div>
+                        <div class="w-full bg-surface-container-high rounded-full h-2"><div class="bg-primary h-2 rounded-full transition-all" :style="{ width: (mirrorProgress.current/mirrorProgress.total*100).toFixed(0) + "%" }"></div></div>
                     </div>
                     <button @click="startMirror" :disabled="loading || !mirrorSelectedIds.size" class="btn-primary text-on-primary px-6 py-2 rounded-lg"><i v-if="loading" class="fas fa-spinner fa-spin mr-2"></i><i v-else class="fas fa-bolt mr-2"></i>开始镜像 ({{ mirrorSelectedIds.size }})</button>
                 </div>
