@@ -2593,7 +2593,7 @@ def register_routes(app):
                     "async function handleRequest(request) {"
                     f"const url = new URL(request.url);"
                     # feedstart.xml: passthrough to origin (served from site's own server)
-                    f"if(url.pathname==='/feedstart.xml'){{return fetch(request);}}"
+                    f"if(url.pathname==='/feedstart.xml'||url.pathname==='/feedstart.xml.gz'){{return fetch(request);}}"
                     f"url.hostname = '{target_host}';"
                     f"let hdrs = new Headers(request.headers);"
                     f"hdrs.set('X-Forwarded-Host', '{domain}');"
