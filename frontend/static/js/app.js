@@ -6419,7 +6419,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     <div><label class="block text-xs mb-1">URL</label><input v-model="wcSourceForm.url" placeholder="cnusel.com" class="w-full px-3 py-2 border rounded text-sm"></div>
                     <div><label class="block text-xs mb-1">Consumer Key</label><input v-model="wcSourceForm.consumer_key" class="w-full px-3 py-2 border rounded text-sm"></div>
                     <div><label class="block text-xs mb-1">Consumer Secret</label><input v-model="wcSourceForm.consumer_secret" type="password" class="w-full px-3 py-2 border rounded text-sm"></div>
-                    <div><label class="block text-xs mb-1">绑定运营</label><select v-model="wcSourceForm.operator_id" class="w-full px-3 py-2 border rounded text-sm"><option :value="null">选择</option><option v-for="u in users" :key="u.id" :value="u.id" v-if="u.role==='operator'">{{ u.username }}</option></select></div>
+                    <div><label class="block text-xs mb-1">绑定运营</label><select v-model="wcSourceForm.operator_id" class="w-full px-3 py-2 border rounded text-sm"><option :value="null">{{ users.length ? '选择' : '加载中...' }}</option><option v-for="u in users" :key="u.id" :value="u.id" v-if="u.role==='operator'">{{ u.username }}</option></select></div>
                 </div>
                 <div class="flex justify-end gap-2 mt-6"><button @click="showWcSourceModal=false" class="px-4 py-2 border rounded text-sm">取消</button><button @click="saveWcSource" class="btn-primary px-6 py-2 rounded text-sm">保存</button></div>
             </div>
