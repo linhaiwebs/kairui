@@ -2550,22 +2550,33 @@ def register_routes(app):
                 alias = site.get("nginx_alias", domain)
                 worker_name = f"mirror-{alias.replace('.', '-')}"
 
-                # Fetch and clone feedstart.xml from target (replace domain)
-                feed_xml_content = ""
+                # Fetch feedstart.xml from target, replace domain, upload to mirror site via SSH
+                env = get_user_panel_environment(site.get("created_by") or 1)
+                origin_host = env.get("host", "") if env else ""
+                feed_done = False
                 try:
                     feed_resp = http_requests.get(
                         f"https://{target_host}/feedstart.xml", timeout=30
                     )
                     if feed_resp.status_code == 200:
-                        feed_xml_content = feed_resp.text.replace(target_host, domain)
-                        logger.info(f"[MirrorFeed] {domain}: cloned feedstart.xml ({len(feed_xml_content)} bytes)")
+                        feed_xml = feed_resp.text.replace(target_host, domain)
+                        site_dir = site.get("static_dir", "")
+                        if env and site_dir:
+                            from ssh_client import get_ssh_client
+                            ssh = get_ssh_client(env["host"], 22, env.get("ssh_password", ""))
+                            ssh.write_file(f"{site_dir}/feedstart.xml", feed_xml)
+                            ssh.reload_nginx()
+                            result_entry["feed_url"] = f"https://{domain}/feedstart.xml"
+                            feed_done = True
+                            logger.info(f"[MirrorFeed] {domain}: uploaded feedstart.xml to {site_dir} ({len(feed_xml)} bytes)")
+                        elif env:
+                            logger.warning(f"[MirrorFeed] {domain}: no static_dir for site {sid}")
+                        else:
+                            logger.warning(f"[MirrorFeed] {domain}: no panel environment for user {site.get('created_by')}")
                     else:
                         logger.warning(f"[MirrorFeed] {domain}: feedstart.xml not found on {target_host}")
                 except Exception as fe:
-                    logger.warning(f"[MirrorFeed] {domain}: fetch feedstart.xml failed - {fe}")
-
-                # Escape feed XML for embedding in JS string
-                feed_escaped = feed_xml_content.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "")
+                    logger.warning(f"[MirrorFeed] {domain}: feedstart.xml clone failed - {fe}")
 
                 script = (
                     "addEventListener('fetch', event => {"
@@ -2573,8 +2584,11 @@ def register_routes(app):
                     "});"
                     "async function handleRequest(request) {"
                     f"const url = new URL(request.url);"
-                    # Serve feedstart.xml directly with domain-replaced content
-                    f"if(url.pathname==='/feedstart.xml'){{return new Response('{feed_escaped}',{{headers:{{'Content-Type':'application/xml','Cache-Control':'max-age=3600'}}}})}};"
+                    # For feedstart.xml, fetch from origin server directly
+                    f"if(url.pathname==='/feedstart.xml'){{"
+                    f"url.hostname='{origin_host}';"
+                    f"return fetch(url.toString(),{{method:request.method,headers:request.headers}});"
+                    f"}}"
                     f"url.hostname = '{target_host}';"
                     f"let hdrs = new Headers(request.headers);"
                     f"hdrs.set('X-Forwarded-Host', '{domain}');"
