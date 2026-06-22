@@ -2550,36 +2550,40 @@ def register_routes(app):
                 alias = site.get("nginx_alias", domain)
                 worker_name = f"mirror-{alias.replace('.', '-')}"
 
-                # Fetch feedstart.xml from target, replace domain, upload to mirror site via SSH
+                # Read feedstart.xml.gz from local server, decompress, replace domain, re-compress
+                import gzip, base64 as _b64
                 env = get_user_panel_environment(site.get("created_by") or 1)
+                feed_gz_b64 = ""
                 feed_done = False
+                data_dir = os.environ.get("WP_DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
+                feed_gz_path = os.path.join(data_dir, "feedstart.xml.gz")
                 try:
-                    feed_resp = http_requests.get(
-                        f"https://{target_host}/feedstart.xml", timeout=30
-                    )
-                    if feed_resp.status_code == 200:
-                        feed_xml = feed_resp.text.replace(target_host, domain)
+                    if os.path.isfile(feed_gz_path):
+                        with gzip.open(feed_gz_path, "rb") as f:
+                            feed_xml = f.read().decode("utf-8")
+                        # Replace domain in XML content
+                        feed_xml = feed_xml.replace(target_host, domain)
+                        # Re-compress with gzip
+                        feed_gz = gzip.compress(feed_xml.encode("utf-8"), compresslevel=9)
+                        feed_gz_b64 = _b64.b64encode(feed_gz).decode("ascii")
+                        # Upload to mirror site via SSH
                         site_dir = site.get("static_dir", "")
                         if env and site_dir:
                             from ssh_client import get_ssh_client
                             ssh = get_ssh_client(env["host"], 22, env.get("ssh_password", ""))
-                            ssh.write_file(f"{site_dir}/feedstart.xml", feed_xml)
+                            ssh.write_file(f"{site_dir}/feedstart.xml.gz", feed_gz)
                             ssh.reload_nginx()
                             result_entry["feed_url"] = f"https://{domain}/feedstart.xml"
                             feed_done = True
-                            logger.info(f"[MirrorFeed] {domain}: uploaded feedstart.xml to {site_dir} ({len(feed_xml)} bytes)")
+                            logger.info(f"[MirrorFeed] {domain}: feedstart.xml.gz cloned ({len(feed_gz)} bytes gzip)")
                         elif env:
                             logger.warning(f"[MirrorFeed] {domain}: no static_dir for site {sid}")
                         else:
-                            logger.warning(f"[MirrorFeed] {domain}: no panel environment for user {site.get('created_by')}")
+                            logger.warning(f"[MirrorFeed] {domain}: no panel environment")
                     else:
-                        logger.warning(f"[MirrorFeed] {domain}: feedstart.xml not found on {target_host}")
+                        logger.warning(f"[MirrorFeed] feedstart.xml.gz not found at {feed_gz_path}")
                 except Exception as fe:
-                    logger.warning(f"[MirrorFeed] {domain}: feedstart.xml clone failed - {fe}")
-
-                # Escape feed XML for JavaScript string embedding (handle all special chars)
-                import json as _json
-                feed_escaped = _json.dumps(feed_xml if feed_done else "")
+                    logger.warning(f"[MirrorFeed] {domain}: clone failed - {fe}")
 
                 script = (
                     "addEventListener('fetch', event => {"
@@ -2587,8 +2591,12 @@ def register_routes(app):
                     "});"
                     "async function handleRequest(request) {"
                     f"const url = new URL(request.url);"
-                    # Serve feedstart.xml directly from embedded content (no external dependency)
-                    f"if(url.pathname==='/feedstart.xml'){{return new Response({feed_escaped},{{headers:{{'Content-Type':'application/xml','Cache-Control':'max-age=3600'}}}})}};"
+                    # Serve feedstart.xml from embedded gzip content (base64 encoded, Worker decodes)
+                    f"if(url.pathname==='/feedstart.xml'){{"
+                    f"const b64='{feed_gz_b64}';"
+                    f"const bin=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));"
+                    f"return new Response(bin,{{headers:{{'Content-Type':'application/xml','Content-Encoding':'gzip','Cache-Control':'max-age=3600'}}}});"
+                    f"}}"
                     f"url.hostname = '{target_host}';"
                     f"let hdrs = new Headers(request.headers);"
                     f"hdrs.set('X-Forwarded-Host', '{domain}');"
