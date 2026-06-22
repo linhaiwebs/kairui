@@ -5210,7 +5210,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 </div>
                             </div>
                             <!-- Tab: WC源站 -->
-                            <div v-else-if="settingsActiveTab === 'wc_source'" @vue:mounted="loadWcSources()">
+                            <div v-else-if="settingsActiveTab === 'wc_source'" @vue:mounted="loadWcSources(); loadUsers()">
                                 <div class="flex items-center justify-between mb-4">
                                     <h4 class="text-sm font-semibold text-on-surface"><i class="fab fa-wordpress mr-2 text-primary"></i>WooCommerce 源站</h4>
                                     <button @click="openWcSourceModal(null)" class="btn-primary text-on-primary px-4 py-2 rounded text-sm"><i class="fas fa-plus mr-1"></i>添加</button>
