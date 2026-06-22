@@ -931,7 +931,7 @@ pipelineStatuses[siteId].demo_importing = false;
         function setAnalyticsPeriod(p) { analyticsPeriod.value = p; analyticsSiteId.value ? loadSiteAnalytics(analyticsSiteId.value) : loadAnalytics(); }
         // WC Sources
         async function loadWcSources() { const r = await API.request('GET', '/api/wc-sources'); if (r.code === 200) wcSources.value = r.data; }
-        function openWcSourceModal(src) { if (src) { wcSourceEditId.value = src.id; Object.assign(wcSourceForm, src); } else { wcSourceEditId.value = null; wcSourceForm.name = ''; wcSourceForm.url = ''; wcSourceForm.consumer_key = ''; wcSourceForm.consumer_secret = ''; wcSourceForm.operator_id = null; } showWcSourceModal.value = true; if (!users.value.length) loadUsers(); }
+        function openWcSourceModal(src) { if (src) { wcSourceEditId.value = src.id; Object.assign(wcSourceForm, src); } else { wcSourceEditId.value = null; wcSourceForm.name = ''; wcSourceForm.url = ''; wcSourceForm.consumer_key = ''; wcSourceForm.consumer_secret = ''; wcSourceForm.operator_id = null; } showWcSourceModal.value = true; loadUsers(); }
         async function saveWcSource() { const d = { ...wcSourceForm }; const r = await API.request('POST', '/api/wc-sources', d); if (r.code === 200) { showToast('已保存'); loadWcSources(); showWcSourceModal.value = false; } else showToast(r.message || '保存失败', 'error'); }
         async function deleteWcSource(id) { if (!confirm('删除？')) return; await API.request('DELETE', '/api/wc-sources/' + id); loadWcSources(); }
         async function openSiteDetail(target) {
