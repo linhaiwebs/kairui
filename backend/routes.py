@@ -2550,39 +2550,39 @@ def register_routes(app):
                 alias = site.get("nginx_alias", domain)
                 worker_name = f"mirror-{alias.replace('.', '-')}"
 
-                # Read feedstart.xml.gz from local server, decompress, replace domain, re-compress
-                import gzip, base64 as _b64
+                # Stream process feedstart.xml.gz: gunzip → sed replace → gzip (avoids OOM)
+                import subprocess, base64 as _b64, tempfile
                 env = get_user_panel_environment(site.get("created_by") or 1)
                 feed_gz_b64 = ""
                 feed_done = False
                 data_dir = os.environ.get("WP_DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
-                # Check data directory first, then backend root (host mount)
                 feed_gz_path = os.path.join(data_dir, "feedstart.xml.gz")
                 if not os.path.isfile(feed_gz_path):
                     feed_gz_path = os.path.join(os.path.dirname(__file__), "feedstart.xml.gz")
                 try:
                     if os.path.isfile(feed_gz_path):
-                        with gzip.open(feed_gz_path, "rb") as f:
-                            feed_xml = f.read().decode("utf-8")
-                        # Replace domain in XML content
-                        feed_xml = feed_xml.replace(target_host, domain)
-                        # Re-compress with gzip
-                        feed_gz = gzip.compress(feed_xml.encode("utf-8"), compresslevel=9)
-                        feed_gz_b64 = _b64.b64encode(feed_gz).decode("ascii")
-                        # Upload to mirror site via SSH
-                        site_dir = site.get("static_dir", "")
-                        if env and site_dir:
-                            from ssh_client import get_ssh_client
-                            ssh = get_ssh_client(env["host"], 22, env.get("ssh_password", ""))
-                            ssh.write_file(f"{site_dir}/feedstart.xml.gz", feed_gz)
-                            ssh.reload_nginx()
-                            result_entry["feed_url"] = f"https://{domain}/feedstart.xml"
-                            feed_done = True
-                            logger.info(f"[MirrorFeed] {domain}: feedstart.xml.gz cloned ({len(feed_gz)} bytes gzip)")
-                        elif env:
-                            logger.warning(f"[MirrorFeed] {domain}: no static_dir for site {sid}")
+                        # Shell pipeline: decompress → replace domain → compress (streaming, low memory)
+                        sed_cmd = f"gunzip -c '{feed_gz_path}' | sed 's/{target_host}/{domain}/g' | gzip -9"
+                        result = subprocess.run(sed_cmd, shell=True, capture_output=True, timeout=120)
+                        if result.returncode == 0 and result.stdout:
+                            feed_gz = result.stdout
+                            feed_gz_b64 = _b64.b64encode(feed_gz).decode("ascii")
+                            # Upload to mirror site via SSH
+                            site_dir = site.get("static_dir", "")
+                            if env and site_dir:
+                                from ssh_client import get_ssh_client
+                                ssh = get_ssh_client(env["host"], 22, env.get("ssh_password", ""))
+                                ssh.write_file(f"{site_dir}/feedstart.xml.gz", feed_gz)
+                                ssh.reload_nginx()
+                                result_entry["feed_url"] = f"https://{domain}/feedstart.xml"
+                                feed_done = True
+                                logger.info(f"[MirrorFeed] {domain}: feedstart.xml.gz cloned ({len(feed_gz)} bytes gzip)")
+                            elif env:
+                                logger.warning(f"[MirrorFeed] {domain}: no static_dir")
+                            else:
+                                logger.warning(f"[MirrorFeed] {domain}: no panel environment")
                         else:
-                            logger.warning(f"[MirrorFeed] {domain}: no panel environment")
+                            logger.warning(f"[MirrorFeed] sed pipeline failed: {result.stderr.decode()[:200]}")
                     else:
                         logger.warning(f"[MirrorFeed] feedstart.xml.gz not found at {feed_gz_path}")
                 except Exception as fe:

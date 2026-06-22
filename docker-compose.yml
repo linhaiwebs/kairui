@@ -18,6 +18,7 @@ services:
       - WP_DATA_DIR=/app/backend/data
       - SERVER_HOST=${SERVER_HOST:-ads.lhwebs.com}
       - WP_PORT=8011
+      - WP_WORKERS=2
     volumes:
       - ~/.ssh:/root/.ssh:ro
       - ./backend:/app/backend
