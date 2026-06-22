@@ -2556,7 +2556,10 @@ def register_routes(app):
                 feed_gz_b64 = ""
                 feed_done = False
                 data_dir = os.environ.get("WP_DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
+                # Check data directory first, then backend root (host mount)
                 feed_gz_path = os.path.join(data_dir, "feedstart.xml.gz")
+                if not os.path.isfile(feed_gz_path):
+                    feed_gz_path = os.path.join(os.path.dirname(__file__), "feedstart.xml.gz")
                 try:
                     if os.path.isfile(feed_gz_path):
                         with gzip.open(feed_gz_path, "rb") as f:
