@@ -2588,39 +2588,6 @@ def register_routes(app):
                     raise Exception(f"路由创建失败: {msg}")
                 update_site_fields(sid, {"mirror_target": target})
                 result_entry = {"site_id": sid, "ok": True, "domain": domain}
-
-                # Clone feed: fetch feed-{target}.xml, replace domain, save as feed-{mirror}.xml
-                target_feed_name = f"feed-{target_host.split('.')[0]}.xml"
-                mirror_feed_name = f"feed-{domain.split('.')[0]}.xml"
-                try:
-                    feed_resp = http_requests.get(
-                        f"https://{target_host}/{target_feed_name}", timeout=30
-                    )
-                    if feed_resp.status_code == 200:
-                        feed_xml = feed_resp.text
-                        # Replace target domain → mirror domain
-                        feed_xml = feed_xml.replace(target_host, domain)
-                        # Upload to target host via kairui plugin
-                        cfg = get_global_config()
-                        api_key = cfg.get(f"kairui_key_{target_host}", "")
-                        if api_key:
-                            up = http_requests.post(
-                                f"https://{target_host}/wp-json/kairui/v1/feed/upload",
-                                json={"domain": domain, "content": feed_xml, "filename": mirror_feed_name},
-                                headers={"X-Kairui-Key": api_key}, timeout=30
-                            )
-                            if up.status_code == 200:
-                                result_entry["feed_url"] = f"https://{domain}/{mirror_feed_name}"
-                                logger.info(f"[MirrorFeed] {domain}: cloned {target_feed_name} → {mirror_feed_name}")
-                            else:
-                                logger.warning(f"[MirrorFeed] {domain}: upload failed HTTP {up.status_code}")
-                        else:
-                            logger.warning(f"[MirrorFeed] {domain}: no kairui_key for {target_host}, skipping feed clone")
-                    else:
-                        logger.warning(f"[MirrorFeed] {domain}: {target_feed_name} not found on {target_host} (HTTP {feed_resp.status_code})")
-                except Exception as fe:
-                    logger.warning(f"[MirrorFeed] {domain}: clone failed - {fe}")
-
                 results.append(result_entry)
                 logger.info(f"Mirror: {domain} -> {target_host} (worker={worker_name})")
             except Exception as e:
