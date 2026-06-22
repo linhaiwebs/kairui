@@ -3722,3 +3722,60 @@ def import_products_to_site(site_id: int, products: list) -> int:
         conn.close()
 
 
+
+
+# ---- WC Sources (WooCommerce API credentials per operator) ----
+
+def _migrate_wc_sources(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS wc_sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL DEFAULT '',
+            url TEXT NOT NULL DEFAULT '',
+            consumer_key TEXT NOT NULL DEFAULT '',
+            consumer_secret TEXT NOT NULL DEFAULT '',
+            operator_id INTEGER DEFAULT NULL,
+            created_at TEXT
+        )
+    """)
+
+
+def list_wc_sources() -> list:
+    conn = get_db()
+    try:
+        return [dict(r) for r in conn.execute("SELECT * FROM wc_sources ORDER BY id").fetchall()]
+    finally:
+        conn.close()
+
+
+def create_wc_source(data: dict) -> dict:
+    conn = get_db()
+    now = datetime.utcnow().isoformat()
+    try:
+        conn.execute(
+            "INSERT INTO wc_sources (name, url, consumer_key, consumer_secret, operator_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (data.get("name", ""), data.get("url", ""), data.get("consumer_key", ""),
+             data.get("consumer_secret", ""), data.get("operator_id"), now),
+        )
+        conn.commit()
+        return dict(conn.execute("SELECT * FROM wc_sources WHERE id = last_insert_rowid()").fetchone())
+    finally:
+        conn.close()
+
+
+def delete_wc_source(source_id: int):
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM wc_sources WHERE id = ?", (source_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_wc_source_for_operator(operator_id: int) -> dict:
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT * FROM wc_sources WHERE operator_id = ? LIMIT 1", (operator_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()

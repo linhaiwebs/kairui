@@ -104,8 +104,8 @@ const app = createApp({
             if (!mirrorSelectedIds.value.size) { showToast('请选择至少一个站点', 'error'); return; }
             loading.value = true;
             try {
-                const r = await API.request('POST','/api/sites/mirror',{target_url:mirrorTargetUrl.value.trim(),site_ids:Array.from(mirrorSelectedIds.value)});
-                if (r.code===200) { showToast(r.message); showMirrorModal.value=false; mirrorSelectedIds.value=new Set(); mirrorTargetUrl.value=''; await loadSites(); }
+                const r = await API.request('POST','/api/sites/mirror',{target_url:mirrorTargetUrl.value.trim(),site_ids:Array.from(mirrorSelectedIds.value),generate_feed:mirrorGenerateFeed.value});
+                if (r.code===200) { showToast(r.message); showMirrorModal.value=false; mirrorSelectedIds.value=new Set(); mirrorTargetUrl.value=''; mirrorGenerateFeed.value=true; await loadSites(); }
                 else showToast(r.message||'失败','error');
             } catch(e) { showToast('失败: '+(e.message||'error'),'error'); }
             loading.value = false;
@@ -513,6 +513,7 @@ const app = createApp({
             { key: 'cloudflare', label: 'Cloudflare' },
             { key: 'dataforseo', label: 'DataForSEO' },
             { key: 'analytics', label: '分析配置' },
+            { key: 'wc_source', label: 'WC源站' },
             { key: 'google_account', label: '谷歌账户' },
             { key: 'fingerprint', label: '指纹环境' },
         ];
@@ -928,6 +929,11 @@ pipelineStatuses[siteId].demo_importing = false;
             else if (resp && resp.code === 200) { analyticsTimeline.value = resp.data; analyticsTimelineVisible.value = true; }
         }
         function setAnalyticsPeriod(p) { analyticsPeriod.value = p; analyticsSiteId.value ? loadSiteAnalytics(analyticsSiteId.value) : loadAnalytics(); }
+        // WC Sources
+        async function loadWcSources() { const r = await API.request('GET', '/api/wc-sources'); if (r.code === 200) wcSources.value = r.data; }
+        function openWcSourceModal(src) { if (src) { wcSourceEditId.value = src.id; Object.assign(wcSourceForm, src); } else { wcSourceEditId.value = null; wcSourceForm.name = ''; wcSourceForm.url = ''; wcSourceForm.consumer_key = ''; wcSourceForm.consumer_secret = ''; wcSourceForm.operator_id = null; } showWcSourceModal.value = true; }
+        async function saveWcSource() { const d = { ...wcSourceForm }; const r = await API.request('POST', '/api/wc-sources', d); if (r.code === 200) { showToast('已保存'); loadWcSources(); showWcSourceModal.value = false; } else showToast(r.message || '保存失败', 'error'); }
+        async function deleteWcSource(id) { if (!confirm('删除？')) return; await API.request('DELETE', '/api/wc-sources/' + id); loadWcSources(); }
         async function openSiteDetail(target) {
             analyticsView.value = 'site-detail';
             analyticsSource.value = target;
@@ -956,6 +962,11 @@ pipelineStatuses[siteId].demo_importing = false;
         const analyticsKeyTarget = ref('');
         const analyticsKeyValue = ref('');
         const analyticsKeyResult = ref('');
+        const wcSources = ref([]);
+        const showWcSourceModal = ref(false);
+        const wcSourceEditId = ref(null);
+        const wcSourceForm = reactive({ name: '', url: '', consumer_key: '', consumer_secret: '', operator_id: null });
+        const mirrorGenerateFeed = ref(true);
         async function saveAnalyticsKey() {
             if (!analyticsKeyTarget.value.trim() || !analyticsKeyValue.value.trim()) { analyticsKeyResult.value = '请填写域名和Key'; return; }
             const r = await API.setAnalyticsKey(analyticsKeyTarget.value.trim(), analyticsKeyValue.value.trim());
@@ -3361,7 +3372,8 @@ pipelineStatuses[siteId].demo_importing = false;
             analyticsSessionPage, analyticsTimeline, analyticsTimelineVisible,
             loadAnalytics, loadSiteAnalytics, loadSiteSessions, loadSessionTimeline, setAnalyticsPeriod,
             analyticsView, analyticsSiteData, analyticsSiteSessions, openSiteDetail, backToOverview,
-            analyticsKeyTarget, analyticsKeyValue, analyticsKeyResult, saveAnalyticsKey,
+            wcSources, showWcSourceModal, wcSourceEditId, wcSourceForm, loadWcSources, openWcSourceModal, saveWcSource, deleteWcSource,
+            mirrorGenerateFeed, analyticsKeyTarget, analyticsKeyValue, analyticsKeyResult, saveAnalyticsKey,
             loadWalmartCategories, fetchWalmartBestsellers, loadPersistedWalmartProducts, exportWalmartData,
             enrichWalmartProducts, loadGeneratedFeed, clearGeneratedFeed,
             walmartGoPage,
@@ -5197,6 +5209,20 @@ pipelineStatuses[siteId].demo_importing = false;
                                     <p v-if="analyticsKeyResult" :class="['text-xs mt-2', analyticsKeyResult.includes('成功') ? 'text-[#146c2e]' : 'text-error']">{{ analyticsKeyResult }}</p>
                                 </div>
                             </div>
+                            <!-- Tab: WC源站 -->
+                            <div v-else-if="settingsActiveTab === 'wc_source'" @vue:mounted="loadWcSources()">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h4 class="text-sm font-semibold text-on-surface"><i class="fab fa-wordpress mr-2 text-primary"></i>WooCommerce 源站</h4>
+                                    <button @click="openWcSourceModal(null)" class="btn-primary text-on-primary px-4 py-2 rounded text-sm"><i class="fas fa-plus mr-1"></i>添加</button>
+                                </div>
+                                <div v-if="wcSources.length" class="space-y-3">
+                                    <div v-for="s in wcSources" class="bg-surface-container-low rounded-lg p-4 flex items-center justify-between">
+                                        <div><p class="font-medium">{{ s.name }} ({{ s.url }})</p><p class="text-xs text-on-surface-variant">Key: {{ s.consumer_key.slice(0,12) }}...</p></div>
+                                        <div class="flex gap-1"><button @click="openWcSourceModal(s)" class="text-xs text-primary"><i class="fas fa-edit"></i></button><button @click="deleteWcSource(s.id)" class="text-xs text-error"><i class="fas fa-trash"></i></button></div>
+                                    </div>
+                                </div>
+                                <p v-else class="text-sm text-on-surface-variant py-8 text-center">暂无WC源站配置</p>
+                            </div>
                             <!-- Tab: 谷歌账户 -->
                             <div v-else-if="settingsActiveTab === 'google_account'" @vue:mounted="loadGoogleAccounts()">
                                 <div class="flex items-center justify-between mb-3">
@@ -6377,6 +6403,21 @@ pipelineStatuses[siteId].demo_importing = false;
                 <div class="p-6"><h2 class="text-lg font-bold text-on-surface mb-2">{{ modal.title }}</h2><p class="text-on-surface-variant">{{ modal.content }}</p></div>
                 <div v-if="modal.progress" class="px-6 pb-2"><p class="text-sm text-primary"><span class="spinner w-4 h-4 inline-block"></span>{{ modal.progress }}</p></div>
                 <div class="p-6 border-t flex gap-3 justify-end"><button @click="modal.show = false" :disabled="modal.loading" class="px-6 py-2 border rounded-lg hover:bg-surface-container-low disabled:opacity-50">取消</button><button @click="modal.onConfirm()" :disabled="modal.loading" class="bg-error text-on-primary px-6 py-2 rounded-lg hover:bg-error disabled:opacity-50 disabled:cursor-not-allowed"><i v-if="modal.loading" class="fas fa-spinner fa-spin mr-2"></i>{{ modal.loading ? '删除中...' : '删除' }}</button></div>
+            </div>
+        </div>
+
+        <!-- WC Source Modal -->
+        <div v-if="showWcSourceModal" class="modal-overlay" @click.self="showWcSourceModal=false">
+            <div class="bg-surface-container-lowest rounded-2xl shadow-level-3 w-full max-w-md mx-4 p-6 fade-in">
+                <h3 class="text-lg font-bold mb-4">{{ wcSourceEditId ? '编辑' : '添加' }} WC 源站</h3>
+                <div class="space-y-3">
+                    <div><label class="block text-xs mb-1">名称</label><input v-model="wcSourceForm.name" class="w-full px-3 py-2 border rounded text-sm"></div>
+                    <div><label class="block text-xs mb-1">URL</label><input v-model="wcSourceForm.url" placeholder="cnusel.com" class="w-full px-3 py-2 border rounded text-sm"></div>
+                    <div><label class="block text-xs mb-1">Consumer Key</label><input v-model="wcSourceForm.consumer_key" class="w-full px-3 py-2 border rounded text-sm"></div>
+                    <div><label class="block text-xs mb-1">Consumer Secret</label><input v-model="wcSourceForm.consumer_secret" type="password" class="w-full px-3 py-2 border rounded text-sm"></div>
+                    <div><label class="block text-xs mb-1">绑定运营</label><select v-model="wcSourceForm.operator_id" class="w-full px-3 py-2 border rounded text-sm"><option :value="null">选择</option><option v-for="u in users" :key="u.id" :value="u.id" v-if="u.role==='operator'">{{ u.username }}</option></select></div>
+                </div>
+                <div class="flex justify-end gap-2 mt-6"><button @click="showWcSourceModal=false" class="px-4 py-2 border rounded text-sm">取消</button><button @click="saveWcSource" class="btn-primary px-6 py-2 rounded text-sm">保存</button></div>
             </div>
         </div>
 

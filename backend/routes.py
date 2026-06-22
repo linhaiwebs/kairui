@@ -112,6 +112,10 @@ from models import (
     delete_static_site_product,
     import_products_to_site,
     get_site as get_site_by_id,
+    list_wc_sources,
+    create_wc_source,
+    delete_wc_source,
+    get_wc_source_for_operator,
 )
 from panel_client import panel_client, OnePanelClient
 from wordpress_com_client import WordPressComClient
@@ -2583,7 +2587,29 @@ def register_routes(app):
                     msg = "; ".join(e.get("message", str(e)) for e in errs)
                     raise Exception(f"路由创建失败: {msg}")
                 update_site_fields(sid, {"mirror_target": target})
-                results.append({"site_id": sid, "ok": True, "domain": domain})
+                result_entry = {"site_id": sid, "ok": True, "domain": domain}
+
+                # Auto-generate GMC feed if requested
+                if data.get("generate_feed"):
+                    wc_src = get_wc_source_for_operator(site.get("created_by"))
+                    if wc_src:
+                        try:
+                            feed_xml = _generate_mirror_feed(domain, wc_src)
+                            cfg = get_global_config()
+                            api_key = cfg.get(f"kairui_key_{target_host}", "")
+                            if api_key:
+                                http_requests.post(
+                                    f"https://{target_host}/wp-json/kairui/v1/feed/upload",
+                                    json={"domain": domain, "content": feed_xml},
+                                    headers={"X-Kairui-Key": api_key}, timeout=30
+                                )
+                            result_entry["feed_url"] = f"https://{domain}/feed-{domain}.xml"
+                            logger.info(f"[MirrorFeed] {domain}: uploaded feed ({len(feed_xml)} bytes)")
+                        except Exception as fe:
+                            logger.warning(f"[MirrorFeed] {domain}: failed - {fe}")
+                            result_entry["feed_error"] = str(fe)[:100]
+
+                results.append(result_entry)
                 logger.info(f"Mirror: {domain} -> {target_host} (worker={worker_name})")
             except Exception as e:
                 logger.error(f"Mirror failed for site {sid}: {e}")
@@ -9816,6 +9842,98 @@ Respond with strict JSON only (no markdown code blocks):
         host = target.replace("https://", "").replace("http://", "").strip("/")
         update_global_config(f"kairui_key_{host}", api_key)
         return jsonify({"code": 200, "message": "API Key已保存"})
+
+    # ---- WC Sources (WooCommerce API credentials) ----
+
+    @app.route("/api/wc-sources", methods=["GET"])
+    @jwt_required()
+    def list_wc_sources_route():
+        claims = get_jwt()
+        if claims.get("role") != "admin":
+            return jsonify({"code": 403, "message": "仅管理员可操作"}), 403
+        return jsonify({"code": 200, "data": list_wc_sources()})
+
+    @app.route("/api/wc-sources", methods=["POST"])
+    @jwt_required()
+    def create_wc_source_route():
+        claims = get_jwt()
+        if claims.get("role") != "admin":
+            return jsonify({"code": 403, "message": "仅管理员可操作"}), 403
+        data = request.get_json(silent=True) or {}
+        url = (data.get("url") or "").strip().replace("https://", "").replace("http://", "").strip("/")
+        src = create_wc_source({**data, "url": url})
+        return jsonify({"code": 200, "data": src})
+
+    @app.route("/api/wc-sources/<int:sid>", methods=["DELETE"])
+    @jwt_required()
+    def delete_wc_source_route(sid):
+        claims = get_jwt()
+        if claims.get("role") != "admin":
+            return jsonify({"code": 403, "message": "仅管理员可操作"}), 403
+        delete_wc_source(sid)
+        return jsonify({"code": 200})
+
+    # ---- Mirror Feed Generation ----
+
+    def _generate_mirror_feed(domain, wc_source):
+        """Pull products from WooCommerce API and generate GMC feed XML."""
+        import xml.etree.ElementTree as ET
+        from requests.auth import HTTPBasicAuth
+
+        wc_url = wc_source["url"]
+        auth = HTTPBasicAuth(wc_source["consumer_key"], wc_source["consumer_secret"])
+        base = f"https://{wc_url}/wp-json/wc/v3/products"
+
+        ns_g = "http://base.google.com/ns/1.0"
+        rss = ET.Element("rss", {"version": "2.0", "xmlns:g": ns_g})
+        channel = ET.SubElement(rss, "channel")
+        ET.SubElement(channel, "title").text = domain
+        ET.SubElement(channel, "link").text = f"https://{domain}"
+        ET.SubElement(channel, "description").text = "Google Shopping Product Feed"
+
+        page, total = 1, 0
+        while True:
+            r = http_requests.get(f"{base}?per_page=100&page={page}", auth=auth, timeout=30)
+            if r.status_code != 200: break
+            products = r.json()
+            if not products: break
+            total += len(products)
+
+            for p in products:
+                ptype = p.get("type", "simple")
+                if ptype == "variable": continue  # skip parent variable
+
+                name = p.get("name", "")
+                price = p.get("sale_price") or p.get("regular_price") or p.get("price") or ""
+                permalink = (p.get("permalink") or f"https://{domain}").replace(f"https://{wc_url}", f"https://{domain}")
+
+                item = ET.SubElement(channel, "item")
+                ET.SubElement(item, "g:id").text = p.get("sku") or str(p.get("id"))
+                ET.SubElement(item, "g:title").text = name[:150]
+                ET.SubElement(item, "g:link").text = permalink
+
+                images = p.get("images", [])
+                if images:
+                    ET.SubElement(item, "g:image_link").text = images[0].get("src", "")
+                    for img in images[1:11]:
+                        ET.SubElement(item, "g:additional_image_link").text = img.get("src", "")
+
+                if price:
+                    ET.SubElement(item, "g:price").text = f"{price} USD"
+                ET.SubElement(item, "g:availability").text = "in_stock" if p.get("stock_status") != "outofstock" else "out_of_stock"
+                ET.SubElement(item, "g:condition").text = "new"
+
+                if p.get("sku"):
+                    ET.SubElement(item, "g:mpn").text = str(p.get("sku"))[:70]
+                if ptype == "variation" and p.get("parent_id"):
+                    ET.SubElement(item, "g:item_group_id").text = str(p.get("parent_id"))
+
+            page += 1
+            if page % 5 == 0:
+                logger.info(f"[MirrorFeed] {domain}: page={page-1}, total={total}")
+
+        logger.info(f"[MirrorFeed] {domain}: done, {total} products, {page-1} pages")
+        return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(rss, encoding="unicode")
 
     # ---- Feed Products (Google Merchant Center) ----
 
