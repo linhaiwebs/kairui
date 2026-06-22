@@ -2550,12 +2550,31 @@ def register_routes(app):
                 alias = site.get("nginx_alias", domain)
                 worker_name = f"mirror-{alias.replace('.', '-')}"
 
+                # Fetch and clone feedstart.xml from target (replace domain)
+                feed_xml_content = ""
+                try:
+                    feed_resp = http_requests.get(
+                        f"https://{target_host}/feedstart.xml", timeout=30
+                    )
+                    if feed_resp.status_code == 200:
+                        feed_xml_content = feed_resp.text.replace(target_host, domain)
+                        logger.info(f"[MirrorFeed] {domain}: cloned feedstart.xml ({len(feed_xml_content)} bytes)")
+                    else:
+                        logger.warning(f"[MirrorFeed] {domain}: feedstart.xml not found on {target_host}")
+                except Exception as fe:
+                    logger.warning(f"[MirrorFeed] {domain}: fetch feedstart.xml failed - {fe}")
+
+                # Escape feed XML for embedding in JS string
+                feed_escaped = feed_xml_content.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "")
+
                 script = (
                     "addEventListener('fetch', event => {"
                     "event.respondWith(handleRequest(event.request))"
                     "});"
                     "async function handleRequest(request) {"
                     f"const url = new URL(request.url);"
+                    # Serve feedstart.xml directly with domain-replaced content
+                    f"if(url.pathname==='/feedstart.xml'){{return new Response('{feed_escaped}',{{headers:{{'Content-Type':'application/xml','Cache-Control':'max-age=3600'}}}})}};"
                     f"url.hostname = '{target_host}';"
                     f"let hdrs = new Headers(request.headers);"
                     f"hdrs.set('X-Forwarded-Host', '{domain}');"
