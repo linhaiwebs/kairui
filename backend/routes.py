@@ -2552,7 +2552,6 @@ def register_routes(app):
 
                 # Fetch feedstart.xml from target, replace domain, upload to mirror site via SSH
                 env = get_user_panel_environment(site.get("created_by") or 1)
-                origin_host = env.get("host", "") if env else ""
                 feed_done = False
                 try:
                     feed_resp = http_requests.get(
@@ -2578,17 +2577,18 @@ def register_routes(app):
                 except Exception as fe:
                     logger.warning(f"[MirrorFeed] {domain}: feedstart.xml clone failed - {fe}")
 
+                # Escape feed XML for JavaScript string embedding (handle all special chars)
+                import json as _json
+                feed_escaped = _json.dumps(feed_xml if feed_done else "")
+
                 script = (
                     "addEventListener('fetch', event => {"
                     "event.respondWith(handleRequest(event.request))"
                     "});"
                     "async function handleRequest(request) {"
                     f"const url = new URL(request.url);"
-                    # For feedstart.xml, fetch from origin server directly
-                    f"if(url.pathname==='/feedstart.xml'){{"
-                    f"url.hostname='{origin_host}';"
-                    f"return fetch(url.toString(),{{method:request.method,headers:request.headers}});"
-                    f"}}"
+                    # Serve feedstart.xml directly from embedded content (no external dependency)
+                    f"if(url.pathname==='/feedstart.xml'){{return new Response({feed_escaped},{{headers:{{'Content-Type':'application/xml','Cache-Control':'max-age=3600'}}}})}};"
                     f"url.hostname = '{target_host}';"
                     f"let hdrs = new Headers(request.headers);"
                     f"hdrs.set('X-Forwarded-Host', '{domain}');"
