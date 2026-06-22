@@ -4736,11 +4736,6 @@ pipelineStatuses[siteId].demo_importing = false;
                             <option value="">全部分类</option>
                             <option v-for="cat in runCategories" :key="cat" :value="cat">{{ cat }}</option>
                         </select>
-                        <!-- CSV Import -->
-                        <label class="px-4 py-2 bg-primary text-on-primary rounded-lg text-sm hover:bg-primary/80 transition cursor-pointer whitespace-nowrap">
-                            <i class="fas fa-upload mr-1"></i>{{ runImporting ? runImportProgress || '导入中...' : '导入CSV' }}
-                            <input type="file" accept=".csv,.csv.gz,.gz" @change="importRunCsv" :disabled="runImporting" class="hidden">
-                        </label>
                     </div>
                     <div class="flex items-center gap-2 flex-wrap">
                         <!-- Site selector -->
@@ -4842,7 +4837,6 @@ pipelineStatuses[siteId].demo_importing = false;
                 <div v-if="!runProducts.length && !runImporting" class="text-center py-16 text-on-surface-variant">
                     <i class="fas fa-inbox text-4xl mb-3 block"></i>
                     <p class="text-sm">暂无跑品产品</p>
-                    <p class="text-xs mt-1">点击"导入CSV"上传 WooCommerce 导出的产品文件</p>
                 </div>
             </div>
             </div>
