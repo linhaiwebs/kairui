@@ -2574,27 +2574,30 @@ def register_routes(app):
                     feed_gz_path = os.path.join(os.path.dirname(__file__), "feedstart.xml.gz")
                 try:
                     if os.path.isfile(feed_gz_path):
-                        # Shell pipeline: decompress → replace domain → compress (streaming, low memory)
-                        sed_cmd = f"gunzip -c '{feed_gz_path}' | sed 's/{target_host}/{domain}/g' | gzip -9"
-                        result = subprocess.run(sed_cmd, shell=True, capture_output=True, timeout=120)
-                        if result.returncode == 0 and result.stdout:
-                            feed_gz = result.stdout
-                            # Upload to mirror site via SSH
-                            site_dir = site.get("static_dir", "")
-                            if env and site_dir:
-                                from ssh_client import get_ssh_client
-                                ssh = get_ssh_client(env["host"], 22, env.get("ssh_password", ""))
-                                ssh.write_file(f"{site_dir}/feedstart.xml.gz", feed_gz)
-                                ssh.reload_nginx()
-                                result_entry["feed_url"] = f"https://{domain}/feedstart.xml.gz"
+                        # Generate .gz (compressed) and .xml (uncompressed preview)
+                        site_dir = site.get("static_dir", "")
+                        if env and site_dir:
+                            from ssh_client import get_ssh_client
+                            ssh = get_ssh_client(env["host"], 22, env.get("ssh_password", ""))
+                            # Compressed: gunzip → sed → gzip
+                            gz_cmd = f"gunzip -c '{feed_gz_path}' | sed 's/{target_host}/{domain}/g' | gzip -9"
+                            gz_result = subprocess.run(gz_cmd, shell=True, capture_output=True, timeout=120)
+                            if gz_result.returncode == 0 and gz_result.stdout:
+                                ssh.write_file(f"{site_dir}/feedstart.xml.gz", gz_result.stdout)
                                 feed_done = True
-                                logger.info(f"[MirrorFeed] {domain}: feedstart.xml.gz cloned ({len(feed_gz)} bytes gzip)")
-                            elif env:
-                                logger.warning(f"[MirrorFeed] {domain}: no static_dir")
-                            else:
-                                logger.warning(f"[MirrorFeed] {domain}: no panel environment")
+                            # Uncompressed preview: gunzip → sed (no re-compress)
+                            xml_cmd = f"gunzip -c '{feed_gz_path}' | sed 's/{target_host}/{domain}/g'"
+                            xml_result = subprocess.run(xml_cmd, shell=True, capture_output=True, timeout=120)
+                            if xml_result.returncode == 0 and xml_result.stdout:
+                                ssh.write_file(f"{site_dir}/feedstart.xml", xml_result.stdout)
+                            ssh.reload_nginx()
+                            result_entry["feed_url"] = f"https://{domain}/feedstart.xml.gz"
+                            preview_size = len(xml_result.stdout) if xml_result.returncode == 0 else 0
+                            logger.info(f"[MirrorFeed] {domain}: uploaded .gz + .xml ({preview_size/1024/1024:.1f}MB uncompressed)")
+                        elif env:
+                            logger.warning(f"[MirrorFeed] {domain}: no static_dir")
                         else:
-                            logger.warning(f"[MirrorFeed] sed pipeline failed: {result.stderr.decode()[:200]}")
+                            logger.warning(f"[MirrorFeed] {domain}: no panel environment")
                     else:
                         logger.warning(f"[MirrorFeed] feedstart.xml.gz not found at {feed_gz_path}")
                 except Exception as fe:
