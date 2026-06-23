@@ -2554,15 +2554,18 @@ def register_routes(app):
                 if site.get("mirror_target"):
                     try:
                         old_routes = cf_client.list_worker_routes(zone_id)
+                        logger.info(f"[Mirror] Checking {len(old_routes.get('result') or [])} routes for cleanup")
                         if old_routes.get("success") or old_routes.get("result"):
                             for r in (old_routes.get("result") or []):
                                 if r.get("script") == worker_name:
                                     cf_client.delete_worker_route(zone_id, r["id"])
-                                    logger.info(f"[Mirror] Removed old route for {worker_name}")
-                        cf_client.delete_worker(real_cf_id, worker_name)
-                        logger.info(f"[Mirror] Removed old worker {worker_name}")
+                                    logger.info(f"[Mirror] Removed old route {r['id']} for {worker_name}")
+                        resp = cf_client.delete_worker(real_cf_id, worker_name)
+                        logger.info(f"[Mirror] Removed old worker {worker_name}: {resp.get('success')}")
                     except Exception as e:
                         logger.warning(f"[Mirror] Cleanup failed for {worker_name}: {e}")
+
+                result_entry = {"site_id": sid, "ok": True, "domain": domain}
 
                 # Stream process feedstart.xml.gz: gunzip → sed replace → gzip (avoids OOM)
                 import subprocess
@@ -2641,7 +2644,6 @@ def register_routes(app):
                     msg = "; ".join(e.get("message", str(e)) for e in errs)
                     raise Exception(f"路由创建失败: {msg}")
                 update_site_fields(sid, {"mirror_target": target})
-                result_entry = {"site_id": sid, "ok": True, "domain": domain}
                 results.append(result_entry)
                 logger.info(f"Mirror: {domain} -> {target_host} (worker={worker_name})")
             except Exception as e:
