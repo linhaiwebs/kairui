@@ -2636,7 +2636,7 @@ def register_routes(app):
                     "async function handleRequest(request) {"
                     f"const url = new URL(request.url);"
                     f"if(url.pathname==='/feedstart.xml'||url.pathname==='/feedstart.xml.gz'){{"
-                    f"const resp=await fetch(request);"
+                    f"const resp=await fetch(request,{{cf:{{cacheTtl:0}}}});"
                     f"const newResp=new Response(resp.body,resp);"
                     f"newResp.headers.set('Cache-Control','no-store,no-cache,must-revalidate');"
                     f"newResp.headers.set('Cdn-Cache-Control','no-store');"
