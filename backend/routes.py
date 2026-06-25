@@ -2572,11 +2572,34 @@ def register_routes(app):
                 env = get_user_panel_environment(site.get("created_by") or 1)
                 feed_done = False
                 data_dir = os.environ.get("WP_DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
-                feed_gz_path = os.path.join(data_dir, "feedstart.xml.gz")
-                if not os.path.isfile(feed_gz_path):
-                    feed_gz_path = os.path.join(os.path.dirname(__file__), "feedstart.xml.gz")
+
+                # Resolve feed file: try target-specific, then default, then fetch from target
+                feed_gz_path = None
+                for candidate in [
+                    os.path.join(data_dir, f"feedstart-{target_host}.xml.gz"),
+                    os.path.join(os.path.dirname(__file__), f"feedstart-{target_host}.xml.gz"),
+                    os.path.join(data_dir, "feedstart.xml.gz"),
+                    os.path.join(os.path.dirname(__file__), "feedstart.xml.gz"),
+                ]:
+                    if os.path.isfile(candidate):
+                        feed_gz_path = candidate
+                        break
+                # If no local file, try fetching from target
+                if not feed_gz_path:
+                    try:
+                        fetch_url = f"https://{target_host}/feedstart.xml.gz"
+                        logger.info(f"[MirrorFeed] Fetching feed from {fetch_url}")
+                        fetch_resp = http_requests.get(fetch_url, timeout=30)
+                        if fetch_resp.status_code == 200:
+                            feed_gz_path = os.path.join(data_dir, f"feedstart-{target_host}.xml.gz")
+                            with open(feed_gz_path, "wb") as f:
+                                f.write(fetch_resp.content)
+                            logger.info(f"[MirrorFeed] Saved {len(fetch_resp.content)} bytes to {feed_gz_path}")
+                    except Exception as fe:
+                        logger.warning(f"[MirrorFeed] Fetch feed from {target_host} failed: {fe}")
+
                 try:
-                    if os.path.isfile(feed_gz_path):
+                    if feed_gz_path and os.path.isfile(feed_gz_path):
                         # Generate .gz (compressed) and .xml (uncompressed preview)
                         site_dir = site.get("static_dir", "")
                         if env and site_dir:
