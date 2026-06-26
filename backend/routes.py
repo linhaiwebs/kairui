@@ -2656,7 +2656,7 @@ def register_routes(app):
                     f"}}"
                     f"let newResp = new Response(resp.body, resp);"
                     f"let ct=newResp.headers.get('Content-Type')||'';"
-                    f"let cookies=[];newResp.headers.forEach((v,k)=>{{if(k.toLowerCase()==='set-cookie')cookies.push(v.replace(/{target_host}/g,'{domain}').replace(/Domain={target_host}/gi,'Domain={domain}'));}});"
+                    f"let cookies=[];newResp.headers.forEach((v,k)=>{{if(k.toLowerCase()==='set-cookie'){{v=v.replace(/{target_host}/g,'{domain}').replace(/Domain={target_host}/gi,'Domain={domain}');v.split(/,(?=\\s*\\w+=)/).forEach(c=>cookies.push(c.trim()));}}}});"
                     f"newResp.headers.delete('Set-Cookie');cookies.forEach(c=>newResp.headers.append('Set-Cookie',c));"
                     f"if(ct.includes('text/html')||ct.includes('application/json')||ct.includes('text/plain')||ct.includes('application/javascript')){{"
                     f"let text=await newResp.text();"
