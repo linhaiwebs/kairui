@@ -930,7 +930,18 @@ pipelineStatuses[siteId].demo_importing = false;
             analyticsLoading.value = true;
             try {
                 const resp = await API.getDashboardAnalytics();
-                if (resp.code === 200) analyticsData.value = resp.data;
+                if (resp.code === 200 && resp.data && resp.data.targets) {
+                    // Compute per-target totals for overview cards
+                    for (const t of resp.data.targets) {
+                        const srcs = (t.data && t.data.sources) ? t.data.sources : [];
+                        t._totalVisitors = srcs.reduce((a,b) => a + (b.visitors||0), 0);
+                        t._totalAddCarts = srcs.reduce((a,b) => a + (b.add_to_carts||0), 0);
+                        t._totalOrders = srcs.reduce((a,b) => a + (b.orders||0), 0);
+                        t._totalRevenue = srcs.reduce((a,b) => a + (parseFloat(b.revenue)||0), 0);
+                        t._avgConversion = t._totalVisitors > 0 ? (t._totalOrders / t._totalVisitors * 100) : 0;
+                    }
+                    analyticsData.value = resp.data;
+                }
             } catch (e) { /* silent */ }
             analyticsLoading.value = false;
         }
@@ -3665,28 +3676,27 @@ pipelineStatuses[siteId].demo_importing = false;
                             {{ p.l }}
                         </button>
                     </div>
-                    <!-- Target/subsiti cards -->
-                    <div v-for="t in analyticsData.targets" :key="t.target" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5">
-                        <h3 class="font-semibold text-on-surface mb-3">{{ t.target }}</h3>
-                        <div v-if="t.data && t.data.sources" class="overflow-x-auto">
-                            <table class="w-full text-sm">
-                                <thead><tr class="text-left text-xs text-on-surface-variant uppercase">
-                                    <th class="px-3 py-2">来源</th><th class="px-3 py-2 text-right">访客</th><th class="px-3 py-2 text-right">浏览</th><th class="px-3 py-2 text-right">加购</th><th class="px-3 py-2 text-right">订单</th><th class="px-3 py-2 text-right">营收</th><th class="px-3 py-2 text-right">转化率</th>
-                                </tr></thead>
-                                <tbody class="divide-y">
-                                    <tr v-for="s in t.data.sources" class="hover:bg-surface-container-low">
-                                        <td class="px-3 py-2 font-medium"><a href="#" @click.prevent="openSiteDetail(t.target)" class="text-primary hover:underline">{{ s.source }}</a></td>
-                                        <td class="px-3 py-2 text-right">{{ s.visitors||0 }}</td>
-                                        <td class="px-3 py-2 text-right">{{ s.product_views||0 }}</td>
-                                        <td class="px-3 py-2 text-right">{{ s.add_to_carts||0 }}</td>
-                                        <td class="px-3 py-2 text-right">{{ s.orders||0 }}</td>
-                                        <td class="px-3 py-2 text-right font-bold text-[#146c2e]">\${{ (s.revenue||0).toLocaleString() }}</td>
-                                        <td class="px-3 py-2 text-right">{{ s.conversion_rate||0 }}%</td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                    <!-- Target cards: summary grid -->
+                    <div class="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div v-for="t in analyticsData.targets" :key="t.target" @click="openSiteDetail(t.target)"
+                            class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 cursor-pointer hover:shadow-level-2 transition">
+                            <div class="flex items-center justify-between mb-3">
+                                <h3 class="font-semibold text-on-surface text-sm">{{ t.target }}</h3>
+                                <span class="text-[10px] px-2 py-0.5 rounded-full"
+                                    :class="(t._totalOrders||0) > 0 ? 'bg-[#146c2e]/10 text-[#146c2e]' : 'bg-surface-container-high text-on-surface-variant'">
+                                    {{ (t._totalOrders||0) > 0 ? '有订单' : '无订单' }}
+                                </span>
+                            </div>
+                            <div class="grid grid-cols-3 gap-2 text-center">
+                                <div><p class="text-lg font-bold text-primary">{{ (t._totalVisitors||0).toLocaleString() }}</p><p class="text-[10px] text-on-surface-variant">访客</p></div>
+                                <div><p class="text-lg font-bold text-primary">{{ (t._totalAddCarts||0).toLocaleString() }}</p><p class="text-[10px] text-on-surface-variant">加购</p></div>
+                                <div><p class="text-lg font-bold text-[#146c2e]">{{ (t._totalOrders||0).toLocaleString() }}</p><p class="text-[10px] text-on-surface-variant">订单</p></div>
+                            </div>
+                            <div class="mt-2 pt-2 border-t text-xs text-on-surface-variant flex justify-between">
+                                <span>营收 \${{ (t._totalRevenue||0).toLocaleString() }}</span>
+                                <span>转化 {{ (t._avgConversion||0).toFixed(1) }}%</span>
+                            </div>
                         </div>
-                        <p v-else class="text-sm text-on-surface-variant py-4 text-center">暂无数据，请确保已安装 kairui-tracker 插件并配置 API Key。</p>
                     </div>
                     <!-- Site Detail View -->
                     <div v-if="analyticsView === 'site-detail'" class="space-y-6">
@@ -3694,11 +3704,22 @@ pipelineStatuses[siteId].demo_importing = false;
                         <h3 class="font-semibold text-on-surface text-lg">{{ analyticsSource }}</h3>
                         <div v-if="analyticsLoading" class="text-center py-12"><span class="spinner w-4 h-4 inline-block"></span></div>
                         <div v-else-if="analyticsSiteData && analyticsSiteData.sources">
-                            <div v-for="s in analyticsSiteData.sources" :key="s.source" class="grid grid-cols-4 gap-4 mb-6">
+                            <!-- Summary stat cards -->
+                            <div v-for="s in analyticsSiteData.sources.slice(0,1)" :key="s.source" class="grid grid-cols-4 gap-4 mb-6">
                                 <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><p class="text-xs text-on-surface-variant">访客</p><p class="text-2xl font-bold text-primary">{{ s.visitors||0 }}</p></div>
                                 <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><p class="text-xs text-on-surface-variant">浏览产品</p><p class="text-2xl font-bold text-primary">{{ s.product_views||0 }}</p></div>
                                 <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><p class="text-xs text-on-surface-variant">加购</p><p class="text-2xl font-bold text-primary">{{ s.add_to_carts||0 }}</p></div>
                                 <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><p class="text-xs text-on-surface-variant">订单 / 营收</p><p class="text-2xl font-bold text-[#146c2e]">{{ s.orders||0 }} / \${{ (s.revenue||0).toLocaleString() }}</p></div>
+                            </div>
+                            <!-- Sources table -->
+                            <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5 mb-4">
+                                <h4 class="text-sm font-semibold mb-3">来源列表</h4>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm">
+                                        <thead><tr class="text-left text-xs text-on-surface-variant uppercase"><th class="px-3 py-2">来源</th><th class="px-3 py-2 text-right">访客</th><th class="px-3 py-2 text-right">浏览</th><th class="px-3 py-2 text-right">加购</th><th class="px-3 py-2 text-right">订单</th><th class="px-3 py-2 text-right">营收</th><th class="px-3 py-2 text-right">转化率</th></tr></thead>
+                                        <tbody class="divide-y"><tr v-for="s in analyticsSiteData.sources"><td class="px-3 py-2 font-medium">{{ s.source }}</td><td class="px-3 py-2 text-right">{{ s.visitors||0 }}</td><td class="px-3 py-2 text-right">{{ s.product_views||0 }}</td><td class="px-3 py-2 text-right">{{ s.add_to_carts||0 }}</td><td class="px-3 py-2 text-right">{{ s.orders||0 }}</td><td class="px-3 py-2 text-right font-bold text-[#146c2e]">\${{ (s.revenue||0).toLocaleString() }}</td><td class="px-3 py-2 text-right">{{ s.conversion_rate||0 }}%</td></tr></tbody>
+                                    </table>
+                                </div>
                             </div>
                             <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5 mb-4">
                                 <h4 class="text-sm font-semibold mb-3">最近会话</h4>
