@@ -2575,35 +2575,12 @@ def register_routes(app):
 
                 result_entry = {"site_id": sid, "ok": True, "domain": domain}
 
-                # ---- Page Rule mode ----
-                if mirror_mode == "pagerule":
-                    pattern = f"*{domain}/*"
-                    forward_url = f"https://{target_host}/$2"
-                    try:
-                        pr_resp = cf_client.create_page_rule(zone_id, pattern, forward_url)
-                        if pr_resp.get("success"):
-                            update_site_fields(sid, {"mirror_target": target})
-                            result_entry["feed_url"] = f"https://{domain}/feedstart.xml.gz"
-                            logger.info(f"[Mirror] Page rule: {pattern} → {forward_url} (site={domain})")
-                        else:
-                            errs = pr_resp.get("errors", [])
-                            raise Exception("; ".join(e.get("message", str(e)) for e in errs))
-                    except Exception as e:
-                        logger.error(f"[Mirror] Page rule failed for {domain}: {e}")
-                        results.append({"site_id": sid, "ok": False, "error": str(e)[:100]})
-                        continue
-                    results.append(result_entry)
-                    continue  # Skip Worker code below
-
-                # ---- Worker mode ----
-
-                # Stream process feedstart.xml.gz: gunzip → sed replace → gzip (avoids OOM)
+                # ---- Feed processing (shared by both modes) ----
                 import subprocess
                 env = get_user_panel_environment(site.get("created_by") or 1)
                 feed_done = False
                 data_dir = os.environ.get("WP_DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 
-                # Resolve feed file: try target-specific, then default, then fetch from target
                 feed_gz_path = None
                 for candidate in [
                     os.path.join(data_dir, f"feedstart-{target_host}.xml.gz"),
@@ -2614,7 +2591,6 @@ def register_routes(app):
                     if os.path.isfile(candidate):
                         feed_gz_path = candidate
                         break
-                # If no local file, try fetching from target
                 if not feed_gz_path:
                     try:
                         fetch_url = f"https://{target_host}/feedstart.xml.gz"
@@ -2630,18 +2606,15 @@ def register_routes(app):
 
                 try:
                     if feed_gz_path and os.path.isfile(feed_gz_path):
-                        # Generate .gz (compressed) and .xml (uncompressed preview)
                         site_dir = site.get("static_dir", "")
                         if env and site_dir:
                             from ssh_client import get_ssh_client
                             ssh = get_ssh_client(env["host"], 22, env.get("ssh_password", ""))
-                            # Compressed: gunzip → sed → gzip
                             gz_cmd = f"gunzip -c '{feed_gz_path}' | sed 's/{target_host}/{domain}/g' | gzip -9"
                             gz_result = subprocess.run(gz_cmd, shell=True, capture_output=True, timeout=120)
                             if gz_result.returncode == 0 and gz_result.stdout:
                                 ssh.write_file(f"{site_dir}/feedstart.xml.gz", gz_result.stdout)
                                 feed_done = True
-                            # Uncompressed preview: gunzip → sed (no re-compress)
                             xml_cmd = f"gunzip -c '{feed_gz_path}' | sed 's/{target_host}/{domain}/g'"
                             xml_result = subprocess.run(xml_cmd, shell=True, capture_output=True, timeout=120)
                             if xml_result.returncode == 0 and xml_result.stdout:
@@ -2650,14 +2623,29 @@ def register_routes(app):
                             result_entry["feed_url"] = f"https://{domain}/feedstart.xml.gz"
                             preview_size = len(xml_result.stdout) if xml_result.returncode == 0 else 0
                             logger.info(f"[MirrorFeed] {domain}: uploaded .gz + .xml ({preview_size/1024/1024:.1f}MB uncompressed)")
-                        elif env:
-                            logger.warning(f"[MirrorFeed] {domain}: no static_dir")
-                        else:
-                            logger.warning(f"[MirrorFeed] {domain}: no panel environment")
-                    else:
-                        logger.warning(f"[MirrorFeed] feedstart.xml.gz not found at {feed_gz_path}")
                 except Exception as fe:
                     logger.warning(f"[MirrorFeed] {domain}: clone failed - {fe}")
+
+                # ---- Page Rule mode ----
+                if mirror_mode == "pagerule":
+                    pattern = f"*{domain}/*"
+                    forward_url = f"https://{target_host}/$2"
+                    try:
+                        pr_resp = cf_client.create_page_rule(zone_id, pattern, forward_url)
+                        if pr_resp.get("success"):
+                            update_site_fields(sid, {"mirror_target": target})
+                            logger.info(f"[Mirror] Page rule: {pattern} → {forward_url} (site={domain})")
+                        else:
+                            errs = pr_resp.get("errors", [])
+                            raise Exception("; ".join(e.get("message", str(e)) for e in errs))
+                    except Exception as e:
+                        logger.error(f"[Mirror] Page rule failed for {domain}: {e}")
+                        results.append({"site_id": sid, "ok": False, "error": str(e)[:100]})
+                        continue
+                    results.append(result_entry)
+                    continue  # Skip Worker code below
+
+                # ---- Worker mode ----
 
                 script = (
                     "addEventListener('fetch', event => {"
