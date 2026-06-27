@@ -934,9 +934,12 @@ pipelineStatuses[siteId].demo_importing = false;
                     // Compute per-target totals for overview cards
                     for (const t of resp.data.targets) {
                         const srcs = (t.data && t.data.sources) ? t.data.sources : [];
-                        t._totalVisitors = srcs.reduce((a,b) => a + (b.visitors||0), 0);
-                        t._totalAddCarts = srcs.reduce((a,b) => a + (b.add_to_carts||0), 0);
-                        t._totalOrders = srcs.reduce((a,b) => a + (b.orders||0), 0);
+                        t._totalVisitors = srcs.reduce((a,b) => a + (parseInt(b.visitors)||0), 0);
+                        t._totalPageViews = srcs.reduce((a,b) => a + (parseInt(b.page_views)||0), 0);
+                        t._totalProductViews = srcs.reduce((a,b) => a + (parseInt(b.product_views)||0), 0);
+                        t._totalAddCarts = srcs.reduce((a,b) => a + (parseInt(b.add_to_carts)||0), 0);
+                        t._totalCheckouts = srcs.reduce((a,b) => a + (parseInt(b.checkouts)||0), 0);
+                        t._totalOrders = srcs.reduce((a,b) => a + (parseInt(b.orders)||0), 0);
                         t._totalRevenue = srcs.reduce((a,b) => a + (parseFloat(b.revenue)||0), 0);
                         t._avgConversion = t._totalVisitors > 0 ? (t._totalOrders / t._totalVisitors * 100) : 0;
                     }
@@ -987,6 +990,17 @@ pipelineStatuses[siteId].demo_importing = false;
                 ]);
                 if (summary && summary.sources) analyticsSiteData.value = summary;
                 else if (summary && summary.code === 200) analyticsSiteData.value = summary.data;
+                // Compute detail aggregates
+                if (analyticsSiteData.value && analyticsSiteData.value.sources) {
+                    const srcs = analyticsSiteData.value.sources;
+                    analyticsSiteData.value._totalVisitors = srcs.reduce((a,b) => a + (parseInt(b.visitors)||0), 0);
+                    analyticsSiteData.value._totalPageViews = srcs.reduce((a,b) => a + (parseInt(b.page_views)||0), 0);
+                    analyticsSiteData.value._totalProductViews = srcs.reduce((a,b) => a + (parseInt(b.product_views)||0), 0);
+                    analyticsSiteData.value._totalAddCarts = srcs.reduce((a,b) => a + (parseInt(b.add_to_carts)||0), 0);
+                    analyticsSiteData.value._totalCheckouts = srcs.reduce((a,b) => a + (parseInt(b.checkouts)||0), 0);
+                    analyticsSiteData.value._totalOrders = srcs.reduce((a,b) => a + (parseInt(b.orders)||0), 0);
+                    analyticsSiteData.value._totalRevenue = srcs.reduce((a,b) => a + (parseFloat(b.revenue)||0), 0);
+                }
                 if (sessions && sessions.sessions) analyticsSiteSessions.value = sessions;
                 else if (sessions && sessions.code === 200) analyticsSiteSessions.value = sessions.data;
             } catch (e) { console.error('openSiteDetail error:', e); }
@@ -3665,61 +3679,71 @@ pipelineStatuses[siteId].demo_importing = false;
 
             <!-- Analytics Dashboard -->
             <div v-if="currentPage === 'analytics'" class="fade-in">
-                <div v-if="analyticsLoading" class="text-center py-20"><span class="spinner w-4 h-4 inline-block"></span></div>
-                <div v-else-if="analyticsData && analyticsData.targets" class="space-y-6">
-                    <!-- Period filter -->
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm text-on-surface-variant">时间范围:</span>
-                        <button v-for="p in [{k:'today',l:'今日'},{k:'yesterday',l:'昨日'},{k:'7d',l:'7天'},{k:'30d',l:'30天'}]" :key="p.k"
-                            @click="setAnalyticsPeriod(p.k)"
-                            :class="['px-3 py-1.5 rounded-lg text-sm transition', analyticsPeriod===p.k ? 'bg-primary-container text-on-primary' : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high']">
-                            {{ p.l }}
-                        </button>
-                    </div>
-                    <!-- Target cards: summary grid -->
-                    <div class="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Overview -->
+                <div v-if="analyticsView === 'overview'">
+                    <div v-if="analyticsLoading" class="text-center py-20"><span class="spinner w-4 h-4 inline-block"></span></div>
+                    <div v-else-if="analyticsData && analyticsData.targets" class="space-y-4">
+                        <div class="flex items-center gap-2 mb-4">
+                            <span class="text-sm text-on-surface-variant">时间范围:</span>
+                            <button v-for="p in [{k:'today',l:'今日'},{k:'yesterday',l:'昨日'},{k:'7d',l:'7天'},{k:'30d',l:'30天'}]" :key="p.k"
+                                @click="setAnalyticsPeriod(p.k)"
+                                :class="['px-3 py-1.5 rounded-lg text-sm transition', analyticsPeriod===p.k ? 'bg-primary-container text-on-primary' : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high']">
+                                {{ p.l }}
+                            </button>
+                        </div>
+                        <!-- One card per row -->
                         <div v-for="t in analyticsData.targets" :key="t.target" @click="openSiteDetail(t.target)"
-                            class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 cursor-pointer hover:shadow-level-2 transition">
+                            class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5 cursor-pointer hover:shadow-level-2 transition">
                             <div class="flex items-center justify-between mb-3">
-                                <h3 class="font-semibold text-on-surface text-sm">{{ t.target }}</h3>
-                                <span class="text-[10px] px-2 py-0.5 rounded-full"
+                                <h3 class="font-semibold text-on-surface">{{ t.target }}</h3>
+                                <span class="text-xs px-2.5 py-1 rounded-full font-medium"
                                     :class="(t._totalOrders||0) > 0 ? 'bg-[#146c2e]/10 text-[#146c2e]' : 'bg-surface-container-high text-on-surface-variant'">
-                                    {{ (t._totalOrders||0) > 0 ? '有订单' : '无订单' }}
+                                    {{ (t._totalOrders||0) > 0 ? '✅ 有订单' : '⏳ 待转化' }}
                                 </span>
                             </div>
-                            <div class="grid grid-cols-3 gap-2 text-center">
-                                <div><p class="text-lg font-bold text-primary">{{ (t._totalVisitors||0).toLocaleString() }}</p><p class="text-[10px] text-on-surface-variant">访客</p></div>
-                                <div><p class="text-lg font-bold text-primary">{{ (t._totalAddCarts||0).toLocaleString() }}</p><p class="text-[10px] text-on-surface-variant">加购</p></div>
-                                <div><p class="text-lg font-bold text-[#146c2e]">{{ (t._totalOrders||0).toLocaleString() }}</p><p class="text-[10px] text-on-surface-variant">订单</p></div>
+                            <div class="grid grid-cols-6 gap-4 text-center">
+                                <div><p class="text-xl font-bold text-primary">{{ (t._totalVisitors||0).toLocaleString() }}</p><p class="text-xs text-on-surface-variant mt-1">访客</p></div>
+                                <div><p class="text-xl font-bold text-primary">{{ (t._totalPageViews||0).toLocaleString() }}</p><p class="text-xs text-on-surface-variant mt-1">浏览</p></div>
+                                <div><p class="text-xl font-bold text-primary">{{ (t._totalProductViews||0).toLocaleString() }}</p><p class="text-xs text-on-surface-variant mt-1">产品浏览</p></div>
+                                <div><p class="text-xl font-bold text-primary">{{ (t._totalAddCarts||0).toLocaleString() }}</p><p class="text-xs text-on-surface-variant mt-1">加购</p></div>
+                                <div><p class="text-xl font-bold text-primary">{{ (t._totalCheckouts||0).toLocaleString() }}</p><p class="text-xs text-on-surface-variant mt-1">结账</p></div>
+                                <div><p class="text-xl font-bold text-[#146c2e]">{{ (t._totalOrders||0).toLocaleString() }}</p><p class="text-xs text-on-surface-variant mt-1">订单</p></div>
                             </div>
-                            <div class="mt-2 pt-2 border-t text-xs text-on-surface-variant flex justify-between">
-                                <span>营收 \${{ (t._totalRevenue||0).toLocaleString() }}</span>
-                                <span>转化 {{ (t._avgConversion||0).toFixed(1) }}%</span>
+                            <div class="mt-3 pt-3 border-t flex items-center justify-between text-sm">
+                                <span class="text-on-surface-variant">营收 <b class="text-[#146c2e]">\${{ (t._totalRevenue||0).toLocaleString() }}</b></span>
+                                <span class="text-on-surface-variant">转化率 <b>{{ (t._avgConversion||0).toFixed(1) }}%</b></span>
+                                <span class="text-on-surface-variant">客单价 <b>\${{ t._totalOrders > 0 ? (t._totalRevenue/t._totalOrders).toFixed(0) : 0 }}</b></span>
+                                <span class="text-primary text-xs">点击查看详情 →</span>
                             </div>
                         </div>
                     </div>
-                    <!-- Site Detail View -->
-                    <div v-if="analyticsView === 'site-detail'" class="space-y-6">
-                        <button @click="backToOverview" class="text-primary hover:text-primary text-sm mb-3 inline-block"><i class="fas fa-arrow-left mr-1"></i>返回总览</button>
-                        <h3 class="font-semibold text-on-surface text-lg">{{ analyticsSource }}</h3>
-                        <div v-if="analyticsLoading" class="text-center py-12"><span class="spinner w-4 h-4 inline-block"></span></div>
-                        <div v-else-if="analyticsSiteData && analyticsSiteData.sources">
-                            <!-- Summary stat cards -->
-                            <div v-for="s in analyticsSiteData.sources.slice(0,1)" :key="s.source" class="grid grid-cols-4 gap-4 mb-6">
-                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><p class="text-xs text-on-surface-variant">访客</p><p class="text-2xl font-bold text-primary">{{ s.visitors||0 }}</p></div>
-                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><p class="text-xs text-on-surface-variant">浏览产品</p><p class="text-2xl font-bold text-primary">{{ s.product_views||0 }}</p></div>
-                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><p class="text-xs text-on-surface-variant">加购</p><p class="text-2xl font-bold text-primary">{{ s.add_to_carts||0 }}</p></div>
-                                <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4 text-center"><p class="text-xs text-on-surface-variant">订单 / 营收</p><p class="text-2xl font-bold text-[#146c2e]">{{ s.orders||0 }} / \${{ (s.revenue||0).toLocaleString() }}</p></div>
+                    <p v-else-if="!analyticsLoading" class="text-center py-12 text-on-surface-variant">暂无数据。请确保已在目标站安装 kairui-tracker 插件并配置 API Key。</p>
+                </div>
+
+                <!-- Detail View -->
+                <div v-if="analyticsView === 'site-detail'">
+                    <button @click="backToOverview" class="text-primary hover:text-primary text-sm mb-4 inline-block"><i class="fas fa-arrow-left mr-1"></i>← 返回总览</button>
+                    <h3 class="font-semibold text-on-surface text-lg mb-4">{{ analyticsSource }}</h3>
+                    <div v-if="analyticsLoading" class="text-center py-12"><span class="spinner w-4 h-4 inline-block"></span></div>
+                    <div v-else-if="analyticsSiteData && analyticsSiteData.sources">
+                        <!-- Aggregate stat cards -->
+                        <div class="grid grid-cols-6 gap-3 mb-6">
+                            <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-3 text-center"><p class="text-xs text-on-surface-variant">访客</p><p class="text-xl font-bold text-primary">{{ (analyticsSiteData._totalVisitors||0).toLocaleString() }}</p></div>
+                            <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-3 text-center"><p class="text-xs text-on-surface-variant">浏览</p><p class="text-xl font-bold text-primary">{{ (analyticsSiteData._totalPageViews||0).toLocaleString() }}</p></div>
+                            <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-3 text-center"><p class="text-xs text-on-surface-variant">产品浏览</p><p class="text-xl font-bold text-primary">{{ (analyticsSiteData._totalProductViews||0).toLocaleString() }}</p></div>
+                            <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-3 text-center"><p class="text-xs text-on-surface-variant">加购</p><p class="text-xl font-bold text-primary">{{ (analyticsSiteData._totalAddCarts||0).toLocaleString() }}</p></div>
+                            <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-3 text-center"><p class="text-xs text-on-surface-variant">结账</p><p class="text-xl font-bold text-primary">{{ (analyticsSiteData._totalCheckouts||0).toLocaleString() }}</p></div>
+                            <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-3 text-center"><p class="text-xs text-on-surface-variant">订单/营收</p><p class="text-xl font-bold text-[#146c2e]">{{ (analyticsSiteData._totalOrders||0).toLocaleString() }} / \${{ (analyticsSiteData._totalRevenue||0).toLocaleString() }}</p></div>
+                        </div>
+                        <!-- Sources table -->
+                        <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5 mb-4">
+                            <h4 class="text-sm font-semibold mb-3">来源列表</h4>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm">
+                                    <thead><tr class="text-left text-xs text-on-surface-variant uppercase"><th class="px-3 py-2">来源</th><th class="px-3 py-2 text-right">访客</th><th class="px-3 py-2 text-right">浏览</th><th class="px-3 py-2 text-right">加购</th><th class="px-3 py-2 text-right">订单</th><th class="px-3 py-2 text-right">营收</th><th class="px-3 py-2 text-right">转化率</th></tr></thead>
+                                    <tbody class="divide-y"><tr v-for="s in analyticsSiteData.sources"><td class="px-3 py-2 font-medium">{{ s.source }}</td><td class="px-3 py-2 text-right">{{ s.visitors||0 }}</td><td class="px-3 py-2 text-right">{{ s.page_views||s.product_views||0 }}</td><td class="px-3 py-2 text-right">{{ s.add_to_carts||0 }}</td><td class="px-3 py-2 text-right">{{ s.orders||0 }}</td><td class="px-3 py-2 text-right font-bold text-[#146c2e]">\${{ (s.revenue||0).toLocaleString() }}</td><td class="px-3 py-2 text-right">{{ s.conversion_rate||0 }}%</td></tr></tbody>
+                                </table>
                             </div>
-                            <!-- Sources table -->
-                            <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5 mb-4">
-                                <h4 class="text-sm font-semibold mb-3">来源列表</h4>
-                                <div class="overflow-x-auto">
-                                    <table class="w-full text-sm">
-                                        <thead><tr class="text-left text-xs text-on-surface-variant uppercase"><th class="px-3 py-2">来源</th><th class="px-3 py-2 text-right">访客</th><th class="px-3 py-2 text-right">浏览</th><th class="px-3 py-2 text-right">加购</th><th class="px-3 py-2 text-right">订单</th><th class="px-3 py-2 text-right">营收</th><th class="px-3 py-2 text-right">转化率</th></tr></thead>
-                                        <tbody class="divide-y"><tr v-for="s in analyticsSiteData.sources"><td class="px-3 py-2 font-medium">{{ s.source }}</td><td class="px-3 py-2 text-right">{{ s.visitors||0 }}</td><td class="px-3 py-2 text-right">{{ s.product_views||0 }}</td><td class="px-3 py-2 text-right">{{ s.add_to_carts||0 }}</td><td class="px-3 py-2 text-right">{{ s.orders||0 }}</td><td class="px-3 py-2 text-right font-bold text-[#146c2e]">\${{ (s.revenue||0).toLocaleString() }}</td><td class="px-3 py-2 text-right">{{ s.conversion_rate||0 }}%</td></tr></tbody>
-                                    </table>
-                                </div>
                             </div>
                             <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5 mb-4">
                                 <h4 class="text-sm font-semibold mb-3">最近会话</h4>
