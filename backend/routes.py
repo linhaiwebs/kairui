@@ -9862,7 +9862,7 @@ Respond with strict JSON only (no markdown code blocks):
 
         results = []
         for host, info in targets.items():
-            api_key = cfg.get(f"kairui_key_{host}", "")
+            api_key = cfg.get(f"kairui_key_{host}", "") or cfg.get("kairui_key_default", "")
             if not api_key:
                 continue
             try:
@@ -9901,7 +9901,7 @@ Respond with strict JSON only (no markdown code blocks):
             host = target.replace("https://", "").replace("http://", "").strip("/")
 
         cfg = get_global_config()
-        api_key = cfg.get(f"kairui_key_{host}", "")
+        api_key = cfg.get(f"kairui_key_{host}", "") or cfg.get("kairui_key_default", "")
         if not api_key:
             return jsonify({"code": 400, "message": "请先配置分析API Key"}), 400
 
