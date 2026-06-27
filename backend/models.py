@@ -3779,3 +3779,93 @@ def get_wc_source_for_operator(operator_id: int) -> dict:
         return dict(row) if row else None
     finally:
         conn.close()
+
+
+# ---- Payment Events (for analytics) ----
+
+def init_payment_events_table():
+    conn = get_db()
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS payment_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                site_url TEXT NOT NULL,
+                event_type TEXT DEFAULT '',
+                order_id TEXT DEFAULT '',
+                amount REAL DEFAULT 0,
+                currency TEXT DEFAULT 'USD',
+                items_count INTEGER DEFAULT 0,
+                payment_method TEXT DEFAULT '',
+                customer_city TEXT DEFAULT '',
+                customer_country TEXT DEFAULT '',
+                raw_data TEXT DEFAULT '{}',
+                created_at TEXT
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def save_payment_event(data: dict):
+    import json as _json
+    conn = get_db()
+    try:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn.execute(
+            """INSERT INTO payment_events
+               (site_url, event_type, order_id, amount, currency, items_count,
+                payment_method, customer_city, customer_country, raw_data, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                data.get("site_url", ""),
+                data.get("event_type", ""),
+                str(data.get("order_id", "")),
+                float(data.get("amount", 0)),
+                data.get("currency", "USD"),
+                int(data.get("items_count", 0)),
+                data.get("payment_method", ""),
+                data.get("customer_city", ""),
+                data.get("customer_country", ""),
+                _json.dumps(data.get("data", {}), ensure_ascii=False),
+                now,
+            ),
+        )
+        conn.commit()
+        return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def list_payment_events(site_url=None, limit=50):
+    conn = get_db()
+    try:
+        if site_url:
+            rows = conn.execute(
+                "SELECT * FROM payment_events WHERE site_url = ? ORDER BY id DESC LIMIT ?",
+                (site_url, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM payment_events ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_payment_stats(site_url=None):
+    conn = get_db()
+    try:
+        if site_url:
+            row = conn.execute(
+                "SELECT COUNT(*) as total_orders, SUM(amount) as total_revenue, COUNT(DISTINCT order_id) as unique_orders FROM payment_events WHERE site_url = ? AND event_type = 'order_completed'",
+                (site_url,)
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) as total_orders, SUM(amount) as total_revenue, COUNT(DISTINCT order_id) as unique_orders FROM payment_events WHERE event_type = 'order_completed'"
+            ).fetchone()
+        return {"total_orders": row[0] or 0, "total_revenue": row[1] or 0, "unique_orders": row[2] or 0}
+    finally:
+        conn.close()

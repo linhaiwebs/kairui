@@ -9928,6 +9928,32 @@ Respond with strict JSON only (no markdown code blocks):
         update_global_config(f"kairui_key_{host}", api_key)
         return jsonify({"code": 200, "message": "API Key已保存"})
 
+    # ---- Payment Events (analytics hook) ----
+
+    @app.route("/api/analytics/payment-event", methods=["POST"])
+    def analytics_payment_event():
+        """Receive payment events from kairui analytics hook on target sites."""
+        from models import save_payment_event, init_payment_events_table
+        init_payment_events_table()
+        data = request.get_json(silent=True) or {}
+        if not data.get("site_url"):
+            return jsonify({"code": 400, "message": "site_url required"}), 400
+        try:
+            save_payment_event(data)
+            return jsonify({"code": 200, "message": "ok"})
+        except Exception as e:
+            return jsonify({"code": 500, "message": str(e)[:100]}), 500
+
+    @app.route("/api/analytics/payment-events", methods=["GET"])
+    @jwt_required()
+    def analytics_payment_events_list():
+        """List payment events, optionally filtered by site_url."""
+        from models import list_payment_events, get_payment_stats
+        site_url = request.args.get("site_url", "").strip() or None
+        events = list_payment_events(site_url=site_url)
+        stats = get_payment_stats(site_url=site_url)
+        return jsonify({"code": 200, "data": {"events": events, "stats": stats}})
+
     # ---- WC Sources (WooCommerce API credentials) ----
 
     @app.route("/api/wc-sources", methods=["GET"])
