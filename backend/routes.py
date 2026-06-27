@@ -2628,15 +2628,23 @@ def register_routes(app):
 
                 # ---- Page Rule mode ----
                 if mirror_mode == "pagerule":
-                    pattern = f"*{domain}/*"
-                    forward_url = f"https://{target_host}/$2"
                     try:
-                        pr_resp = cf_client.create_page_rule(zone_id, pattern, forward_url)
-                        if pr_resp.get("success"):
+                        # Priority 1: Bypass for feedstart.xml* (go to origin, no forwarding)
+                        cf_client.create_page_rule(
+                            zone_id, f"*{domain}/feedstart.xml*",
+                            "", status_code=0, cache_bypass=True
+                        )
+                        # Priority 2: Forward everything else to target
+                        forward_pr = cf_client.create_page_rule(
+                            zone_id, f"*{domain}/*",
+                            f"https://{target_host}/$2"
+                        )
+                        if forward_pr.get("success"):
                             update_site_fields(sid, {"mirror_target": target})
-                            logger.info(f"[Mirror] Page rule: {pattern} → {forward_url} (site={domain})")
+                            result_entry["feed_url"] = f"https://{domain}/feedstart.xml.gz"
+                            logger.info(f"[Mirror] Page rules: feed bypass + {domain}/* → {target_host}/$2")
                         else:
-                            errs = pr_resp.get("errors", [])
+                            errs = forward_pr.get("errors", [])
                             raise Exception("; ".join(e.get("message", str(e)) for e in errs))
                     except Exception as e:
                         logger.error(f"[Mirror] Page rule failed for {domain}: {e}")

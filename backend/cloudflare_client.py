@@ -171,13 +171,24 @@ class CloudflareClient:
 
     # ---- Page Rules (302 redirect mirror) ----
 
-    def create_page_rule(self, zone_id, pattern, target_url, status_code=302):
-        """Create a Forwarding URL page rule. pattern like *domain.com/*, target like https://target.com/$2"""
-        payload = {
-            "targets": [{"target": "url", "constraint": {"operator": "matches", "value": pattern}}],
-            "actions": [{"id": "forwarding_url", "value": {"url": target_url, "status_code": status_code}}],
-            "status": "active",
-        }
+    def create_page_rule(self, zone_id, pattern, target_url, status_code=302, cache_bypass=False):
+        """Create a Page Rule.
+        If cache_bypass=True: creates a bypass rule (no forwarding, just cache bypass).
+        Otherwise: creates a Forwarding URL page rule.
+        pattern like *domain.com/*, target like https://target.com/$2
+        """
+        if cache_bypass:
+            payload = {
+                "targets": [{"target": "url", "constraint": {"operator": "matches", "value": pattern}}],
+                "actions": [{"id": "cache_level", "value": "bypass"}],
+                "status": "active",
+            }
+        else:
+            payload = {
+                "targets": [{"target": "url", "constraint": {"operator": "matches", "value": pattern}}],
+                "actions": [{"id": "forwarding_url", "value": {"url": target_url, "status_code": status_code}}],
+                "status": "active",
+            }
         return self._request("POST", f"/zones/{zone_id}/pagerules", payload)
 
     def list_page_rules(self, zone_id):
