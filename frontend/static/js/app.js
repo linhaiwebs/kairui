@@ -986,10 +986,12 @@ pipelineStatuses[siteId].demo_importing = false;
             analyticsLoading.value = true;
             analyticsSiteData.value = null;
             analyticsSiteSessions.value = null;
-            // Find any mirror site for this target (needed for proxy auth)
-            const site = sites.value.find(s => s.mirror_target && s.mirror_target.includes(target));
+            // Find mirror sites for this target
+            const mirrorSites = sites.value.filter(s => s.mirror_target && s.mirror_target.includes(target));
+            const site = mirrorSites[0];
             const sid = site ? site.id : 0;
             analyticsSiteId.value = sid || null;
+            analyticsSource._mirrorSites = mirrorSites.map(s => s.url || s.site_name).join(', ');
             try {
                 const [summary, sessions] = await Promise.all([
                     API.getAnalytics(sid, 'analytics/summary', { period: analyticsPeriod.value, source: target }),
@@ -3725,12 +3727,9 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <div><p class="text-xl font-bold text-primary">{{ (t._totalCheckouts||0).toLocaleString() }}</p><p class="text-xs text-on-surface-variant mt-1">结账</p></div>
                                 <div><p class="text-xl font-bold text-[#146c2e]">{{ (t._totalOrders||0).toLocaleString() }}</p><p class="text-xs text-on-surface-variant mt-1">订单</p></div>
                             </div>
-                            <div class="mt-3 pt-3 border-t flex items-center justify-between text-sm">
-                                <span class="text-on-surface-variant">营收 <b class="text-[#146c2e]">\${{ (t._totalRevenue||0).toLocaleString() }}</b></span>
-                                <span class="text-on-surface-variant">转化率 <b>{{ (t._avgConversion||0).toFixed(1) }}%</b></span>
-                                <span class="text-on-surface-variant">客单价 <b>\${{ t._totalOrders > 0 ? (t._totalRevenue/t._totalOrders).toFixed(0) : 0 }}</b></span>
+                            <div class="mt-3 pt-3 border-t text-sm text-right">
                                 <span v-if="t._paymentStats && t._paymentStats.total_orders > 0" class="text-[#146c2e] text-xs">💰 实收 <b>\${{ t._paymentStats.total_revenue.toLocaleString() }}</b> ({{ t._paymentStats.unique_orders }}单)</span>
-                                <span class="text-primary text-xs">点击查看详情 →</span>
+                                <span v-else class="text-on-surface-variant text-xs">暂无收款数据</span>
                             </div>
                         </div>
                     </div>
@@ -3740,7 +3739,8 @@ pipelineStatuses[siteId].demo_importing = false;
                 <!-- Detail View -->
                 <div v-if="analyticsView === 'site-detail'">
                     <button @click="backToOverview" class="text-primary hover:text-primary text-sm mb-4 inline-block"><i class="fas fa-arrow-left mr-1"></i>← 返回总览</button>
-                    <h3 class="font-semibold text-on-surface text-lg mb-4">{{ analyticsSource }}</h3>
+                    <h3 class="font-semibold text-on-surface text-lg mb-1">{{ analyticsSource }}</h3>
+                    <p v-if="analyticsSource._mirrorSites" class="text-xs text-on-surface-variant mb-4">镜像站点: {{ analyticsSource._mirrorSites }}</p>
                     <!-- Detail tabs -->
                     <div class="flex gap-2 mb-4">
                         <button @click="analyticsPaymentTab = 'sources'" :class="['px-4 py-2 rounded-lg text-sm font-medium transition', analyticsPaymentTab === 'sources' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant']">来源列表</button>
@@ -3793,13 +3793,18 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <div class="bg-[#146c2e]/10 rounded-xl p-3 text-center"><p class="text-xs text-on-surface-variant">订单数</p><p class="text-xl font-bold text-[#146c2e]">{{ analyticsPaymentStats.total_orders }}</p></div>
                                 <div class="bg-[#146c2e]/10 rounded-xl p-3 text-center"><p class="text-xs text-on-surface-variant">去重订单</p><p class="text-xl font-bold text-[#146c2e]">{{ analyticsPaymentStats.unique_orders }}</p></div>
                             </div>
-                            <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5" v-if="analyticsPaymentEvents.length">
-                                <h4 class="text-sm font-semibold mb-3">支付记录</h4>
-                                <div class="overflow-x-auto">
-                                    <table class="w-full text-sm">
-                                        <thead><tr class="text-left text-xs text-on-surface-variant uppercase"><th class="px-3 py-2">时间</th><th class="px-3 py-2">事件</th><th class="px-3 py-2">订单号</th><th class="px-3 py-2 text-right">金额</th><th class="px-3 py-2">支付方式</th></tr></thead>
-                                        <tbody class="divide-y"><tr v-for="e in analyticsPaymentEvents"><td class="px-3 py-2 text-xs">{{ (e.created_at||'').slice(11,19) }}</td><td class="px-3 py-2 text-xs"><span :class="['px-2 py-0.5 rounded-full text-xs', e.event_type==='order_completed'?'bg-[#146c2e]/10 text-[#146c2e]':'bg-blue-50 text-blue-700']">{{ e.event_type }}</span></td><td class="px-3 py-2 text-xs font-mono">{{ e.order_id||'-' }}</td><td class="px-3 py-2 text-right text-xs font-bold text-[#146c2e]">\${{ (e.amount||0).toLocaleString() }} {{ e.currency }}</td><td class="px-3 py-2 text-xs">{{ e.payment_method||'-' }}</td></tr></tbody>
-                                    </table>
+                            <div class="space-y-3" v-if="analyticsPaymentEvents.length">
+                                <div v-for="e in analyticsPaymentEvents" :key="e.id" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-4">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="text-xs text-on-surface-variant">{{ (e.created_at||'').slice(0,19) }}</span>
+                                        <span :class="['text-xs px-2 py-0.5 rounded-full', e.event_type==='order_completed'?'bg-[#146c2e]/10 text-[#146c2e]':'bg-blue-50 text-blue-700']">{{ e.event_type === 'order_completed' ? '✅ 已支付' : '📤 支付发起' }}</span>
+                                    </div>
+                                    <div class="grid grid-cols-4 gap-3 text-sm">
+                                        <div><span class="text-xs text-on-surface-variant">订单号</span><p class="font-mono">{{ e.order_id||'-' }}</p></div>
+                                        <div><span class="text-xs text-on-surface-variant">金额</span><p class="font-bold text-[#146c2e]">\${{ (e.amount||0).toLocaleString() }} {{ e.currency }}</p></div>
+                                        <div><span class="text-xs text-on-surface-variant">支付方式</span><p>{{ e.payment_method||'-' }}</p></div>
+                                        <div><span class="text-xs text-on-surface-variant">位置</span><p class="text-xs">{{ e.customer_city||'-' }}, {{ e.customer_country||'-' }}</p></div>
+                                    </div>
                                 </div>
                             </div>
                             <p v-else class="text-sm text-on-surface-variant py-8 text-center">暂无支付记录</p>
