@@ -198,6 +198,7 @@ const app = createApp({
         const analyticsPeriod = ref('7d');
         const analyticsSiteId = ref(null);
         const analyticsSource = ref('');
+        const analyticsMirrorSites = ref('');
         const analyticsPaymentEvents = ref([]);
         const analyticsPaymentStats = ref(null);
         const analyticsPaymentTab = ref('sources'); // 'sources' | 'payments'
@@ -991,7 +992,7 @@ pipelineStatuses[siteId].demo_importing = false;
             const site = mirrorSites[0];
             const sid = site ? site.id : 0;
             analyticsSiteId.value = sid || null;
-            analyticsSource._mirrorSites = mirrorSites.map(s => s.url || s.site_name).join(', ');
+            analyticsMirrorSites.value = mirrorSites.length > 0 ? mirrorSites.map(s => s.url || s.site_name).join(', ') : '';
             try {
                 const [summary, sessions] = await Promise.all([
                     API.getAnalytics(sid, 'analytics/summary', { period: analyticsPeriod.value, source: target }),
@@ -1024,7 +1025,7 @@ pipelineStatuses[siteId].demo_importing = false;
             } catch (e) { console.error('openSiteDetail error:', e); }
             analyticsLoading.value = false;
         }
-        function backToOverview() { analyticsView.value = 'overview'; analyticsSiteData.value = null; analyticsSiteSessions.value = null; analyticsPaymentEvents.value = []; analyticsPaymentStats.value = null; analyticsPaymentTab.value = 'sources'; }
+        function backToOverview() { analyticsView.value = 'overview'; analyticsSiteData.value = null; analyticsSiteSessions.value = null; analyticsPaymentEvents.value = []; analyticsPaymentStats.value = null; analyticsPaymentTab.value = 'sources'; analyticsMirrorSites.value = ''; }
         const analyticsKeyTarget = ref('');
         const analyticsKeyValue = ref('');
         const analyticsKeyResult = ref('');
@@ -3437,7 +3438,7 @@ pipelineStatuses[siteId].demo_importing = false;
             analyticsData, analyticsLoading, analyticsPeriod, analyticsSiteId, analyticsSource,
             analyticsSessionPage, analyticsTimeline, analyticsTimelineVisible,
             loadAnalytics, loadSiteAnalytics, loadSiteSessions, loadSessionTimeline, setAnalyticsPeriod,
-            analyticsView, analyticsSiteData, analyticsSiteSessions, openSiteDetail, backToOverview,
+            analyticsView, analyticsSiteData, analyticsSiteSessions, analyticsMirrorSites, analyticsPaymentEvents, analyticsPaymentStats, analyticsPaymentTab, openSiteDetail, backToOverview,
             wcSources, showWcSourceModal, wcSourceEditId, wcSourceForm, loadWcSources, openWcSourceModal, saveWcSource, deleteWcSource,
             mirrorProgress, mirrorLog, analyticsKeyTarget, analyticsKeyValue, analyticsKeyResult, saveAnalyticsKey,
             loadWalmartCategories, fetchWalmartBestsellers, loadPersistedWalmartProducts, exportWalmartData,
@@ -3727,10 +3728,6 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <div><p class="text-xl font-bold text-primary">{{ (t._totalCheckouts||0).toLocaleString() }}</p><p class="text-xs text-on-surface-variant mt-1">结账</p></div>
                                 <div><p class="text-xl font-bold text-[#146c2e]">{{ (t._totalOrders||0).toLocaleString() }}</p><p class="text-xs text-on-surface-variant mt-1">订单</p></div>
                             </div>
-                            <div class="mt-3 pt-3 border-t text-sm text-right">
-                                <span v-if="t._paymentStats && t._paymentStats.total_orders > 0" class="text-[#146c2e] text-xs">💰 实收 <b>\${{ t._paymentStats.total_revenue.toLocaleString() }}</b> ({{ t._paymentStats.unique_orders }}单)</span>
-                                <span v-else class="text-on-surface-variant text-xs">暂无收款数据</span>
-                            </div>
                         </div>
                     </div>
                     <p v-else-if="!analyticsLoading" class="text-center py-12 text-on-surface-variant">暂无数据。请确保已在目标站安装 kairui-tracker 插件并配置 API Key。</p>
@@ -3740,7 +3737,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 <div v-if="analyticsView === 'site-detail'">
                     <button @click="backToOverview" class="text-primary hover:text-primary text-sm mb-4 inline-block"><i class="fas fa-arrow-left mr-1"></i>← 返回总览</button>
                     <h3 class="font-semibold text-on-surface text-lg mb-1">{{ analyticsSource }}</h3>
-                    <p v-if="analyticsSource._mirrorSites" class="text-xs text-on-surface-variant mb-4">镜像站点: {{ analyticsSource._mirrorSites }}</p>
+                    <p v-if="analyticsMirrorSites" class="text-xs text-on-surface-variant mb-4">镜像站点: {{ analyticsMirrorSites }}</p>
                     <!-- Detail tabs -->
                     <div class="flex gap-2 mb-4">
                         <button @click="analyticsPaymentTab = 'sources'" :class="['px-4 py-2 rounded-lg text-sm font-medium transition', analyticsPaymentTab === 'sources' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant']">来源列表</button>
