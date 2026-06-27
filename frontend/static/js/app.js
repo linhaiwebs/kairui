@@ -965,17 +965,15 @@ pipelineStatuses[siteId].demo_importing = false;
             analyticsLoading.value = true;
             analyticsSiteData.value = null;
             analyticsSiteSessions.value = null;
+            // Find any mirror site for this target (needed for proxy auth)
+            const site = sites.value.find(s => s.mirror_target && s.mirror_target.includes(target));
+            const sid = site ? site.id : 0;
+            analyticsSiteId.value = sid || null;
             try {
-                // Find the mirror site by its URL (the source IS the mirror site's domain)
-                const site = sites.value.find(s => s.url === target || s.site_name === target || (s.url||'').includes(target));
-                const sid = site ? site.id : null;
-                if (!sid) { analyticsLoading.value = false; return; }
-                analyticsSiteId.value = sid;
                 const [summary, sessions] = await Promise.all([
                     API.getAnalytics(sid, 'analytics/summary', { period: analyticsPeriod.value, source: target }),
                     API.getAnalytics(sid, 'analytics/sessions', { period: '7d', source: target, page: 1 }),
                 ]);
-                // Proxy returns raw WP plugin response (no code/data wrapper)
                 if (summary && summary.sources) analyticsSiteData.value = summary;
                 else if (summary && summary.code === 200) analyticsSiteData.value = summary.data;
                 if (sessions && sessions.sessions) analyticsSiteSessions.value = sessions;
@@ -3667,9 +3665,9 @@ pipelineStatuses[siteId].demo_importing = false;
                             {{ p.l }}
                         </button>
                     </div>
-                    <!-- Target cards -->
+                    <!-- Target/subsiti cards -->
                     <div v-for="t in analyticsData.targets" :key="t.target" class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5">
-                        <h3 class="font-semibold text-on-surface mb-3">{{ t.target }} <span class="text-sm font-normal text-on-surface-variant">({{ t.sites.join(', ') }})</span></h3>
+                        <h3 class="font-semibold text-on-surface mb-3">{{ t.target }}</h3>
                         <div v-if="t.data && t.data.sources" class="overflow-x-auto">
                             <table class="w-full text-sm">
                                 <thead><tr class="text-left text-xs text-on-surface-variant uppercase">
@@ -3677,7 +3675,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 </tr></thead>
                                 <tbody class="divide-y">
                                     <tr v-for="s in t.data.sources" class="hover:bg-surface-container-low">
-                                        <td class="px-3 py-2 font-medium"><a href="#" @click.prevent="openSiteDetail(s.source)" class="text-primary hover:underline">{{ s.source }}</a></td>
+                                        <td class="px-3 py-2 font-medium"><a href="#" @click.prevent="openSiteDetail(t.target)" class="text-primary hover:underline">{{ s.source }}</a></td>
                                         <td class="px-3 py-2 text-right">{{ s.visitors||0 }}</td>
                                         <td class="px-3 py-2 text-right">{{ s.product_views||0 }}</td>
                                         <td class="px-3 py-2 text-right">{{ s.add_to_carts||0 }}</td>
@@ -3722,7 +3720,7 @@ pipelineStatuses[siteId].demo_importing = false;
                         </div>
                         <p v-else class="text-sm text-on-surface-variant py-8 text-center">暂无详细数据</p>
                     </div>
-                    <p v-if="analyticsView === 'overview' && !analyticsData.targets.length" class="text-center py-12 text-on-surface-variant">暂无可分析的镜像站点。请先使用镜像向导创建镜像。</p>
+                    <p v-if="analyticsView === 'overview' && !analyticsData.targets.length" class="text-center py-12 text-on-surface-variant">暂无数据。请确保已在目标站安装 kairui-tracker 插件并配置 API Key。</p>
                 </div>
                 <div v-else class="text-center py-12 text-on-surface-variant">加载中...</div>
             </div>

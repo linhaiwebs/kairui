@@ -9843,19 +9843,25 @@ Respond with strict JSON only (no markdown code blocks):
         sites = list_sites(user_id=None if role == "admin" else user_id)
 
         targets = {}
+        # Collect from mirror sites
         for s in sites:
             target = s.get("mirror_target", "").strip()
             if not target:
                 continue
-            if target not in targets:
-                targets[target] = {"target": target, "sites": [], "data": None}
-            targets[target]["sites"].append(s["site_name"])
+            host = target.replace("https://", "").replace("http://", "").strip("/")
+            if host not in targets:
+                targets[host] = {"target": host, "data": None}
 
         cfg = get_global_config()
+        # Also include targets that have API keys configured (even without mirror sites)
+        for k, v in cfg.items():
+            if k.startswith("kairui_key_") and v:
+                host = k.replace("kairui_key_", "")
+                if host not in targets:
+                    targets[host] = {"target": host, "data": None}
+
         results = []
-        for target, info in targets.items():
-            # Strip protocol for key lookup and URL building
-            host = target.replace("https://", "").replace("http://", "").strip("/")
+        for host, info in targets.items():
             api_key = cfg.get(f"kairui_key_{host}", "")
             if not api_key:
                 continue
@@ -9865,7 +9871,8 @@ Respond with strict JSON only (no markdown code blocks):
                     headers={"X-Kairui-Key": api_key}, timeout=10
                 )
                 if r.status_code == 200:
-                    results.append({"target": target, "sites": info["sites"], "data": r.json()})
+                    info["data"] = r.json()
+                    results.append(info)
             except Exception:
                 pass
 
@@ -9876,18 +9883,23 @@ Respond with strict JSON only (no markdown code blocks):
     def analytics_proxy(subpath):
         """Proxy analytics requests to target WooCommerce kairui-tracker plugin."""
         site_id = request.args.get("site_id", type=int)
-        if not site_id:
-            return jsonify({"code": 400, "message": "site_id required"}), 400
+        source = (request.args.get("source") or "").strip()
 
-        site = get_site(site_id)
-        if not site:
-            return jsonify({"code": 404, "message": "站点不存在"}), 404
+        if not site_id and not source:
+            return jsonify({"code": 400, "message": "site_id or source required"}), 400
 
-        target = site.get("mirror_target", "").strip()
-        if not target:
-            return jsonify({"code": 400, "message": "站点未配置镜像目标"}), 400
+        # Resolve target host: priority to source if provided, else from site's mirror_target
+        if source:
+            host = source.replace("https://", "").replace("http://", "").strip("/")
+        else:
+            site = get_site(site_id)
+            if not site:
+                return jsonify({"code": 404, "message": "站点不存在"}), 404
+            target = site.get("mirror_target", "").strip()
+            if not target:
+                return jsonify({"code": 400, "message": "站点未配置镜像目标"}), 400
+            host = target.replace("https://", "").replace("http://", "").strip("/")
 
-        host = target.replace("https://", "").replace("http://", "").strip("/")
         cfg = get_global_config()
         api_key = cfg.get(f"kairui_key_{host}", "")
         if not api_key:
