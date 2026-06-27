@@ -2494,10 +2494,11 @@ def register_routes(app):
     @app.route("/api/sites/mirror", methods=["POST"])
     @jwt_required()
     def sites_mirror():
-        """Set up Cloudflare Worker mirror proxy for selected static sites."""
+        """Set up Cloudflare mirror for selected static sites. Supports 'worker' and 'pagerule' modes."""
         data = request.get_json(silent=True) or {}
         target = (data.get("target_url") or "").strip()
         site_ids = data.get("site_ids") or []
+        mirror_mode = (data.get("mirror_mode") or "pagerule").strip()  # "pagerule" (default) or "worker"
         if not target or not site_ids:
             return jsonify({"code": 400, "message": "请提供目标URL和站点列表"}), 400
         # Remove https:// prefix for target host
@@ -2550,22 +2551,51 @@ def register_routes(app):
                 alias = site.get("nginx_alias", domain)
                 worker_name = f"mirror-{alias.replace('.', '-')}"
 
-                # If re-mirroring, clean up old Worker/route first
+                # If re-mirroring, clean up old Worker/route or Page Rule first
                 if site.get("mirror_target"):
                     try:
+                        # Clean up Worker routes
                         old_routes = cf_client.list_worker_routes(zone_id)
-                        logger.info(f"[Mirror] Checking {len(old_routes.get('result') or [])} routes for cleanup")
                         if old_routes.get("success") or old_routes.get("result"):
                             for r in (old_routes.get("result") or []):
                                 if r.get("script") == worker_name:
                                     cf_client.delete_worker_route(zone_id, r["id"])
-                                    logger.info(f"[Mirror] Removed old route {r['id']} for {worker_name}")
-                        resp = cf_client.delete_worker(real_cf_id, worker_name)
-                        logger.info(f"[Mirror] Removed old worker {worker_name}: {resp.get('success')}")
+                                    logger.info(f"[Mirror] Removed old route {r['id']}")
+                        cf_client.delete_worker(real_cf_id, worker_name)
+                        # Clean up Page Rules with matching pattern
+                        old_prs = cf_client.list_page_rules(zone_id)
+                        if old_prs.get("success") or old_prs.get("result"):
+                            for pr in (old_prs.get("result") or []):
+                                for tgt in (pr.get("targets") or []):
+                                    if domain in (tgt.get("constraint", {}).get("value", "")):
+                                        cf_client.delete_page_rule(zone_id, pr["id"])
+                                        logger.info(f"[Mirror] Removed old page rule {pr['id']}")
                     except Exception as e:
                         logger.warning(f"[Mirror] Cleanup failed for {worker_name}: {e}")
 
                 result_entry = {"site_id": sid, "ok": True, "domain": domain}
+
+                # ---- Page Rule mode ----
+                if mirror_mode == "pagerule":
+                    pattern = f"*{domain}/*"
+                    forward_url = f"https://{target_host}/$2"
+                    try:
+                        pr_resp = cf_client.create_page_rule(zone_id, pattern, forward_url)
+                        if pr_resp.get("success"):
+                            update_site_fields(sid, {"mirror_target": target})
+                            result_entry["feed_url"] = f"https://{domain}/feedstart.xml.gz"
+                            logger.info(f"[Mirror] Page rule: {pattern} → {forward_url} (site={domain})")
+                        else:
+                            errs = pr_resp.get("errors", [])
+                            raise Exception("; ".join(e.get("message", str(e)) for e in errs))
+                    except Exception as e:
+                        logger.error(f"[Mirror] Page rule failed for {domain}: {e}")
+                        results.append({"site_id": sid, "ok": False, "error": str(e)[:100]})
+                        continue
+                    results.append(result_entry)
+                    continue  # Skip Worker code below
+
+                # ---- Worker mode ----
 
                 # Stream process feedstart.xml.gz: gunzip → sed replace → gzip (avoids OOM)
                 import subprocess
@@ -2730,6 +2760,16 @@ def register_routes(app):
                                 real_cf_id = a["id"]; break
                     except Exception: pass
                     cf_client.delete_worker(real_cf_id, worker_name)
+                    # Also clean up Page Rules for this domain
+                    try:
+                        old_prs = cf_client.list_page_rules(zone_id)
+                        if old_prs.get("success") or old_prs.get("result"):
+                            for pr in (old_prs.get("result") or []):
+                                for tgt in (pr.get("targets") or []):
+                                    if domain in (tgt.get("constraint", {}).get("value", "")):
+                                        cf_client.delete_page_rule(zone_id, pr["id"])
+                                        logger.info(f"[Unmirror] Removed page rule {pr['id']} for {domain}")
+                    except Exception: pass
             update_site_fields(site_id, {"mirror_target": ""})
             return jsonify({"code": 200, "message": "镜像已取消"})
         except Exception as e:

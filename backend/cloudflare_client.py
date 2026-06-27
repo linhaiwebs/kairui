@@ -169,5 +169,24 @@ class CloudflareClient:
         """Delete a Worker route."""
         return self._request("DELETE", f"/zones/{zone_id}/workers/routes/{route_id}")
 
+    # ---- Page Rules (302 redirect mirror) ----
+
+    def create_page_rule(self, zone_id, pattern, target_url, status_code=302):
+        """Create a Forwarding URL page rule. pattern like *domain.com/*, target like https://target.com/$2"""
+        payload = {
+            "targets": [{"target": "url", "constraint": {"operator": "matches", "value": pattern}}],
+            "actions": [{"id": "forwarding_url", "value": {"url": target_url, "status_code": status_code}}],
+            "status": "active",
+        }
+        return self._request("POST", f"/zones/{zone_id}/pagerules", payload)
+
+    def list_page_rules(self, zone_id):
+        """List all page rules in a zone."""
+        return self._request("GET", f"/zones/{zone_id}/pagerules")
+
+    def delete_page_rule(self, zone_id, rule_id):
+        """Delete a page rule."""
+        return self._request("DELETE", f"/zones/{zone_id}/pagerules/{rule_id}")
+
 # Singleton instance
 cf_client = CloudflareClient()

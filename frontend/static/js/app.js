@@ -92,6 +92,7 @@ const app = createApp({
         // --- Mirror Wizard ---
         const showMirrorModal = ref(false);
         const mirrorTargetUrl = ref('');
+        const mirrorMode = ref('pagerule'); // 'pagerule' | 'worker'
         const mirrorSelectedIds = ref(new Set());
         const mirrorPage = ref(1);
         const MIRROR_PER = 10;
@@ -115,7 +116,7 @@ const app = createApp({
                 const name = site ? site.site_name : ('#'+sid);
                 mirrorProgress.value = { current: i, total: ids.length, msg: '正在处理: '+name };
                 try {
-                    const r = await API.request('POST','/api/sites/mirror',{target_url:mirrorTargetUrl.value.trim(),site_ids:[sid]});
+                    const r = await API.request('POST','/api/sites/mirror',{target_url:mirrorTargetUrl.value.trim(),site_ids:[sid],mirror_mode:mirrorMode.value});
                     if (r.code===200 && r.data?.results?.[0]?.ok) {
                         ok++;
                         mirrorLog.value.push({site: name, ok: true, msg: r.data.results[0].feed_url ? 'Feed ✓' : 'Worker ✓'});
@@ -3425,7 +3426,7 @@ pipelineStatuses[siteId].demo_importing = false;
             profilesTabPage, PROFILES_PER, pagedProfiles, profilesTotal,
             proxiesTabPage, PROXIES_PER, pagedProxies, proxiesTotal,
             goPage,
-            showMirrorModal, mirrorTargetUrl, mirrorSelectedIds, mirrorPage, MIRROR_PER, mirrorSites, pagedMirrorSites, mirrorTotalPages, toggleMirrorSite, startMirror, unmirrorSite,
+            showMirrorModal, mirrorTargetUrl, mirrorMode, mirrorSelectedIds, mirrorPage, MIRROR_PER, mirrorSites, pagedMirrorSites, mirrorTotalPages, toggleMirrorSite, startMirror, unmirrorSite,
             batchWizardRows, batchWizardPage, BATCH_PAGE_SIZE, batchVisibleRows, batchTotalPages,
             operatorCfAccountId, operatorCfAccountName, operatorCfLoading,
             initBatchRows, addBatchRow, resolveOperatorCfAccount,
@@ -6482,10 +6483,28 @@ pipelineStatuses[siteId].demo_importing = false;
                     <button @click="showMirrorModal = false" class="text-on-surface-variant hover:text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
                 </div>
                 <div class="p-6 space-y-4">
+                    <!-- Mirror Mode -->
+                    <div>
+                        <label class="block text-sm font-medium text-on-surface mb-2">镜像模式</label>
+                        <div class="flex gap-3">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" v-model="mirrorMode" value="pagerule" class="accent-primary">
+                                <span :class="['text-sm', mirrorMode==='pagerule' ? 'text-primary font-medium' : 'text-on-surface-variant']">页面规则</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" v-model="mirrorMode" value="worker" class="accent-primary">
+                                <span :class="['text-sm', mirrorMode==='worker' ? 'text-primary font-medium' : 'text-on-surface-variant']">Worker 代理</span>
+                            </label>
+                        </div>
+                        <p class="text-xs text-on-surface-variant mt-1">
+                            <span v-if="mirrorMode === 'pagerule'">302 跳转到目标站，浏览器显示目标域名。适合纯引流</span>
+                            <span v-else>Worker 代理内容并替换域名。适合内容站镜像</span>
+                        </p>
+                    </div>
                     <div>
                         <label class="block text-sm font-medium text-on-surface mb-1">目标站域名</label>
                         <input v-model="mirrorTargetUrl" type="text" placeholder="https://target-store.com" class="w-full px-4 py-3 border rounded-lg focus:border-primary">
-                        <p class="text-xs text-on-surface-variant mt-1">输入 WooCommerce 商城域名，选中站点将通过 Cloudflare Worker 代理到此站</p>
+                        <p class="text-xs text-on-surface-variant mt-1">输入 WooCommerce 商城域名</p>
                     </div>
                     <div>
                         <div class="flex items-center justify-between mb-2">
