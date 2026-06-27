@@ -287,6 +287,12 @@ const API = {
         return this.request('POST', '/api/analytics/key', { target, api_key: apiKey });
     },
 
+    async getPaymentEvents(siteUrl) {
+        let url = '/api/analytics/payment-events';
+        if (siteUrl) url += '?site_url=' + encodeURIComponent(siteUrl);
+        return this.request('GET', url);
+    },
+
     // 筛品 - Walmart Bestsellers (Crawlbase)
     async getWalmartCategories() {
         return this.request('GET', '/api/shai-pin/walmart/categories');

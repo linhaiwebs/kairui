@@ -198,6 +198,9 @@ const app = createApp({
         const analyticsPeriod = ref('7d');
         const analyticsSiteId = ref(null);
         const analyticsSource = ref('');
+        const analyticsPaymentEvents = ref([]);
+        const analyticsPaymentStats = ref(null);
+        const analyticsPaymentTab = ref('sources'); // 'sources' | 'payments'
         const analyticsSessionPage = ref(1);
         const analyticsTimeline = ref(null);
         const analyticsTimelineVisible = ref(false);
@@ -931,7 +934,6 @@ pipelineStatuses[siteId].demo_importing = false;
             try {
                 const resp = await API.getDashboardAnalytics();
                 if (resp.code === 200 && resp.data && resp.data.targets) {
-                    // Compute per-target totals for overview cards
                     for (const t of resp.data.targets) {
                         const srcs = (t.data && t.data.sources) ? t.data.sources : [];
                         t._totalVisitors = srcs.reduce((a,b) => a + (parseInt(b.visitors)||0), 0);
@@ -942,6 +944,11 @@ pipelineStatuses[siteId].demo_importing = false;
                         t._totalOrders = srcs.reduce((a,b) => a + (parseInt(b.orders)||0), 0);
                         t._totalRevenue = srcs.reduce((a,b) => a + (parseFloat(b.revenue)||0), 0);
                         t._avgConversion = t._totalVisitors > 0 ? (t._totalOrders / t._totalVisitors * 100) : 0;
+                        t._paymentStats = null;
+                        // Fetch payment events for this target
+                        API.getPaymentEvents(t.target).then(r => {
+                            if (r.code === 200 && r.data) t._paymentStats = r.data.stats;
+                        }).catch(() => {});
                     }
                     analyticsData.value = resp.data;
                 }
@@ -990,6 +997,15 @@ pipelineStatuses[siteId].demo_importing = false;
                 ]);
                 if (summary && summary.sources) analyticsSiteData.value = summary;
                 else if (summary && summary.code === 200) analyticsSiteData.value = summary.data;
+                // Fetch payment events for this site
+                try {
+                    const pe = await API.getPaymentEvents(target);
+                    if (pe.code === 200 && pe.data) {
+                        analyticsPaymentEvents.value = pe.data.events || [];
+                        analyticsPaymentStats.value = pe.data.stats || null;
+                    }
+                } catch (e) { /* silent */ }
+
                 // Compute detail aggregates
                 if (analyticsSiteData.value && analyticsSiteData.value.sources) {
                     const srcs = analyticsSiteData.value.sources;
@@ -1006,7 +1022,7 @@ pipelineStatuses[siteId].demo_importing = false;
             } catch (e) { console.error('openSiteDetail error:', e); }
             analyticsLoading.value = false;
         }
-        function backToOverview() { analyticsView.value = 'overview'; analyticsSiteData.value = null; analyticsSiteSessions.value = null; }
+        function backToOverview() { analyticsView.value = 'overview'; analyticsSiteData.value = null; analyticsSiteSessions.value = null; analyticsPaymentEvents.value = []; analyticsPaymentStats.value = null; analyticsPaymentTab.value = 'sources'; }
         const analyticsKeyTarget = ref('');
         const analyticsKeyValue = ref('');
         const analyticsKeyResult = ref('');
@@ -3713,6 +3729,7 @@ pipelineStatuses[siteId].demo_importing = false;
                                 <span class="text-on-surface-variant">营收 <b class="text-[#146c2e]">\${{ (t._totalRevenue||0).toLocaleString() }}</b></span>
                                 <span class="text-on-surface-variant">转化率 <b>{{ (t._avgConversion||0).toFixed(1) }}%</b></span>
                                 <span class="text-on-surface-variant">客单价 <b>\${{ t._totalOrders > 0 ? (t._totalRevenue/t._totalOrders).toFixed(0) : 0 }}</b></span>
+                                <span v-if="t._paymentStats && t._paymentStats.total_orders > 0" class="text-[#146c2e] text-xs">💰 实收 <b>\${{ t._paymentStats.total_revenue.toLocaleString() }}</b> ({{ t._paymentStats.unique_orders }}单)</span>
                                 <span class="text-primary text-xs">点击查看详情 →</span>
                             </div>
                         </div>
@@ -3724,6 +3741,11 @@ pipelineStatuses[siteId].demo_importing = false;
                 <div v-if="analyticsView === 'site-detail'">
                     <button @click="backToOverview" class="text-primary hover:text-primary text-sm mb-4 inline-block"><i class="fas fa-arrow-left mr-1"></i>← 返回总览</button>
                     <h3 class="font-semibold text-on-surface text-lg mb-4">{{ analyticsSource }}</h3>
+                    <!-- Detail tabs -->
+                    <div class="flex gap-2 mb-4">
+                        <button @click="analyticsPaymentTab = 'sources'" :class="['px-4 py-2 rounded-lg text-sm font-medium transition', analyticsPaymentTab === 'sources' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant']">来源列表</button>
+                        <button @click="analyticsPaymentTab = 'payments'" :class="['px-4 py-2 rounded-lg text-sm font-medium transition', analyticsPaymentTab === 'payments' ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant']">支付记录 <span v-if="analyticsPaymentStats" class="text-xs">({{ analyticsPaymentStats.total_orders }})</span></button>
+                    </div>
                     <div v-if="analyticsLoading" class="text-center py-12"><span class="spinner w-4 h-4 inline-block"></span></div>
                     <div v-else-if="analyticsSiteData && analyticsSiteData.sources">
                         <!-- Aggregate stat cards -->
@@ -3735,17 +3757,18 @@ pipelineStatuses[siteId].demo_importing = false;
                             <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-3 text-center"><p class="text-xs text-on-surface-variant">结账</p><p class="text-xl font-bold text-primary">{{ (analyticsSiteData._totalCheckouts||0).toLocaleString() }}</p></div>
                             <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-3 text-center"><p class="text-xs text-on-surface-variant">订单/营收</p><p class="text-xl font-bold text-[#146c2e]">{{ (analyticsSiteData._totalOrders||0).toLocaleString() }} / \${{ (analyticsSiteData._totalRevenue||0).toLocaleString() }}</p></div>
                         </div>
-                        <!-- Sources table -->
-                        <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5 mb-4">
-                            <h4 class="text-sm font-semibold mb-3">来源列表</h4>
-                            <div class="overflow-x-auto">
-                                <table class="w-full text-sm">
-                                    <thead><tr class="text-left text-xs text-on-surface-variant uppercase"><th class="px-3 py-2">来源</th><th class="px-3 py-2 text-right">访客</th><th class="px-3 py-2 text-right">浏览</th><th class="px-3 py-2 text-right">加购</th><th class="px-3 py-2 text-right">订单</th><th class="px-3 py-2 text-right">营收</th><th class="px-3 py-2 text-right">转化率</th></tr></thead>
-                                    <tbody class="divide-y"><tr v-for="s in analyticsSiteData.sources"><td class="px-3 py-2 font-medium">{{ s.source }}</td><td class="px-3 py-2 text-right">{{ s.visitors||0 }}</td><td class="px-3 py-2 text-right">{{ s.page_views||s.product_views||0 }}</td><td class="px-3 py-2 text-right">{{ s.add_to_carts||0 }}</td><td class="px-3 py-2 text-right">{{ s.orders||0 }}</td><td class="px-3 py-2 text-right font-bold text-[#146c2e]">\${{ (s.revenue||0).toLocaleString() }}</td><td class="px-3 py-2 text-right">{{ s.conversion_rate||0 }}%</td></tr></tbody>
-                                </table>
+                        <!-- Sources tab -->
+                        <div v-if="analyticsPaymentTab === 'sources'" class="space-y-4">
+                            <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5">
+                                <h4 class="text-sm font-semibold mb-3">来源列表</h4>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm">
+                                        <thead><tr class="text-left text-xs text-on-surface-variant uppercase"><th class="px-3 py-2">来源</th><th class="px-3 py-2 text-right">访客</th><th class="px-3 py-2 text-right">浏览</th><th class="px-3 py-2 text-right">加购</th><th class="px-3 py-2 text-right">订单</th><th class="px-3 py-2 text-right">营收</th><th class="px-3 py-2 text-right">转化率</th></tr></thead>
+                                        <tbody class="divide-y"><tr v-for="s in analyticsSiteData.sources"><td class="px-3 py-2 font-medium">{{ s.source }}</td><td class="px-3 py-2 text-right">{{ s.visitors||0 }}</td><td class="px-3 py-2 text-right">{{ s.page_views||s.product_views||0 }}</td><td class="px-3 py-2 text-right">{{ s.add_to_carts||0 }}</td><td class="px-3 py-2 text-right">{{ s.orders||0 }}</td><td class="px-3 py-2 text-right font-bold text-[#146c2e]">\${{ (s.revenue||0).toLocaleString() }}</td><td class="px-3 py-2 text-right">{{ s.conversion_rate||0 }}%</td></tr></tbody>
+                                    </table>
+                                </div>
                             </div>
-                            </div>
-                            <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5 mb-4">
+                            <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5">
                                 <h4 class="text-sm font-semibold mb-3">最近会话</h4>
                                 <div v-if="analyticsSiteSessions && analyticsSiteSessions.sessions" class="overflow-x-auto">
                                     <table class="w-full text-sm"><thead><tr class="text-left text-xs text-on-surface-variant uppercase"><th class="px-3 py-2">会话ID</th><th class="px-3 py-2">入口页</th><th class="px-3 py-2">浏览</th><th class="px-3 py-2">加购</th><th class="px-3 py-2">下单</th><th class="px-3 py-2">时间</th></tr></thead>
@@ -3762,6 +3785,24 @@ pipelineStatuses[siteId].demo_importing = false;
                                 </div>
                                 <p v-else class="text-sm text-on-surface-variant py-4">暂无会话数据</p>
                             </div>
+                        </div>
+                        <!-- Payment tab -->
+                        <div v-if="analyticsPaymentTab === 'payments'" class="space-y-4">
+                            <div v-if="analyticsPaymentStats" class="grid grid-cols-3 gap-3 mb-4">
+                                <div class="bg-[#146c2e]/10 rounded-xl p-3 text-center"><p class="text-xs text-on-surface-variant">实收总额</p><p class="text-xl font-bold text-[#146c2e]">\${{ analyticsPaymentStats.total_revenue.toLocaleString() }}</p></div>
+                                <div class="bg-[#146c2e]/10 rounded-xl p-3 text-center"><p class="text-xs text-on-surface-variant">订单数</p><p class="text-xl font-bold text-[#146c2e]">{{ analyticsPaymentStats.total_orders }}</p></div>
+                                <div class="bg-[#146c2e]/10 rounded-xl p-3 text-center"><p class="text-xs text-on-surface-variant">去重订单</p><p class="text-xl font-bold text-[#146c2e]">{{ analyticsPaymentStats.unique_orders }}</p></div>
+                            </div>
+                            <div class="bg-surface-container-lowest rounded-xl shadow-level-1 p-5" v-if="analyticsPaymentEvents.length">
+                                <h4 class="text-sm font-semibold mb-3">支付记录</h4>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm">
+                                        <thead><tr class="text-left text-xs text-on-surface-variant uppercase"><th class="px-3 py-2">时间</th><th class="px-3 py-2">事件</th><th class="px-3 py-2">订单号</th><th class="px-3 py-2 text-right">金额</th><th class="px-3 py-2">支付方式</th></tr></thead>
+                                        <tbody class="divide-y"><tr v-for="e in analyticsPaymentEvents"><td class="px-3 py-2 text-xs">{{ (e.created_at||'').slice(11,19) }}</td><td class="px-3 py-2 text-xs"><span :class="['px-2 py-0.5 rounded-full text-xs', e.event_type==='order_completed'?'bg-[#146c2e]/10 text-[#146c2e]':'bg-blue-50 text-blue-700']">{{ e.event_type }}</span></td><td class="px-3 py-2 text-xs font-mono">{{ e.order_id||'-' }}</td><td class="px-3 py-2 text-right text-xs font-bold text-[#146c2e]">\${{ (e.amount||0).toLocaleString() }} {{ e.currency }}</td><td class="px-3 py-2 text-xs">{{ e.payment_method||'-' }}</td></tr></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <p v-else class="text-sm text-on-surface-variant py-8 text-center">暂无支付记录</p>
                         </div>
                         <p v-else class="text-sm text-on-surface-variant py-8 text-center">暂无详细数据</p>
                     </div>
