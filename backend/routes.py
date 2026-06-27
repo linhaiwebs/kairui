@@ -9855,7 +9855,7 @@ Respond with strict JSON only (no markdown code blocks):
         cfg = get_global_config()
         # Also include targets that have API keys configured (even without mirror sites)
         for k, v in cfg.items():
-            if k.startswith("kairui_key_") and v:
+            if k.startswith("kairui_key_") and v and k != "kairui_key_default":
                 host = k.replace("kairui_key_", "")
                 if host not in targets:
                     targets[host] = {"target": host, "data": None}
