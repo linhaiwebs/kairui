@@ -2583,6 +2583,8 @@ def register_routes(app):
 
                 feed_gz_path = None
                 for candidate in [
+                    os.path.join(data_dir, f"feedstart-{domain}.xml.gz"),
+                    os.path.join(os.path.dirname(__file__), f"feedstart-{domain}.xml.gz"),
                     os.path.join(data_dir, f"feedstart-{target_host}.xml.gz"),
                     os.path.join(os.path.dirname(__file__), f"feedstart-{target_host}.xml.gz"),
                     os.path.join(data_dir, "feedstart.xml.gz"),
