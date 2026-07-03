@@ -2619,6 +2619,8 @@ def register_routes(app):
                             xml_result = subprocess.run(xml_cmd, shell=True, capture_output=True, timeout=120)
                             if xml_result.returncode == 0 and xml_result.stdout:
                                 ssh.write_file(f"{site_dir}/feedstart.xml", xml_result.stdout)
+                            # Upload permissive robots.txt for GMC
+                            ssh.write_file(f"{site_dir}/robots.txt", b"User-agent: *\nDisallow:\n")
                             ssh.reload_nginx()
                             result_entry["feed_url"] = f"https://{domain}/feedstart.xml.gz"
                             preview_size = len(xml_result.stdout) if xml_result.returncode == 0 else 0
@@ -2632,6 +2634,10 @@ def register_routes(app):
                         # Priority 1: Bypass for feedstart.xml* (go to origin, no forwarding)
                         cf_client.create_page_rule(
                             zone_id, f"*{domain}/feedstart.xml*",
+                            "", status_code=0, cache_bypass=True
+                        )
+                        cf_client.create_page_rule(
+                            zone_id, f"*{domain}/robots.txt",
                             "", status_code=0, cache_bypass=True
                         )
                         # Priority 2: Forward everything else to target
