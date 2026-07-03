@@ -2656,6 +2656,9 @@ def register_routes(app):
                         logger.error(f"[Mirror] Page rule failed for {domain}: {e}")
                         results.append({"site_id": sid, "ok": False, "error": str(e)[:100]})
                         continue
+                    # Disable Bot Fight Mode so Googlebot can crawl
+                    try: cf_client.disable_bot_fight(zone_id)
+                    except Exception: pass
                     results.append(result_entry)
                     continue  # Skip Worker code below
 
@@ -2714,6 +2717,8 @@ def register_routes(app):
                     msg = "; ".join(e.get("message", str(e)) for e in errs)
                     raise Exception(f"路由创建失败: {msg}")
                 update_site_fields(sid, {"mirror_target": target})
+                try: cf_client.disable_bot_fight(zone_id)
+                except Exception: pass
                 results.append(result_entry)
                 logger.info(f"Mirror: {domain} -> {target_host} (worker={worker_name})")
             except Exception as e:

@@ -195,6 +195,10 @@ class CloudflareClient:
         """List all page rules in a zone."""
         return self._request("GET", f"/zones/{zone_id}/pagerules")
 
+    def disable_bot_fight(self, zone_id):
+        """Disable Bot Fight Mode for a zone (allows Googlebot crawling)."""
+        return self._request("PUT", f"/zones/{zone_id}/bot_management", {"fight_mode": False})
+
     def delete_page_rule(self, zone_id, rule_id):
         """Delete a page rule."""
         return self._request("DELETE", f"/zones/{zone_id}/pagerules/{rule_id}")
