@@ -1,0 +1,26 @@
+{
+  "name": "kairui",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/linhaiwebs/kairui.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/linhaiwebs/kairui/issues"
+  },
+  "homepage": "https://github.com/linhaiwebs/kairui#readme",
+  "dependencies": {
+    "tailwindcss": "^3.4.19"
+  }
+}

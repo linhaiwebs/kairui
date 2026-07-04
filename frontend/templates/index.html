@@ -12,92 +12,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
     <link rel="preload" href="/vendor/fontawesome/webfonts/fa-solid-900.woff2" as="font" type="font/woff2" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
-    <script src="/js/tailwind.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script>
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    colors: {
-                        "outline": "#737685",
-                        "on-secondary-container": "#54637d",
-                        "on-primary-fixed-variant": "#0040a2",
-                        "on-secondary": "#ffffff",
-                        "on-secondary-fixed": "#0c1c32",
-                        "on-error": "#ffffff",
-                        "primary-fixed": "#dae2ff",
-                        "inverse-on-surface": "#f0f0fb",
-                        "tertiary-fixed-dim": "#ffb59b",
-                        "secondary": "#505f78",
-                        "surface-container-high": "#e7e7f2",
-                        "primary-fixed-dim": "#b2c5ff",
-                        "outline-variant": "#c3c6d6",
-                        "on-background": "#191b23",
-                        "tertiary": "#7b2600",
-                        "surface-tint": "#0c56d0",
-                        "on-primary-container": "#c4d2ff",
-                        "surface-container-low": "#f3f3fd",
-                        "surface-container-highest": "#e1e2ec",
-                        "on-tertiary": "#ffffff",
-                        "surface-bright": "#faf8ff",
-                        "secondary-container": "#d1e0fe",
-                        "tertiary-fixed": "#ffdbcf",
-                        "on-surface": "#191b23",
-                        "inverse-surface": "#2e3038",
-                        "error": "#ba1a1a",
-                        "surface-container": "#ededf8",
-                        "on-primary": "#ffffff",
-                        "inverse-primary": "#b2c5ff",
-                        "primary-container": "#0052cc",
-                        "secondary-fixed": "#d5e3ff",
-                        "secondary-fixed-dim": "#b8c7e4",
-                        "on-tertiary-fixed": "#380d00",
-                        "primary": "#003d9b",
-                        "on-tertiary-container": "#ffc6b2",
-                        "on-secondary-fixed-variant": "#38475f",
-                        "surface-variant": "#e1e2ec",
-                        "on-tertiary-fixed-variant": "#812800",
-                        "tertiary-container": "#a33500",
-                        "on-primary-fixed": "#001848",
-                        "background": "#faf8ff",
-                        "surface-dim": "#d9d9e4",
-                        "surface-container-lowest": "#ffffff",
-                        "on-error-container": "#93000a",
-                        "surface": "#faf8ff",
-                        "on-surface-variant": "#434654",
-                        "error-container": "#ffdad6",
-                    },
-                    borderRadius: {
-                        "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"
-                    },
-                    spacing: {
-                        "sm": "8px", "md": "16px", "xl": "32px", "margin": "24px", "xs": "4px", "lg": "24px", "gutter": "16px"
-                    },
-                    fontFamily: {
-                        "headline-sm": ["Inter"], "body-lg": ["Inter"], "body-md": ["Inter"],
-                        "label-sm": ["Inter"], "display-lg-mobile": ["Inter"], "label-md": ["Inter"],
-                        "display-md": ["Inter"], "display-lg": ["Inter"]
-                    },
-                    fontSize: {
-                        "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
-                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
-                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
-                        "label-sm": ["11px", { "lineHeight": "16px", "fontWeight": "500" }],
-                        "display-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
-                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.04em", "fontWeight": "600" }],
-                        "display-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
-                        "display-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
-                    }
-                }
-            }
-        }
-    </script>
+    <link href="/css/tailwind.css?v=1" rel="stylesheet">
     <link href="/css/app-st212428.css?v=26" rel="stylesheet">
     <link href="/vendor/fontawesome/all.min.css" rel="stylesheet">
 </head>
 <body class="bg-background text-on-surface font-body-md min-h-screen">
     <div id="app"></div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="/vendor/vue.global.prod.js"></script>
     <script src="/js/api.js?v=45"></script>
     <script src="/js/app.js?v=140"></script>
