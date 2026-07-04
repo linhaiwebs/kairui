@@ -2273,25 +2273,37 @@ def save_woocommerce_product(data: dict) -> int:
         conn.close()
 
 
-def list_woocommerce_products(site_id=None) -> list[dict]:
+def list_woocommerce_products(site_id=None, page=None, limit=None) -> list[dict]:
+    """List WooCommerce products. When page & limit provided, returns (results, total)."""
     conn = get_db()
     try:
-        if site_id:
-            rows = conn.execute(
-                "SELECT * FROM woocommerce_products WHERE site_id = ? ORDER BY id DESC", (site_id,)
-            ).fetchall()
+        where_clause = "WHERE site_id = ?" if site_id else ""
+        params = (site_id,) if site_id else ()
+
+        if page is not None and limit is not None:
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM woocommerce_products {where_clause}", params
+            ).fetchone()[0]
+            offset = (page - 1) * limit
+            q = f"SELECT * FROM woocommerce_products {where_clause} ORDER BY id DESC LIMIT ? OFFSET ?"
+            rows = conn.execute(q, params + (limit, offset)).fetchall()
         else:
-            rows = conn.execute(
-                "SELECT * FROM woocommerce_products ORDER BY id DESC"
-            ).fetchall()
+            total = 0
+            q = f"SELECT * FROM woocommerce_products {where_clause} ORDER BY id DESC"
+            rows = conn.execute(q, params).fetchall()
+
         results = []
         for r in rows:
             d = dict(r)
+            # Only parse extra_data; skip heavy fields like images for list view
             try:
                 d["extra_data"] = json.loads(d.get("extra_data", "{}"))
             except (json.JSONDecodeError, TypeError):
                 d["extra_data"] = {}
             results.append(d)
+
+        if page is not None and limit is not None:
+            return results, total
         return results
     finally:
         conn.close()

@@ -234,18 +234,16 @@ const app = createApp({
             return (Number.isFinite(pages) && pages > 0) ? pages : 1;
         });
 
-        // 网站产品 pagination
+        // 网站产品 pagination (server-side)
         const wooPage = ref(1);
-        const wooPerPage = ref(20);
+        const wooPerPage = ref(50);
+        const wooTotal = ref(0);
         const wooPagedProducts = computed(() => {
-            const src = Array.isArray(wooProducts.value) ? wooProducts.value : [];
-            const start = (wooPage.value - 1) * wooPerPage.value;
-            return src.slice(start, start + wooPerPage.value);
+            return Array.isArray(wooProducts.value) ? wooProducts.value : [];
         });
         const wooTotalPages = computed(() => {
-            const src = Array.isArray(wooProducts.value) ? wooProducts.value : [];
-            const perPage = wooPerPage.value || 20;
-            const pages = Math.ceil(src.length / perPage);
+            const perPage = wooPerPage.value || 50;
+            const pages = Math.ceil((wooTotal.value || wooProducts.value.length) / perPage);
             return (Number.isFinite(pages) && pages > 0) ? pages : 1;
         });
 
@@ -1562,13 +1560,22 @@ pipelineStatuses[siteId].demo_importing = false;
                 wooConverting.value = false;
             }
         }
-        watch(wooSyncSiteId, (newVal) => { if (currentPage.value === 'woocommerce-products') loadWooProducts(newVal); });
+        watch(wooSyncSiteId, (newVal) => { if (currentPage.value === 'woocommerce-products') { wooPage.value = 1; loadWooProducts(newVal); } });
+        watch(wooPage, () => { if (wooSyncSiteId.value) loadWooProducts(wooSyncSiteId.value); });
         async function loadWooProducts(siteId) {
             try {
                 const sid = siteId || wooSyncSiteId.value;
-                const resp = await API.getWooCommerceProducts(sid);
-                if (resp.code === 200) wooProducts.value = resp.data || [];
-                wooPage.value = 1;
+                const resp = await API.getWooCommerceProducts(sid, wooPage.value, wooPerPage.value);
+                if (resp.code === 200) {
+                    if (resp.data && Array.isArray(resp.data.items)) {
+                        wooProducts.value = resp.data.items;
+                        wooTotal.value = resp.data.total;
+                    } else {
+                        wooProducts.value = resp.data || [];
+                        wooTotal.value = (resp.data || []).length;
+                    }
+                }
+                wooSelectedIndices.value = new Set();
             } catch (e) { /* ignore */ }
         }
         function toggleWooSelect(idx) {
@@ -3368,7 +3375,7 @@ pipelineStatuses[siteId].demo_importing = false;
             openAmazonUrlModal, closeAmazonUrlModal, startAmazonUrlImport,
             handleAmazonFileUpload, toggleAmazonSelect, selectAllAmazon,
             closeConvertLogModal, toggleFeedSelect, selectAllFeed, deleteSelectedFeedItems, showFeedDescription, buildFeedDetailText,
-            wooProducts, wooSelectedIndices, wooConverting, wooConvertProgress,
+            wooProducts, wooTotal, wooSelectedIndices, wooConverting, wooConvertProgress,
             feedSyncSiteId, wooSyncSiteId, syncingFeed, syncingWoo,
             convertToWooCommerce, loadWooProducts, toggleWooSelect, selectAllWoo, deleteSelectedWooProducts,
             createFeedForSite, cleanFeedFromSite, syncWooToSite, cleanWooFromSite, generateFeedFromWoo, wooGeneratingFeed, feedUrl,
@@ -5059,7 +5066,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 <!-- 网站产品 product table -->
                 <div v-if="wooProducts.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                     <div class="px-6 py-3 bg-surface-container-low border-b flex items-center justify-between text-xs text-on-surface-variant">
-                        <span>共 {{ wooProducts.length }} 件产品</span>
+                        <span>共 {{ wooTotal || wooProducts.length }} 件产品</span>
                         <div class="flex items-center gap-3">
                             <label class="flex items-center gap-1 cursor-pointer hover:text-on-surface">
                                 <input type="checkbox" :checked="wooSelectedIndices.size === wooProducts.length" @change="selectAllWoo" class="accent-blue-500">
@@ -5125,7 +5132,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     </div>
                     <!-- Pagination -->
                     <div class="px-6 py-3 bg-surface-container-low border-t flex items-center justify-between text-xs text-on-surface-variant">
-                        <span>第 {{ wooPage || 1 }} / {{ wooTotalPages || 1 }} 页，每页 {{ wooPerPage || 20 }} 件，共 {{ wooProducts.length }} 件</span>
+                        <span>第 {{ wooPage || 1 }} / {{ wooTotalPages || 1 }} 页，每页 {{ wooPerPage || 50 }} 件，共 {{ wooTotal || wooProducts.length }} 件</span>
                         <div class="flex items-center gap-1">
                             <button @click="wooGoPage((wooPage || 1) - 1)" :disabled="(wooPage || 1) <= 1"
                                 class="px-3 py-1 rounded hover:bg-surface-container-high disabled:opacity-30 transition">上一页</button>

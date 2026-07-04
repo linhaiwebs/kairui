@@ -8384,9 +8384,22 @@ Respond with strict JSON only (no markdown code blocks):
     @app.route("/api/shai-pin/woocommerce/products", methods=["GET"])
     @jwt_required()
     def woocommerce_products_list():
-        """List WooCommerce products. Filter by site_id query param."""
+        """List WooCommerce products. Filter by site_id query param. Supports pagination."""
         try:
             site_id = request.args.get("site_id", type=int)
+            page = request.args.get("page", type=int)
+            limit = request.args.get("limit", type=int, default=50)
+            if page is not None and page > 0:
+                products, total = list_woocommerce_products(site_id, page=page, limit=limit)
+                return jsonify({
+                    "code": 200,
+                    "data": {
+                        "items": products,
+                        "total": total,
+                        "page": page,
+                        "pages": max(1, (total + limit - 1) // limit),
+                    }
+                })
             products = list_woocommerce_products(site_id)
             return jsonify({"code": 200, "data": products})
         except Exception as e:
