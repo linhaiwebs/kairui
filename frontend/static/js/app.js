@@ -1122,6 +1122,7 @@ pipelineStatuses[siteId].demo_importing = false;
             if (n < 1) n = 1;
             if (n > total) n = total;
             wooPage.value = n;
+            loadWooProducts();
         }
 
         function feedGoPage(n) {
@@ -1129,6 +1130,7 @@ pipelineStatuses[siteId].demo_importing = false;
             if (n < 1) n = 1;
             if (n > total) n = total;
             feedPage.value = n;
+            loadGeneratedFeed();
         }
 
         async function enrichWalmartProducts() {
@@ -1159,7 +1161,6 @@ pipelineStatuses[siteId].demo_importing = false;
             }
         }
         watch(feedSyncSiteId, (newVal) => { if (currentPage.value === 'shai-pin-feed') { feedPage.value = 1; loadGeneratedFeed(); } });
-        watch(feedPage, () => { if (currentPage.value === 'shai-pin-feed') loadGeneratedFeed(); });
         async function loadGeneratedFeed() {
             try {
                 const resp = await API.listGeneratedFeed(feedSyncSiteId.value || null, feedPage.value, feedPerPage.value);
@@ -1564,11 +1565,11 @@ pipelineStatuses[siteId].demo_importing = false;
                 wooConverting.value = false;
             }
         }
-        watch(wooSyncSiteId, (newVal) => { if (currentPage.value === 'woocommerce-products') { wooPage.value = 1; loadWooProducts(newVal); } });
-        watch(wooPage, () => { if (wooSyncSiteId.value) loadWooProducts(wooSyncSiteId.value); });
-        async function loadWooProducts(siteId) {
+        watch(wooSyncSiteId, (newVal) => { if (currentPage.value === 'woocommerce-products') { wooPage.value = 1; loadWooProducts(); } });
+        async function loadWooProducts() {
             try {
-                const sid = siteId || wooSyncSiteId.value;
+                const sid = wooSyncSiteId.value;
+                if (!sid) return;
                 const resp = await API.getWooCommerceProducts(sid, wooPage.value, wooPerPage.value);
                 if (resp.code === 200) {
                     if (resp.data && Array.isArray(resp.data.items)) {
