@@ -331,8 +331,12 @@ const API = {
     async enrichWalmartProducts(urls, category) {
         return this.request('POST', '/api/shai-pin/walmart/enrich', { urls, category });
     },
-    async listGeneratedFeed(siteId) {
-        const q = siteId ? "?site_id=" + siteId : "";
+    async listGeneratedFeed(siteId, page, limit) {
+        const params = new URLSearchParams();
+        if (siteId) params.set("site_id", siteId);
+        if (page) params.set("page", page);
+        if (limit) params.set("limit", limit || 50);
+        const q = params.toString() ? "?" + params.toString() : "";
         return this.request('GET', '/api/shai-pin/feed/list' + q);
     },
     async clearGeneratedFeed() {

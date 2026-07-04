@@ -1954,17 +1954,25 @@ def save_generated_feed_product(data: dict) -> int:
         conn.close()
 
 
-def list_generated_feed(site_id=None) -> list[dict]:
+def list_generated_feed(site_id=None, page=None, limit=None) -> list[dict]:
+    """List generated feed products. When page & limit provided, returns (results, total)."""
     conn = get_db()
     try:
-        if site_id:
-            rows = conn.execute(
-                "SELECT * FROM generated_feed WHERE site_id = ? ORDER BY id DESC", (site_id,)
-            ).fetchall()
+        where_clause = "WHERE site_id = ?" if site_id else ""
+        params = (site_id,) if site_id else ()
+
+        if page is not None and limit is not None:
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM generated_feed {where_clause}", params
+            ).fetchone()[0]
+            offset = (page - 1) * limit
+            q = f"SELECT * FROM generated_feed {where_clause} ORDER BY id DESC LIMIT ? OFFSET ?"
+            rows = conn.execute(q, params + (limit, offset)).fetchall()
         else:
-            rows = conn.execute(
-                "SELECT * FROM generated_feed ORDER BY id DESC"
-            ).fetchall()
+            total = 0
+            q = f"SELECT * FROM generated_feed {where_clause} ORDER BY id DESC"
+            rows = conn.execute(q, params).fetchall()
+
         results = []
         for r in rows:
             d = dict(r)
@@ -1989,6 +1997,9 @@ def list_generated_feed(site_id=None) -> list[dict]:
             except (json.JSONDecodeError, TypeError):
                 d["extra_data"] = {}
             results.append(d)
+
+        if page is not None and limit is not None:
+            return results, total
         return results
     finally:
         conn.close()

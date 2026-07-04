@@ -247,18 +247,16 @@ const app = createApp({
             return (Number.isFinite(pages) && pages > 0) ? pages : 1;
         });
 
-        // 数据源 feed pagination
+        // 数据源 feed pagination (server-side)
         const feedPage = ref(1);
-        const feedPerPage = ref(20);
+        const feedPerPage = ref(50);
+        const feedTotal = ref(0);
         const feedPagedProducts = computed(() => {
-            const src = Array.isArray(generatedFeed.value) ? generatedFeed.value : [];
-            const start = (feedPage.value - 1) * feedPerPage.value;
-            return src.slice(start, start + feedPerPage.value);
+            return Array.isArray(generatedFeed.value) ? generatedFeed.value : [];
         });
         const feedTotalPages = computed(() => {
-            const src = Array.isArray(generatedFeed.value) ? generatedFeed.value : [];
-            const perPage = feedPerPage.value || 20;
-            const pages = Math.ceil(src.length / perPage);
+            const perPage = feedPerPage.value || 50;
+            const pages = Math.ceil((feedTotal.value || generatedFeed.value.length) / perPage);
             return (Number.isFinite(pages) && pages > 0) ? pages : 1;
         });
 
@@ -1160,12 +1158,21 @@ pipelineStatuses[siteId].demo_importing = false;
                 walmartEnrichProgress.value = '';
             }
         }
-        watch(feedSyncSiteId, (newVal) => { if (currentPage.value === 'shai-pin-feed') loadGeneratedFeed(); });
+        watch(feedSyncSiteId, (newVal) => { if (currentPage.value === 'shai-pin-feed') { feedPage.value = 1; loadGeneratedFeed(); } });
+        watch(feedPage, () => { if (currentPage.value === 'shai-pin-feed') loadGeneratedFeed(); });
         async function loadGeneratedFeed() {
             try {
-                const resp = await API.listGeneratedFeed(feedSyncSiteId.value || null);
-                if (resp.code === 200) generatedFeed.value = resp.data || [];
-                feedPage.value = 1;
+                const resp = await API.listGeneratedFeed(feedSyncSiteId.value || null, feedPage.value, feedPerPage.value);
+                if (resp.code === 200) {
+                    if (resp.data && Array.isArray(resp.data.items)) {
+                        generatedFeed.value = resp.data.items;
+                        feedTotal.value = resp.data.total;
+                    } else {
+                        generatedFeed.value = resp.data || [];
+                        feedTotal.value = (resp.data || []).length;
+                    }
+                }
+                feedSelectedIndices.value = new Set();
             } catch (e) { /* silent */ }
         }
         async function clearGeneratedFeed() {
@@ -3387,7 +3394,7 @@ pipelineStatuses[siteId].demo_importing = false;
             runSelectedCount, runTotalPages, runGoToPage, getSiteName,
             csvUploading, csvFileInput, handleCsvUpload,
             wooPage, wooPerPage, wooPagedProducts, wooTotalPages, wooGoPage,
-            feedPage, feedPerPage, feedPagedProducts, feedTotalPages, feedGoPage,
+            feedPage, feedPerPage, feedTotal, feedPagedProducts, feedTotalPages, feedGoPage,
             cfConnected, cfToken, cfNote, editingCfNoteId, editingCfNoteText, saveCfNote, cfAccounts, cfSelectedAccountId,
             deepseekApiKeys, deepseekVisibleKeys, deepseekKeyErrors, deepseekConnected, deepseekVerify,
             crawlbaseApiKeys, crawlbaseVisibleKeys, crawlbaseKeyErrors, crawlbaseConnected, crawlbaseVerify,
@@ -4716,7 +4723,7 @@ pipelineStatuses[siteId].demo_importing = false;
                 <div v-if="generatedFeed.length" class="bg-surface-container-lowest rounded-xl shadow-level-1 overflow-hidden">
                     <!-- Toolbar -->
                     <div class="px-6 py-3 bg-surface-container-low border-b flex items-center justify-between text-xs text-on-surface-variant">
-                        <span>共 {{ generatedFeed.length }} 件产品</span>
+                        <span>共 {{ feedTotal || generatedFeed.length }} 件产品</span>
                         <div class="flex items-center gap-3">
                             <label class="flex items-center gap-1 cursor-pointer hover:text-on-surface">
                                 <input type="checkbox" :checked="feedSelectedIndices.size === generatedFeed.length" @change="selectAllFeed" class="accent-green-500">
@@ -4814,7 +4821,7 @@ pipelineStatuses[siteId].demo_importing = false;
                     </div>
                     <!-- Pagination -->
                     <div class="px-6 py-3 bg-surface-container-low border-t flex items-center justify-between text-xs text-on-surface-variant">
-                        <span>第 {{ feedPage || 1 }} / {{ feedTotalPages || 1 }} 页，每页 {{ feedPerPage || 20 }} 件，共 {{ generatedFeed.length }} 件</span>
+                        <span>第 {{ feedPage || 1 }} / {{ feedTotalPages || 1 }} 页，每页 {{ feedPerPage || 50 }} 件，共 {{ feedTotal || generatedFeed.length }} 件</span>
                         <div class="flex items-center gap-1">
                             <button @click="feedGoPage((feedPage || 1) - 1)" :disabled="(feedPage || 1) <= 1"
                                 class="px-3 py-1 rounded hover:bg-surface-container-high disabled:opacity-30 transition">上一页</button>
