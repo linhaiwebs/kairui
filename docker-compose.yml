@@ -18,7 +18,10 @@ services:
       - WP_DATA_DIR=/app/backend/data
       - SERVER_HOST=${SERVER_HOST:-ads.lhwebs.com}
       - WP_PORT=8011
-      - WP_WORKERS=2
+      - WP_WORKERS=4
+      - WP_BACKLOG=2048
+      - WP_KEEPALIVE=5
+      - WP_GRACEFUL_TIMEOUT=30
     volumes:
       - ~/.ssh:/root/.ssh:ro
       - ./backend:/app/backend

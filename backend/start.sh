@@ -40,6 +40,9 @@ exec gunicorn \
     --workers "${WP_WORKERS:-4}" \
     --worker-class gevent \
     --timeout 120 \
+    --backlog "${WP_BACKLOG:-2048}" \
+    --keep-alive "${WP_KEEPALIVE:-5}" \
+    --graceful-timeout "${WP_GRACEFUL_TIMEOUT:-30}" \
     --access-logfile /app/logs/access.log \
     --error-logfile /app/logs/error.log \
     --chdir /app/backend \
