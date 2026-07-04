@@ -646,10 +646,7 @@ const app = createApp({
         }
         async function loadSites() {
             try { const resp = await API.getSites(); if (resp.code === 200) sites.value = resp.data || []; } catch (e) {}
-            // Load pipeline status for all sites
-            sites.value.forEach(s => loadPipelineStatus(s.id));
-            // Load MC feed URLs for GMC automation page
-            sites.value.forEach(s => loadMCStatusForSite(s));
+            // Lazy: only load pipeline/MC status when user enters those pages
         }
         // Pipeline timeline helpers
         async function loadPipelineStatus(siteId) {
@@ -2144,6 +2141,8 @@ pipelineStatuses[siteId].demo_importing = false;
                 loadGeneratedFeed();
             }
             if (page === 'sites') {
+                // Lazy-init: load pipeline status for visible sites
+                sites.value.slice(0, 20).forEach(s => loadPipelineStatus(s.id));
                 pipelinePollTimer = setInterval(() => {
                     sites.value.forEach(s => {
                         const ps = pipelineStatuses[s.id];

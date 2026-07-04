@@ -1158,6 +1158,22 @@ def list_sites(user_id=None):
         conn.close()
 
 
+def list_sites_summary(user_id=None):
+    """Return only id, site_name, url, site_type for dropdown selectors."""
+    conn = get_db()
+    try:
+        cols = "id, site_name, url, site_type"
+        if user_id is not None:
+            rows = conn.execute(
+                f"SELECT {cols} FROM sites WHERE created_by = ? ORDER BY id ASC", (user_id,)
+            ).fetchall()
+        else:
+            rows = conn.execute(f"SELECT {cols} FROM sites ORDER BY id ASC").fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def update_site(site_id, data):
     conn = get_db()
     now = datetime.utcnow().isoformat()

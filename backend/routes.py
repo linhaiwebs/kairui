@@ -2310,28 +2310,12 @@ def register_routes(app):
         try:
             claims = get_jwt()
             user_id = None if claims.get("role") == "admin" else claims.get("user_id")
-            sites = list_sites(user_id=user_id)
-            # Enrich with 1Panel live data
-            try:
-                panel_resp = _get_panel_client().search_websites()
-                if panel_resp.get("code") == 200:
-                    panel_items = (panel_resp.get("data") or {}).get("items") or []
-                    panel_sites = {s["id"]: s for s in panel_items}
-                    for site in sites:
-                        pwid = site.get("panel_website_id")
-                        if pwid and pwid in panel_sites:
-                            ps = panel_sites[pwid]
-                            site["panel_status"] = ps.get("status", "")
-                            site["panel_protocol"] = ps.get("protocol", "")
-                            site["panel_alias"] = ps.get("alias", "")
-                        elif pwid:
-                            # Panel website no longer exists
-                            site["panel_status"] = "deleted"
-                        else:
-                            site["panel_status"] = site.get("panel_status") or "unlinked"
-            except Exception as e:
-                logger.warning(f"Failed to enrich sites from panel: {e}")
-            return jsonify({"code": 200, "data": sites})
+            summary = request.args.get("summary", type=int, default=0)
+            if summary:
+                rows = list_sites_summary(user_id=user_id)
+            else:
+                rows = list_sites(user_id=user_id)
+            return jsonify({"code": 200, "data": rows})
         except Exception as e:
             logger.error(f"Failed to list sites: {e}")
             return jsonify({"code": 500, "message": f"获取站点列表失败: {str(e)[:100]}"}), 500
