@@ -2996,7 +2996,7 @@ def list_brand_kits(user_id=None, summary=False) -> list:
     conn = get_db()
     try:
         if summary:
-            cols = "id, name, status, industry, created_at, created_by, logo_url, domain"
+            cols = "id, name, status, industry, created_at, created_by, brand_name, cloakbrowser_profile_name"
         else:
             cols = "*"
         if user_id is not None:
