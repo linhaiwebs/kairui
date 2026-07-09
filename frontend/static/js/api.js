@@ -520,8 +520,9 @@ const API = {
     },
 
     // Brand Kits
-    async getBrandKits() {
-        return this.request('GET', '/api/brand-kits');
+    async getBrandKits(summary) {
+        const q = summary ? '?summary=1' : '';
+        return this.request('GET', '/api/brand-kits' + q);
     },
     async createBrandKit(data) {
         return this.request('POST', '/api/brand-kits', data);

@@ -2991,17 +2991,21 @@ def get_brand_kit(kit_id: int) -> dict | None:
         conn.close()
 
 
-def list_brand_kits(user_id=None) -> list:
-    """List all brand kits ordered by creation time descending. Optionally filter by user_id."""
+def list_brand_kits(user_id=None, summary=False) -> list:
+    """List all brand kits. summary=True returns only id/name/status/industry."""
     conn = get_db()
     try:
+        if summary:
+            cols = "id, name, status, industry, created_at, created_by, logo_url, domain"
+        else:
+            cols = "*"
         if user_id is not None:
             rows = conn.execute(
-                "SELECT * FROM brand_kits WHERE created_by = ? ORDER BY id DESC", (user_id,)
+                f"SELECT {cols} FROM brand_kits WHERE created_by = ? ORDER BY id DESC", (user_id,)
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM brand_kits ORDER BY id DESC"
+                f"SELECT {cols} FROM brand_kits ORDER BY id DESC"
             ).fetchall()
         results = []
         for r in rows:

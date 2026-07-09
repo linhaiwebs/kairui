@@ -10327,11 +10327,12 @@ Respond with strict JSON only (no markdown code blocks):
     @app.route("/api/brand-kits", methods=["GET"])
     @jwt_required()
     def list_brand_kits_route():
-        """List all brand kits."""
+        """List all brand kits. ?summary=1 returns lightweight listing."""
         try:
             claims = get_jwt()
             user_id = None if claims.get("role") == "admin" else claims.get("user_id")
-            kits = list_brand_kits(user_id=user_id)
+            summary = request.args.get("summary", type=int, default=0)
+            kits = list_brand_kits(user_id=user_id, summary=bool(summary))
             return jsonify({"code": 200, "data": kits})
         except Exception as e:
             logger.error(f"list_brand_kits: {e}")

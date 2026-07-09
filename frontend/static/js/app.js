@@ -2358,7 +2358,7 @@ pipelineStatuses[siteId].demo_importing = false;
         // Brand kit for wizard step 1
         async function loadBrandKitsForWizard() {
             try {
-                const resp = await API.getBrandKits();
+                const resp = await API.getBrandKits(true);  // summary mode
                 if (resp.code === 200) {
                     const all = resp.data || [];
                     brandKitsForWizard.value = all.filter(k => k.status === 'ready');
@@ -2368,7 +2368,7 @@ pipelineStatuses[siteId].demo_importing = false;
         // Brand kit for deploy overlay selection
         async function loadBrandKitsForSelect() {
             try {
-                const resp = await API.getBrandKits();
+                const resp = await API.getBrandKits(true);  // summary mode
                 if (resp.code === 200) {
                     const all = resp.data || [];
                     brandKitsForSelect.value = all.filter(k => k.status === 'ready');
