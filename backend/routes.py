@@ -3486,6 +3486,16 @@ def register_routes(app):
                                             "cf_zone_id": zone_id,
                                             "cf_dns_record_id": rec.get("id") if isinstance(rec, dict) else None,
                                         })
+                                        # Clean up stale A records (e.g. GoDaddy default 3.33.130.190)
+                                        try:
+                                            all_a = cf_client.list_dns_records(zone_id, "A", domain)
+                                            if all_a and all_a.get("success") and all_a.get("result"):
+                                                for r in all_a["result"]:
+                                                    if r.get("content") != target_ip:
+                                                        cf_client.delete_dns_record(zone_id, r["id"])
+                                                        logger.info(f"DNS: cleaned stale A record {r['name']} -> {r['content']}")
+                                        except Exception:
+                                            pass
                                         # Auto-set SSL to Flexible for Cloudflare proxied sites
                                         try:
                                             ssl_result = cf_client.set_ssl_mode(zone_id, "flexible")
